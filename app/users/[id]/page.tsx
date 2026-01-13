@@ -1,17 +1,29 @@
-'use client'
+﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+interface UserProfile {
+  id: string
+  name: string
+  email: string
+  role: string
+  status: string
+  branch_id: string | null
+  phone: string | null
+}
 
 interface Branch {
   id: string
   name: string
 }
 
-interface ClassOption {
+interface ClassItem {
   id: string
   name: string
+  branch_id: string
+  branch_name: string
 }
 
 export default function UserDetailPage() {
@@ -19,21 +31,19 @@ export default function UserDetailPage() {
   const params = useParams()
   const userId = params.id as string
 
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [classes, setClasses] = useState<ClassOption[]>([])
-  const [isEditing, setIsEditing] = useState(false)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     name: '',
-    email: '',
     role: 'teacher',
+    status: 'active',
     branch_id: '',
-    class_id: '',
-    status: 'active'
+    phone: ''
   })
 
   useEffect(() => {
@@ -41,54 +51,72 @@ export default function UserDetailPage() {
   }, [userId])
 
   async function loadData() {
-    // 현재 로그인한 사용자 ID
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) setCurrentUserId(user.id)
-
-    // 지점 목록
-    const { data: branchData } = await supabase
-      .from('branches')
-      .select('id, name')
-      .order('name')
-    if (branchData) setBranches(branchData)
-
-    // 반 목록
-    const { data: classData } = await supabase
-      .from('classes')
-      .select('id, name')
-      .order('name')
-    if (classData) setClasses(classData)
-
-    // 사용자 정보
     const { data: userData } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('id, name, email, role, status, branch_id, phone')
       .eq('id', userId)
       .single()
 
     if (userData) {
-      setFormData({
+      setUser(userData)
+      setForm({
         name: userData.name || '',
-        email: userData.email || '',
         role: userData.role || 'teacher',
+        status: userData.status || 'active',
         branch_id: userData.branch_id || '',
-        class_id: userData.class_id || '',
-        status: userData.status || 'active'
+        phone: userData.phone || ''
       })
+    }
+
+    const { data: branchesData } = await supabase
+      .from('branches')
+      .select('id, name')
+      .order('name')
+
+    if (branchesData) setBranches(branchesData)
+
+    const { data: classesData } = await supabase
+      .from('classes')
+      .select('id, name, branch_id')
+      .order('name')
+
+    if (classesData && branchesData) {
+      const branchMap = new Map(branchesData.map(b => [b.id, b.name]))
+      const classesWithBranch = classesData.map(c => ({
+        ...c,
+        branch_name: branchMap.get(c.branch_id) || ''
+      }))
+      setClasses(classesWithBranch)
+    }
+
+    const { data: teacherClassesData } = await supabase
+      .from('teacher_classes')
+      .select('class_id')
+      .eq('teacher_id', userId)
+
+    if (teacherClassesData) {
+      setSelectedClassIds(new Set(teacherClassesData.map(tc => tc.class_id)))
     }
 
     setLoading(false)
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    })
+  const handleClassToggle = (classId: string) => {
+    const newSet = new Set(selectedClassIds)
+    if (newSet.has(classId)) {
+      newSet.delete(classId)
+    } else {
+      newSet.add(classId)
+    }
+    setSelectedClassIds(newSet)
   }
 
+  const filteredClasses = form.branch_id 
+    ? classes.filter(c => c.branch_id === form.branch_id)
+    : []
+
   async function handleSave() {
-    if (!formData.name.trim()) {
+    if (!form.name.trim()) {
       alert('이름을 입력해주세요.')
       return
     }
@@ -96,269 +124,233 @@ export default function UserDetailPage() {
     setSaving(true)
 
     try {
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('user_profiles')
         .update({
-          name: formData.name,
-          role: formData.role,
-          branch_id: formData.branch_id,
-          class_id: formData.class_id || null,
-          status: formData.status
+          name: form.name,
+          role: form.role,
+          status: form.status,
+          branch_id: form.branch_id || null,
+          phone: form.phone || null
         })
         .eq('id', userId)
 
-      if (error) {
-        alert('수정 실패: ' + error.message)
+      if (updateError) {
+        alert('저장 실패: ' + updateError.message)
+        setSaving(false)
         return
       }
 
-      alert('사용자 정보가 수정되었습니다!')
-      setIsEditing(false)
-
-    } catch (error) {
-      alert('수정에 실패했습니다.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleDelete() {
-    // 본인 삭제 방지
-    if (userId === currentUserId) {
-      alert('본인 계정은 삭제할 수 없습니다.')
-      return
-    }
-
-    if (!confirm(`"${formData.name}" 사용자를 삭제하시겠습니까?\n\n⚠️ 삭제된 계정은 복구할 수 없습니다.`)) {
-      return
-    }
-
-    setDeleting(true)
-
-    try {
-      // user_profiles 삭제
-      const { error: profileError } = await supabase
-        .from('user_profiles')
+      await supabase
+        .from('teacher_classes')
         .delete()
-        .eq('id', userId)
+        .eq('teacher_id', userId)
 
-      if (profileError) {
-        alert('삭제 실패: ' + profileError.message)
-        setDeleting(false)
-        return
+      if (selectedClassIds.size > 0) {
+        const teacherClassesInsert = Array.from(selectedClassIds).map(classId => ({
+          teacher_id: userId,
+          class_id: classId
+        }))
+
+        const { error: insertError } = await supabase
+          .from('teacher_classes')
+          .insert(teacherClassesInsert)
+
+        if (insertError) {
+          alert('담당반 저장 실패: ' + insertError.message)
+          setSaving(false)
+          return
+        }
       }
 
-      alert('사용자가 삭제되었습니다.')
+      alert('저장되었습니다!')
       router.push('/users')
 
     } catch (error) {
-      alert('삭제에 실패했습니다.')
-      setDeleting(false)
+      console.error(error)
+      alert('저장에 실패했습니다.')
     }
+
+    setSaving(false)
   }
 
-  const getRoleText = (role: string) => {
+  const getRoleBadge = (role: string) => {
     switch (role) {
-      case 'admin': return '본사'
-      case 'manager': return '실장'
-      case 'teacher': return '강사'
-      default: return role
+      case 'admin':
+        return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">본사</span>
+      case 'manager':
+        return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">실장</span>
+      case 'teacher':
+        return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">강사</span>
+      default:
+        return null
     }
-  }
-
-  const getStatusText = (status: string) => {
-    return status === 'active' ? '활성' : '비활성'
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p>로딩 중...</p></div>
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-500">사용자를 찾을 수 없습니다.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-2xl mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/users')} className="text-gray-600">← 뒤로</button>
-            <h1 className="text-lg font-bold">사용자 정보</h1>
-            {!isEditing ? (
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setIsEditing(true)}
-                  className="text-teal-600 hover:text-teal-700 font-medium"
-                >
-                  수정
-                </button>
-                {userId !== currentUserId && (
-                  <button 
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="text-red-500 hover:text-red-700 font-medium"
-                  >
-                    삭제
-                  </button>
-                )}
-              </div>
-            ) : (
-              <button 
-                onClick={() => setIsEditing(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                취소
-              </button>
-            )}
+            <button onClick={() => router.push('/users')} className="text-gray-500 hover:text-gray-700 transition">
+              ← 사용자 목록
+            </button>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">사용자 정보</h1>
+            <div className="w-16"></div>
           </div>
         </div>
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
-        {!isEditing ? (
-          // 보기 모드
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-bold mb-4">👤 기본 정보</h2>
-              <div className="space-y-3">
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-500">이름</span>
-                  <span className="font-medium">{formData.name}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-500">이메일</span>
-                  <span className="font-medium">{formData.email}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-500">역할</span>
-                  <span className="font-medium">{getRoleText(formData.role)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-500">지점</span>
-                  <span className="font-medium">
-                    {branches.find(b => b.id === formData.branch_id)?.name || '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-500">담당 반</span>
-                  <span className="font-medium">
-                    {classes.find(c => c.id === formData.class_id)?.name || '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-2">
-                  <span className="text-gray-500">상태</span>
-                  <span className={`font-medium ${formData.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
-                    {getStatusText(formData.status)}
-                  </span>
-                </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-full flex items-center justify-center text-white text-lg font-bold">
+              {user.name?.charAt(0) || '?'}
+            </div>
+            <div>
+              <p className="font-bold text-gray-800">{user.email}</p>
+              <div className="flex items-center gap-2 mt-1">
+                {getRoleBadge(form.role)}
               </div>
             </div>
-
-            {/* 하단 삭제 버튼 */}
-            {userId !== currentUserId && (
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="w-full bg-red-50 text-red-600 py-3 rounded-lg font-medium hover:bg-red-100 border border-red-200"
-              >
-                {deleting ? '삭제 중...' : '🗑️ 이 사용자 삭제'}
-              </button>
-            )}
           </div>
-        ) : (
-          // 수정 모드
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-bold mb-4">👤 기본 정보</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  />
-                </div>
+        </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">이메일</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    disabled
-                    className="w-full px-4 py-2 border rounded-lg bg-gray-100 text-gray-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">이메일은 변경할 수 없습니다.</p>
-                </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">이름 *</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">역할</label>
-                  <select
-                    name="role"
-                    value={formData.role}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
-                    <option value="teacher">강사</option>
-                    <option value="manager">실장</option>
-                    <option value="admin">본사</option>
-                  </select>
-                </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">연락처</label>
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              placeholder="010-0000-0000"
+              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">지점</label>
-                  <select
-                    name="branch_id"
-                    value={formData.branch_id}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
-                    <option value="">선택하세요</option>
-                    {branches.map(branch => (
-                      <option key={branch.id} value={branch.id}>{branch.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">담당 반</label>
-                  <select
-                    name="class_id"
-                    value={formData.class_id}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
-                    <option value="">선택하세요</option>
-                    {classes.map(cls => (
-                      <option key={cls.id} value={cls.id}>{cls.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border rounded-lg"
-                  >
-                    <option value="active">활성</option>
-                    <option value="inactive">비활성</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full bg-teal-500 text-white py-4 rounded-lg font-medium hover:bg-teal-600 disabled:bg-gray-400"
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">역할 *</label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
             >
-              {saving ? '저장 중...' : '저장'}
-            </button>
+              <option value="teacher">강사</option>
+              <option value="manager">실장</option>
+              <option value="admin">본사</option>
+            </select>
           </div>
-        )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">소속 지점 *</label>
+            <select
+              value={form.branch_id}
+              onChange={(e) => {
+                setForm({ ...form, branch_id: e.target.value })
+                setSelectedClassIds(new Set())
+              }}
+              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="">전체 지점 (본사)</option>
+              {branches.map(branch => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {form.branch_id && (form.role === 'teacher' || form.role === 'manager') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                담당반 선택 <span className="text-gray-400 font-normal">(복수 선택 가능)</span>
+              </label>
+              <div className="bg-gray-50 rounded-xl p-4">
+                {filteredClasses.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {filteredClasses.map(cls => (
+                      <button
+                        key={cls.id}
+                        type="button"
+                        onClick={() => handleClassToggle(cls.id)}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+                          selectedClassIds.has(cls.id)
+                            ? 'bg-teal-500 text-white shadow-sm'
+                            : 'bg-white text-gray-600 border border-gray-200 hover:border-teal-300'
+                        }`}
+                      >
+                        {cls.name}
+                        {selectedClassIds.has(cls.id) && ' ✓'}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 text-center py-2">해당 지점에 등록된 반이 없습니다.</p>
+                )}
+              </div>
+              {selectedClassIds.size > 0 && (
+                <p className="text-sm text-teal-600 mt-2">
+                  {selectedClassIds.size}개 반 선택됨
+                </p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
+            <select
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="active">활성</option>
+              <option value="inactive">비활성</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 disabled:opacity-50"
+          >
+            {saving ? '저장 중...' : '저장하기'}
+          </button>
+          <button
+            onClick={() => router.push('/users')}
+            className="w-full bg-gray-100 text-gray-600 py-3 rounded-2xl font-medium hover:bg-gray-200 transition"
+          >
+            취소
+          </button>
+        </div>
       </div>
     </div>
   )
