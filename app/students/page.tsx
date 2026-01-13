@@ -33,7 +33,7 @@ export default function StudentsPage() {
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
   const [userClassId, setUserClassId] = useState<string | null>(null)
 
-  // 대량 선택 상태
+  // ?�???�택 ?�태
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkMode, setBulkMode] = useState(false)
   const [bulkAction, setBulkAction] = useState<'status' | 'class' | null>(null)
@@ -103,7 +103,7 @@ export default function StudentsPage() {
   async function handleDeleteStudent(e: React.MouseEvent, studentId: string, studentName: string) {
     e.stopPropagation()
 
-    if (!confirm(`"${studentName}" 학생을 삭제하시겠습니까?\n\n⚠️ 해당 학생의 모든 리포트도 함께 삭제됩니다.`)) {
+    if (!confirm(`"${studentName}" ?�생????��?�시겠습?�까?\n\n?�️ ?�당 ?�생??모든 리포?�도 ?�께 ??��?�니??`)) {
       return
     }
 
@@ -118,14 +118,14 @@ export default function StudentsPage() {
       .eq('id', studentId)
 
     if (error) {
-      alert('삭제 실패: ' + error.message)
+      alert('??�� ?�패: ' + error.message)
     } else {
-      alert('학생이 삭제되었습니다.')
+      alert('?�생????��?�었?�니??')
       loadData()
     }
   }
 
-  // 전체 선택/해제
+  // ?�체 ?�택/?�제
   const handleSelectAll = () => {
     if (selectedIds.size === filteredStudents.length) {
       setSelectedIds(new Set())
@@ -134,7 +134,7 @@ export default function StudentsPage() {
     }
   }
 
-  // 개별 선택
+  // 개별 ?�택
   const handleSelectOne = (id: string) => {
     const newSet = new Set(selectedIds)
     if (newSet.has(id)) {
@@ -145,15 +145,15 @@ export default function StudentsPage() {
     setSelectedIds(newSet)
   }
 
-  // 대량 상태 변경
+  // ?�???�태 변�?
   async function handleBulkStatusChange() {
     if (selectedIds.size === 0) {
-      alert('학생을 선택해주세요.')
+      alert('?�생???�택?�주?�요.')
       return
     }
 
-    const statusText = bulkStatus === 'active' ? '재원' : bulkStatus === 'paused' ? '휴원' : '퇴원'
-    if (!confirm(`선택한 ${selectedIds.size}명의 학생을 "${statusText}" 상태로 변경하시겠습니까?`)) {
+    const statusText = bulkStatus === 'active' ? '?�원' : bulkStatus === 'paused' ? '?�원' : '?�원'
+    if (!confirm(`?�택??${selectedIds.size}명의 ?�생??"${statusText}" ?�태�?변경하?�겠?�니�?`)) {
       return
     }
 
@@ -166,9 +166,9 @@ export default function StudentsPage() {
         .in('id', Array.from(selectedIds))
 
       if (error) {
-        alert('변경 실패: ' + error.message)
+        alert('변�??�패: ' + error.message)
       } else {
-        alert(`${selectedIds.size}명의 학생 상태가 변경되었습니다.`)
+        alert(`${selectedIds.size}명의 ?�생 ?�태가 변경되?�습?�다.`)
         setSelectedIds(new Set())
         setBulkMode(false)
         setBulkAction(null)
@@ -179,20 +179,20 @@ export default function StudentsPage() {
     }
   }
 
-  // 대량 반 변경
+  // ?�??�?변�?
   async function handleBulkClassChange() {
     if (selectedIds.size === 0) {
-      alert('학생을 선택해주세요.')
+      alert('?�생???�택?�주?�요.')
       return
     }
 
     if (!bulkClassId) {
-      alert('이동할 반을 선택해주세요.')
+      alert('?�동??반을 ?�택?�주?�요.')
       return
     }
 
     const targetClass = classes.find(c => c.id === bulkClassId)
-    if (!confirm(`선택한 ${selectedIds.size}명의 학생을 "${targetClass?.name}" 반으로 이동하시겠습니까?`)) {
+    if (!confirm(`?�택??${selectedIds.size}명의 ?�생??"${targetClass?.name}" 반으�??�동?�시겠습?�까?`)) {
       return
     }
 
@@ -205,9 +205,9 @@ export default function StudentsPage() {
         .in('id', Array.from(selectedIds))
 
       if (error) {
-        alert('변경 실패: ' + error.message)
+        alert('변�??�패: ' + error.message)
       } else {
-        alert(`${selectedIds.size}명의 학생이 반 이동되었습니다.`)
+        alert(`${selectedIds.size}명의 ?�생??�??�동?�었?�니??`)
         setSelectedIds(new Set())
         setBulkMode(false)
         setBulkAction(null)
@@ -218,7 +218,7 @@ export default function StudentsPage() {
     }
   }
 
-  // 대량 모드 취소
+  // ?�??모드 취소
   const cancelBulkMode = () => {
     setBulkMode(false)
     setBulkAction(null)
@@ -230,11 +230,11 @@ export default function StudentsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
-        return <span className="px-2.5 py-1 bg-teal-50 text-teal-600 rounded-full text-xs font-medium">재원</span>
+        return <span className="px-2.5 py-1 bg-teal-50 text-teal-600 rounded-full text-xs font-medium">?�원</span>
       case 'paused':
-        return <span className="px-2.5 py-1 bg-amber-50 text-amber-600 rounded-full text-xs font-medium">휴원</span>
+        return <span className="px-2.5 py-1 bg-amber-50 text-amber-600 rounded-full text-xs font-medium">?�원</span>
       case 'inactive':
-        return <span className="px-2.5 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">퇴원</span>
+        return <span className="px-2.5 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">?�원</span>
       default:
         return null
     }
@@ -262,14 +262,14 @@ export default function StudentsPage() {
     return matchesSearch && matchesStatus
   })
 
-  // 선택한 학생들의 지점 ID 가져오기
+  // ?�택???�생?�의 지??ID 가?�오�?
   const selectedBranchIds = new Set(
     Array.from(selectedIds)
       .map(id => students.find(s => s.id === id)?.branch_id)
       .filter(Boolean)
   )
 
-  // 현재 지점의 반 목록 (선택한 학생 기준)
+  // ?�재 지?�의 �?목록 (?�택???�생 기�?)
   const availableClasses = (() => {
     if (selectedBranchIds.size === 1) {
       const branchId = Array.from(selectedBranchIds)[0]
@@ -288,7 +288,7 @@ export default function StudentsPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-gray-500">로딩 중...</p>
+          <p className="text-gray-500">로딩 �?..</p>
         </div>
       </div>
     )
@@ -300,9 +300,9 @@ export default function StudentsPage() {
         <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
-              ← 대시보드
+              ???�?�보??
             </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">학생 관리</h1>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">?�생 관�?/h1>
             <div className="flex gap-2">
               {!bulkMode ? (
                 <>
@@ -310,19 +310,19 @@ export default function StudentsPage() {
                     onClick={() => setBulkMode(true)}
                     className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition"
                   >
-                    ✏️ <span className="hidden sm:inline">대량수정</span>
+                    ?�️ <span className="hidden sm:inline">?�?�수??/span>
                   </button>
                   <button 
                     onClick={() => router.push('/students/import')}
                     className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition"
                   >
-                    📥 <span className="hidden sm:inline">일괄등록</span>
+                    ?�� <span className="hidden sm:inline">?�괄?�록</span>
                   </button>
                   <button 
                     onClick={() => router.push('/students/new')}
                     className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm"
                   >
-                    + <span className="hidden sm:inline">새 학생</span>
+                    + <span className="hidden sm:inline">???�생</span>
                   </button>
                 </>
               ) : (
@@ -330,7 +330,7 @@ export default function StudentsPage() {
                   onClick={cancelBulkMode}
                   className="bg-gray-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-600 transition"
                 >
-                  ✕ 취소
+                  ??취소
                 </button>
               )}
             </div>
@@ -339,14 +339,14 @@ export default function StudentsPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
-        {/* 대량 수정 모드 안내 */}
+        {/* ?�???�정 모드 ?�내 */}
         {bulkMode && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
-                <p className="font-medium text-amber-800">✏️ 대량 수정 모드</p>
+                <p className="font-medium text-amber-800">?�️ ?�???�정 모드</p>
                 <p className="text-sm text-amber-600">
-                  {selectedIds.size}명 선택됨 · 수정할 학생을 선택하세요
+                  {selectedIds.size}�??�택??· ?�정???�생???�택?�세??
                 </p>
               </div>
               
@@ -357,14 +357,14 @@ export default function StudentsPage() {
                     disabled={selectedIds.size === 0}
                     className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50"
                   >
-                    상태 변경
+                    ?�태 변�?
                   </button>
                   <button
                     onClick={() => setBulkAction('class')}
                     disabled={selectedIds.size === 0}
                     className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50"
                   >
-                    반 이동
+                    �??�동
                   </button>
                 </div>
               ) : bulkAction === 'status' ? (
@@ -374,28 +374,28 @@ export default function StudentsPage() {
                     onChange={(e) => setBulkStatus(e.target.value)}
                     className="px-3 py-2 border border-amber-300 rounded-xl text-sm bg-white"
                   >
-                    <option value="active">재원</option>
-                    <option value="paused">휴원</option>
-                    <option value="inactive">퇴원</option>
+                    <option value="active">?�원</option>
+                    <option value="paused">?�원</option>
+                    <option value="inactive">?�원</option>
                   </select>
                   <button
                     onClick={handleBulkStatusChange}
                     disabled={processing}
                     className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50"
                   >
-                    {processing ? '처리 중...' : '적용'}
+                    {processing ? '처리 �?..' : '?�용'}
                   </button>
                   <button
                     onClick={() => setBulkAction(null)}
                     className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition"
                   >
-                    뒤로
+                    ?�로
                   </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
                   {selectedBranchIds.size > 1 ? (
-                    <p className="text-sm text-red-500">⚠️ 같은 지점 학생만 반 이동 가능합니다</p>
+                    <p className="text-sm text-red-500">?�️ 같�? 지???�생�?�??�동 가?�합?�다</p>
                   ) : (
                     <>
                       <select
@@ -403,7 +403,7 @@ export default function StudentsPage() {
                         onChange={(e) => setBulkClassId(e.target.value)}
                         className="px-3 py-2 border border-purple-300 rounded-xl text-sm bg-white"
                       >
-                        <option value="">반 선택</option>
+                        <option value="">�??�택</option>
                         {availableClasses.map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
@@ -413,7 +413,7 @@ export default function StudentsPage() {
                         disabled={processing || !bulkClassId}
                         className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50"
                       >
-                        {processing ? '처리 중...' : '이동'}
+                        {processing ? '처리 �?..' : '?�동'}
                       </button>
                     </>
                   )}
@@ -421,7 +421,7 @@ export default function StudentsPage() {
                     onClick={() => setBulkAction(null)}
                     className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition"
                   >
-                    뒤로
+                    ?�로
                   </button>
                 </div>
               )}
@@ -429,14 +429,14 @@ export default function StudentsPage() {
           </div>
         )}
 
-        {/* 검색 및 필터 */}
+        {/* 검??�??�터 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
           <div className="flex flex-col gap-4">
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">?��</span>
               <input
                 type="text"
-                placeholder="이름, 학생ID, 지점명으로 검색"
+                placeholder="?�름, ?�생ID, 지?�명?�로 검??
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
@@ -444,10 +444,10 @@ export default function StudentsPage() {
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {[
-                { key: 'all', label: '전체' },
-                { key: 'active', label: '재원' },
-                { key: 'paused', label: '휴원' },
-                { key: 'inactive', label: '퇴원' }
+                { key: 'all', label: '?�체' },
+                { key: 'active', label: '?�원' },
+                { key: 'paused', label: '?�원' },
+                { key: 'inactive', label: '?�원' }
               ].map((status) => (
                 <button
                   key={status.key}
@@ -465,23 +465,23 @@ export default function StudentsPage() {
           </div>
         </div>
 
-        {/* 학생 수 표시 */}
+        {/* ?�생 ???�시 */}
         <div className="mb-4 flex items-center justify-between">
           <p className="text-sm text-gray-500">
-            총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
-            {userRole !== 'admin' && <span className="text-gray-400 ml-1">(내 지점)</span>}
+            �?<span className="font-bold text-teal-600">{filteredStudents.length}</span>�?
+            {userRole !== 'admin' && <span className="text-gray-400 ml-1">(??지??</span>}
           </p>
           {bulkMode && (
             <button
               onClick={handleSelectAll}
               className="text-sm text-teal-600 hover:text-teal-700 font-medium"
             >
-              {selectedIds.size === filteredStudents.length ? '전체 해제' : '전체 선택'}
+              {selectedIds.size === filteredStudents.length ? '?�체 ?�제' : '?�체 ?�택'}
             </button>
           )}
         </div>
 
-        {/* 데스크톱 테이블 */}
+        {/* ?�스?�톱 ?�이�?*/}
         <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full table-fixed">
             <thead className="border-b border-gray-200">
@@ -496,13 +496,13 @@ export default function StudentsPage() {
                     />
                   </th>
                 )}
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>지점</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>학생ID</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>이름</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '11%' : '14%'}}>나이</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>반</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>상태</th>
-                <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '14%' : '16%'}}>관리</th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>지??/th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>?�생ID</th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>?�름</th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '11%' : '14%'}}>?�이</th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>�?/th>
+                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '13%' : '14%'}}>?�태</th>
+                <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: bulkMode ? '14%' : '16%'}}>관�?/th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -526,7 +526,7 @@ export default function StudentsPage() {
                   <td className="px-5 py-4 text-sm text-gray-600">{student.branch_name || '-'}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{student.student_code || '-'}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{student.name}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{getAge(student.birth_year)}세</td>
+                  <td className="px-5 py-4 text-sm text-gray-600">{getAge(student.birth_year)}??/td>
                   <td className="px-5 py-4 text-sm text-gray-600">{student.class_name || '-'}</td>
                   <td className="px-5 py-4">{getStatusBadge(student.status)}</td>
                   <td className="px-5 py-4 text-center">
@@ -535,7 +535,7 @@ export default function StudentsPage() {
                         onClick={(e) => handleDeleteStudent(e, student.id, student.name)}
                         className="text-gray-400 hover:text-red-500 transition text-sm"
                       >
-                        삭제
+                        ??��
                       </button>
                     )}
                   </td>
@@ -546,13 +546,13 @@ export default function StudentsPage() {
 
           {filteredStudents.length === 0 && (
             <div className="text-center py-16 text-gray-500">
-              <p className="text-4xl mb-3">🔍</p>
-              <p>검색 결과가 없습니다</p>
+              <p className="text-4xl mb-3">?��</p>
+              <p>검??결과가 ?�습?�다</p>
             </div>
           )}
         </div>
 
-        {/* 모바일 카드 리스트 */}
+        {/* 모바??카드 리스??*/}
         <div className="md:hidden space-y-3">
           {filteredStudents.map((student) => (
             <div
@@ -578,12 +578,12 @@ export default function StudentsPage() {
                     </div>
                     <div className="text-xs text-gray-500 space-y-1">
                       <p className="flex items-center gap-2">
-                        <span className="text-gray-400">🏢</span>
+                        <span className="text-gray-400">?��</span>
                         {student.branch_name || '-'} · {student.class_name || '-'}
                       </p>
                       <p className="flex items-center gap-2">
-                        <span className="text-gray-400">🎂</span>
-                        {getAge(student.birth_year)}세 · {student.student_code}
+                        <span className="text-gray-400">?��</span>
+                        {getAge(student.birth_year)}??· {student.student_code}
                       </p>
                     </div>
                   </div>
@@ -593,7 +593,7 @@ export default function StudentsPage() {
                     onClick={(e) => handleDeleteStudent(e, student.id, student.name)}
                     className="text-gray-300 hover:text-red-500 transition ml-2"
                   >
-                    🗑️
+                    ?���?
                   </button>
                 )}
               </div>
@@ -602,8 +602,8 @@ export default function StudentsPage() {
 
           {filteredStudents.length === 0 && (
             <div className="text-center py-16 text-gray-500">
-              <p className="text-4xl mb-3">🔍</p>
-              <p>검색 결과가 없습니다</p>
+              <p className="text-4xl mb-3">?��</p>
+              <p>검??결과가 ?�습?�다</p>
             </div>
           )}
         </div>
