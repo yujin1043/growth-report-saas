@@ -22,6 +22,16 @@ interface RecentReport {
   branch_name: string
 }
 
+interface NeedReportStudent {
+  id: string
+  name: string
+  student_code: string
+  branch_name: string
+  class_name: string
+  last_report_at: string | null
+  days_since_report: number
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState<UserProfile | null>(null)
@@ -33,6 +43,7 @@ export default function DashboardPage() {
   const [monthlyReports, setMonthlyReports] = useState(0)
   const [pendingStudents, setPendingStudents] = useState(0)
   const [recentReports, setRecentReports] = useState<RecentReport[]>([])
+  const [needReportStudents, setNeedReportStudents] = useState<NeedReportStudent[]>([])
 
   useEffect(() => {
     loadData()
@@ -99,6 +110,7 @@ export default function DashboardPage() {
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
     let totalQuery = supabase.from('students').select('*', { count: 'exact', head: true })
     let activeQuery = supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'active')
@@ -125,6 +137,46 @@ export default function DashboardPage() {
     const reportedStudentIds = new Set(studentsWithReports?.map(r => r.student_id) || [])
     const pending = (active || 0) - reportedStudentIds.size
     setPendingStudents(pending > 0 ? pending : 0)
+
+    let needReportQuery = supabase
+      .from('students')
+      .select('id, name, student_code, branch_id, class_id, last_report_at')
+      .eq('status', 'active')
+      .or(`last_report_at.is.null,last_report_at.lt.${twoMonthsAgo.toISOString()}`)
+      .order('last_report_at', { ascending: true, nullsFirst: true })
+      .limit(10)
+
+    if (userRole !== 'admin' && userBranchId) {
+      needReportQuery = needReportQuery.eq('branch_id', userBranchId)
+    }
+
+    const { data: needReportData } = await needReportQuery
+
+    if (needReportData) {
+      const { data: branchesData } = await supabase.from('branches').select('id, name')
+      const { data: classesData } = await supabase.from('classes').select('id, name')
+      
+      const branchMap = new Map(branchesData?.map(b => [b.id, b.name]) || [])
+      const classMap = new Map(classesData?.map(c => [c.id, c.name]) || [])
+
+      const needReportList: NeedReportStudent[] = needReportData.map(student => {
+        const daysSince = student.last_report_at 
+          ? Math.floor((now.getTime() - new Date(student.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
+          : 999
+        
+        return {
+          id: student.id,
+          name: student.name,
+          student_code: student.student_code,
+          branch_name: branchMap.get(student.branch_id) || '-',
+          class_name: classMap.get(student.class_id) || '-',
+          last_report_at: student.last_report_at,
+          days_since_report: daysSince
+        }
+      })
+
+      setNeedReportStudents(needReportList)
+    }
 
     let recentQuery = supabase
       .from('reports')
@@ -208,6 +260,12 @@ export default function DashboardPage() {
     if (user.class_names.length === 0) return '전체 반'
     if (user.class_names.length <= 3) return user.class_names.join(', ')
     return `${user.class_names.slice(0, 3).join(', ')} 외 ${user.class_names.length - 3}개`
+  }
+
+  const getUrgencyBadge = (days: number) => {
+    if (days >= 90) return <span className="px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-xs font-medium">긴급</span>
+    if (days >= 60) return <span className="px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-xs font-medium">주의</span>
+    return <span className="px-2 py-0.5 bg-yellow-100 text-yellow-600 rounded-full text-xs font-medium">예정</span>
   }
 
   if (loading) {
@@ -309,8 +367,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5">
-            <p className="text-gray-500 text-xs md:text-sm font-medium mb-2">휴원/퇴원</p>
-            <p className="text-3xl md:text-4xl font-bold text-gray-400">{totalStudents - activeStudents}<span className="text-lg text-gray-300 ml-1">명</span></p>
+            <p className="text-gray-500 text-xs md:text-sm font-medium mb-2">리포트 필요</p>
+            <p className="text-3xl md:text-4xl font-bold text-orange-400">{needReportStudents.length}<span className="text-lg text-orange-300 ml-1">명</span></p>
           </div>
         </div>
 
@@ -357,6 +415,75 @@ export default function DashboardPage() {
             </button>
           )}
         </div>
+
+        {needReportStudents.length > 0 && (
+          <div className="bg-orange-50 rounded-2xl shadow-sm border border-orange-200 overflow-hidden mb-5 md:mb-6">
+            <div className="px-5 md:px-6 py-4 border-b border-orange-200 flex items-center justify-between">
+              <h3 className="font-bold text-orange-800 flex items-center gap-2">
+                <span className="text-lg">⚠️</span>
+                리포트 작성 필요
+              </h3>
+              <span className="text-sm text-orange-600">2개월 이상 경과</span>
+            </div>
+            
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-orange-100/50 border-b border-orange-200">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">상태</th>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">지점</th>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">반</th>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">이름</th>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">마지막 리포트</th>
+                    <th className="px-5 py-3 text-left text-sm font-medium text-orange-700">경과일</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-orange-100">
+                  {needReportStudents.map(student => (
+                    <tr 
+                      key={student.id}
+                      onClick={() => router.push(`/students/${student.id}`)}
+                      className="hover:bg-orange-100/50 cursor-pointer transition"
+                    >
+                      <td className="px-5 py-3">{getUrgencyBadge(student.days_since_report)}</td>
+                      <td className="px-5 py-3 text-sm text-orange-700">{student.branch_name}</td>
+                      <td className="px-5 py-3 text-sm text-orange-700">{student.class_name}</td>
+                      <td className="px-5 py-3 text-sm font-medium text-orange-900">{student.name}</td>
+                      <td className="px-5 py-3 text-sm text-orange-600">
+                        {student.last_report_at ? formatDate(student.last_report_at) : '없음'}
+                      </td>
+                      <td className="px-5 py-3 text-sm font-medium text-orange-700">
+                        {student.days_since_report === 999 ? '-' : `${student.days_since_report}일`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden divide-y divide-orange-100">
+              {needReportStudents.map(student => (
+                <div 
+                  key={student.id}
+                  onClick={() => router.push(`/students/${student.id}`)}
+                  className="px-5 py-4 hover:bg-orange-100/50 cursor-pointer transition"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-orange-900">{student.name}</span>
+                    {getUrgencyBadge(student.days_since_report)}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-orange-600">
+                    <span>{student.branch_name}</span>
+                    <span>•</span>
+                    <span>{student.class_name}</span>
+                    <span>•</span>
+                    <span>{student.days_since_report === 999 ? '리포트 없음' : `${student.days_since_report}일 경과`}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 md:px-6 py-4 border-b border-gray-100 flex items-center justify-between">
