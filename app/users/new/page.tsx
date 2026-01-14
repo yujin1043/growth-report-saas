@@ -34,8 +34,26 @@ export default function NewUserPage() {
   })
 
   useEffect(() => {
+    checkAuth()
     loadOptions()
   }, [])
+
+  async function checkAuth() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    
+    if (!profile || profile.role !== 'admin') {
+      router.push('/dashboard')
+    }
+  }
 
   async function loadOptions() {
     const { data: branchData } = await supabase
@@ -146,7 +164,7 @@ export default function NewUserPage() {
         return
       }
 
-      if (selectedClassIds.size > 0) {
+      if (selectedClassIds.size > 0 && formData.role === 'teacher') {
         const teacherClassesInsert = Array.from(selectedClassIds).map(classId => ({
           teacher_id: authData.user!.id,
           class_id: classId
@@ -262,6 +280,7 @@ export default function NewUserPage() {
               >
                 <option value="teacher">강사</option>
                 <option value="manager">실장</option>
+                <option value="director">원장</option>
                 <option value="admin">본사</option>
               </select>
             </div>
@@ -283,7 +302,7 @@ export default function NewUserPage() {
               </select>
             </div>
 
-            {formData.branch_id && (formData.role === 'teacher' || formData.role === 'manager') && (
+            {formData.branch_id && formData.role === 'teacher' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   담당반 선택 <span className="text-gray-400 font-normal">(복수 선택 가능)</span>
@@ -337,7 +356,8 @@ export default function NewUserPage() {
             <h3 className="font-bold text-blue-800 mb-2">역할별 권한</h3>
             <ul className="text-sm text-blue-700 space-y-1">
               <li>• <strong>강사</strong>: 담당반 학생 리포트 작성</li>
-              <li>• <strong>실장</strong>: 지점 내 모든 학생/강사 관리</li>
+              <li>• <strong>실장</strong>: 지점 내 모든 학생 관리</li>
+              <li>• <strong>원장</strong>: 지점 내 모든 학생 관리 (실장과 동일)</li>
               <li>• <strong>본사</strong>: 전체 지점 및 사용자 관리</li>
             </ul>
           </div>

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -12,6 +12,7 @@ interface ClassOption {
 interface Branch {
   id: string
   name: string
+  code: string
 }
 
 export default function NewStudentPage() {
@@ -37,9 +38,8 @@ export default function NewStudentPage() {
   }, [])
 
   async function loadData() {
-    // 현재 사용자 정보
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (!user) {
       router.push('/login')
       return
@@ -55,17 +55,15 @@ export default function NewStudentPage() {
       setUserBranchId(profile.branch_id)
       setUserRole(profile.role)
 
-      // 사용자 지점 정보
       if (profile.branch_id) {
         const { data: branchData } = await supabase
           .from('branches')
-          .select('id, name')
+          .select('id, name, code')
           .eq('id', profile.branch_id)
           .single()
-        
+
         if (branchData) setUserBranch(branchData)
 
-        // 해당 지점의 반만 로드
         const { data: classData } = await supabase
           .from('classes')
           .select('id, name')
@@ -105,19 +103,24 @@ export default function NewStudentPage() {
     setSaving(true)
 
     try {
-      // 학생 코드 생성
+      const branchCode = userBranch?.code || '00'
+
       const { data: lastStudent } = await supabase
         .from('students')
         .select('student_code')
+        .eq('branch_id', userBranchId)
+        .like('student_code', `${branchCode}%`)
         .order('student_code', { ascending: false })
         .limit(1)
         .single()
 
-      let nextCode = '010001'
+      let nextSeq = 1
       if (lastStudent?.student_code) {
-        const lastNum = parseInt(lastStudent.student_code)
-        nextCode = String(lastNum + 1).padStart(6, '0')
+        const lastSeq = parseInt(lastStudent.student_code.substring(2))
+        nextSeq = lastSeq + 1
       }
+
+      const studentCode = branchCode + String(nextSeq).padStart(4, '0')
 
       const { error } = await supabase
         .from('students')
@@ -129,7 +132,7 @@ export default function NewStudentPage() {
           parent_name: formData.parent_name || null,
           parent_phone: formData.parent_phone || null,
           status: formData.status,
-          student_code: nextCode,
+          student_code: studentCode,
           enrolled_at: new Date().toISOString().split('T')[0]
         })
 
@@ -154,10 +157,16 @@ export default function NewStudentPage() {
   const yearOptions = Array.from({ length: 20 }, (_, i) => currentYear - 5 - i)
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p>로딩 중...</p></div>
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
-  // 지점이 없는 경우
   if (!userBranchId) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -180,131 +189,129 @@ export default function NewStudentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-2xl mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.back()} className="text-gray-600">← 뒤로</button>
-            <h1 className="text-lg font-bold">새 학생 등록</h1>
+            <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 transition">
+              ← 뒤로
+            </button>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">새 학생 등록</h1>
             <div className="w-10"></div>
           </div>
         </div>
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 지점 정보 표시 */}
-          <div className="bg-teal-50 rounded-lg p-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="bg-teal-50 rounded-2xl p-4">
             <p className="text-sm text-teal-700">
               📍 등록 지점: <span className="font-bold">{userBranch?.name}</span>
+              <span className="text-teal-500 ml-2">(코드: {userBranch?.code})</span>
             </p>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-bold mb-4">기본 정보</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  이름 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="학생 이름"
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
-              </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+            <h2 className="font-bold text-gray-800">기본 정보</h2>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  출생년도 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="birth_year"
-                  value={formData.birth_year}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="">선택하세요</option>
-                  {yearOptions.map(year => (
-                    <option key={year} value={year}>{year}년 ({currentYear - year + 1}세)</option>
-                  ))}
-                </select>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                이름 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="학생 이름"
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  반 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="class_id"
-                  value={formData.class_id}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="">선택하세요</option>
-                  {classes.map(cls => (
-                    <option key={cls.id} value={cls.id}>{cls.name}</option>
-                  ))}
-                </select>
-                {classes.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">이 지점에 등록된 반이 없습니다.</p>
-                )}
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                출생년도 <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="birth_year"
+                value={formData.birth_year}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">선택하세요</option>
+                {yearOptions.map(year => (
+                  <option key={year} value={year}>{year}년 ({currentYear - year + 1}세)</option>
+                ))}
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="active">재원</option>
-                  <option value="paused">휴원</option>
-                  <option value="inactive">퇴원</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                반 <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="class_id"
+                value={formData.class_id}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">선택하세요</option>
+                {classes.map(cls => (
+                  <option key={cls.id} value={cls.id}>{cls.name}</option>
+                ))}
+              </select>
+              {classes.length === 0 && (
+                <p className="text-xs text-red-500 mt-1">이 지점에 등록된 반이 없습니다.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="active">재원</option>
+                <option value="paused">휴원</option>
+                <option value="inactive">퇴원</option>
+              </select>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-bold mb-4">학부모 정보</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">학부모 이름</label>
-                <input
-                  type="text"
-                  name="parent_name"
-                  value={formData.parent_name}
-                  onChange={handleChange}
-                  placeholder="학부모 이름"
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
-              </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+            <h2 className="font-bold text-gray-800">학부모 정보</h2>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">연락처</label>
-                <input
-                  type="tel"
-                  name="parent_phone"
-                  value={formData.parent_phone}
-                  onChange={handleChange}
-                  placeholder="010-0000-0000"
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">학부모 이름</label>
+              <input
+                type="text"
+                name="parent_name"
+                value={formData.parent_name}
+                onChange={handleChange}
+                placeholder="학부모 이름"
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">연락처</label>
+              <input
+                type="tel"
+                name="parent_phone"
+                value={formData.parent_phone}
+                onChange={handleChange}
+                placeholder="010-0000-0000"
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              />
             </div>
           </div>
 
           <button
             type="submit"
             disabled={saving || classes.length === 0}
-            className="w-full bg-teal-500 text-white py-4 rounded-lg font-medium hover:bg-teal-600 disabled:bg-gray-400"
+            className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 disabled:opacity-50"
           >
             {saving ? '등록 중...' : '학생 등록'}
           </button>

@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showTooltip, setShowTooltip] = useState(false)
   
   const [totalStudents, setTotalStudents] = useState(0)
   const [activeStudents, setActiveStudents] = useState(0)
@@ -82,20 +83,22 @@ export default function DashboardPage() {
         branchName = branch?.name || null
       }
 
-      const { data: teacherClasses } = await supabase
-        .from('teacher_classes')
-        .select('class_id')
-        .eq('teacher_id', authUser.id)
+      if (profile.role === 'teacher') {
+        const { data: teacherClasses } = await supabase
+          .from('teacher_classes')
+          .select('class_id')
+          .eq('teacher_id', authUser.id)
 
-      if (teacherClasses && teacherClasses.length > 0) {
-        const classIds = teacherClasses.map(tc => tc.class_id)
-        const { data: classesData } = await supabase
-          .from('classes')
-          .select('name')
-          .in('id', classIds)
-        
-        if (classesData) {
-          classNames = classesData.map(c => c.name)
+        if (teacherClasses && teacherClasses.length > 0) {
+          const classIds = teacherClasses.map(tc => tc.class_id)
+          const { data: classesData } = await supabase
+            .from('classes')
+            .select('name')
+            .in('id', classIds)
+          
+          if (classesData) {
+            classNames = classesData.map(c => c.name)
+          }
         }
       }
 
@@ -113,13 +116,13 @@ export default function DashboardPage() {
     const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
     let totalQuery = supabase.from('students').select('*', { count: 'exact', head: true })
-    let activeQuery = supabase.from('students').select('*', { count: 'exact', head: true }).eq('status', 'active')
+    let activeStudentsQuery = supabase.from('students').select('id').eq('status', 'active')
     let reportsQuery = supabase.from('reports').select('*', { count: 'exact', head: true }).gte('created_at', startOfMonth.toISOString())
     let reportsStudentQuery = supabase.from('reports').select('student_id').gte('created_at', startOfMonth.toISOString())
 
     if (userRole !== 'admin' && userBranchId) {
       totalQuery = totalQuery.eq('branch_id', userBranchId)
-      activeQuery = activeQuery.eq('branch_id', userBranchId)
+      activeStudentsQuery = activeStudentsQuery.eq('branch_id', userBranchId)
       reportsQuery = reportsQuery.eq('branch_id', userBranchId)
       reportsStudentQuery = reportsStudentQuery.eq('branch_id', userBranchId)
     }
@@ -127,16 +130,18 @@ export default function DashboardPage() {
     const { count: total } = await totalQuery
     setTotalStudents(total || 0)
 
-    const { count: active } = await activeQuery
-    setActiveStudents(active || 0)
+    const { data: activeStudentsData } = await activeStudentsQuery
+    const activeCount = activeStudentsData?.length || 0
+    setActiveStudents(activeCount)
 
     const { count: reports } = await reportsQuery
     setMonthlyReports(reports || 0)
 
     const { data: studentsWithReports } = await reportsStudentQuery
     const reportedStudentIds = new Set(studentsWithReports?.map(r => r.student_id) || [])
-    const pending = (active || 0) - reportedStudentIds.size
-    setPendingStudents(pending > 0 ? pending : 0)
+    
+    const pendingCount = activeStudentsData?.filter(s => !reportedStudentIds.has(s.id)).length || 0
+    setPendingStudents(pendingCount)
 
     let needReportQuery = supabase
       .from('students')
@@ -235,6 +240,7 @@ export default function DashboardPage() {
   const getRoleText = (role: string) => {
     switch (role) {
       case 'admin': return '본사'
+      case 'director': return '원장'
       case 'manager': return '실장'
       case 'teacher': return '강사'
       default: return role
@@ -244,6 +250,7 @@ export default function DashboardPage() {
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-700'
+      case 'director': return 'bg-indigo-100 text-indigo-700'
       case 'manager': return 'bg-blue-100 text-blue-700'
       case 'teacher': return 'bg-green-100 text-green-700'
       default: return 'bg-gray-100 text-gray-700'
@@ -257,6 +264,7 @@ export default function DashboardPage() {
   const getClassDisplay = () => {
     if (!user) return '전체 반'
     if (user.role === 'admin') return '전체 반'
+    if (user.role === 'director' || user.role === 'manager') return '전체 반'
     if (user.class_names.length === 0) return '전체 반'
     if (user.class_names.length <= 3) return user.class_names.join(', ')
     return `${user.class_names.slice(0, 3).join(', ')} 외 ${user.class_names.length - 3}개`
@@ -361,14 +369,32 @@ export default function DashboardPage() {
             <p className="text-3xl md:text-4xl font-bold text-gray-800">{monthlyReports}<span className="text-lg text-gray-400 ml-1">건</span></p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5">
+          <div 
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 cursor-pointer hover:bg-rose-50 transition"
+            onClick={() => router.push('/students?filter=pending')}
+          >
             <p className="text-gray-500 text-xs md:text-sm font-medium mb-2">미작성 학생</p>
             <p className="text-3xl md:text-4xl font-bold text-rose-400">{pendingStudents}<span className="text-lg text-rose-300 ml-1">명</span></p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5">
-            <p className="text-gray-500 text-xs md:text-sm font-medium mb-2">리포트 필요</p>
+          <div 
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 cursor-pointer hover:bg-orange-50 transition relative"
+            onClick={() => router.push('/students?filter=needReport')}
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+          >
+            <div className="flex items-center gap-1 mb-2">
+              <p className="text-gray-500 text-xs md:text-sm font-medium">리포트 필요</p>
+              <span className="text-gray-400 text-xs">ⓘ</span>
+            </div>
             <p className="text-3xl md:text-4xl font-bold text-orange-400">{needReportStudents.length}<span className="text-lg text-orange-300 ml-1">명</span></p>
+            
+            {showTooltip && (
+              <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap z-50 shadow-lg">
+                마지막 리포트 후 2개월 이상 경과<br/>또는 리포트가 없는 학생
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-gray-800"></div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -387,32 +413,30 @@ export default function DashboardPage() {
             <span className="text-xl">👨‍🎓</span>
             학생 관리
           </button>
-          {(user?.role === 'manager' || user?.role === 'admin') && (
-            <button
-              onClick={() => router.push('/users')}
-              className="bg-white text-gray-700 py-4 md:py-5 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2 text-sm md:text-base"
-            >
-              <span className="text-xl">👥</span>
-              사용자 관리
-            </button>
-          )}
           {user?.role === 'admin' && (
-            <button
-              onClick={() => router.push('/branches')}
-              className="bg-white text-gray-700 py-4 md:py-5 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2 text-sm md:text-base"
-            >
-              <span className="text-xl">🏢</span>
-              지점 관리
-            </button>
-          )}
-          {user?.role === 'admin' && (
-            <button
-              onClick={() => router.push('/admin')}
-              className="col-span-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white py-4 md:py-5 rounded-2xl font-medium hover:from-purple-600 hover:to-indigo-600 transition shadow-lg shadow-purple-500/30 flex items-center justify-center gap-2 text-sm md:text-base"
-            >
-              <span className="text-xl">📊</span>
-              본사 관리
-            </button>
+            <>
+              <button
+                onClick={() => router.push('/users')}
+                className="bg-white text-gray-700 py-4 md:py-5 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2 text-sm md:text-base"
+              >
+                <span className="text-xl">👥</span>
+                사용자 관리
+              </button>
+              <button
+                onClick={() => router.push('/branches')}
+                className="bg-white text-gray-700 py-4 md:py-5 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2 text-sm md:text-base"
+              >
+                <span className="text-xl">🏢</span>
+                지점 관리
+              </button>
+              <button
+                onClick={() => router.push('/admin')}
+                className="col-span-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white py-4 md:py-5 rounded-2xl font-medium hover:from-purple-600 hover:to-indigo-600 transition shadow-lg shadow-purple-500/30 flex items-center justify-center gap-2 text-sm md:text-base"
+              >
+                <span className="text-xl">📊</span>
+                본사 관리
+              </button>
+            </>
           )}
         </div>
 

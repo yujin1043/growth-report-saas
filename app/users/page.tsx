@@ -33,17 +33,20 @@ export default function UsersPage() {
         .select('role')
         .eq('id', user.id)
         .single()
-      
-      if (profile) setCurrentUserRole(profile.role)
+
+      if (profile) {
+        setCurrentUserRole(profile.role)
+        if (profile.role !== 'admin') {
+          router.push('/dashboard')
+          return
+        }
+      }
     }
 
-    const { data: usersData, error } = await supabase
+    const { data: usersData } = await supabase
       .from('user_profiles')
       .select('id, name, email, role, status, created_at, branch_id')
       .order('created_at', { ascending: false })
-
-    console.log('Users Data:', usersData)
-    console.log('Users Error:', error)
 
     if (usersData) {
       const { data: branchesData } = await supabase
@@ -67,6 +70,8 @@ export default function UsersPage() {
     switch (role) {
       case 'admin':
         return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">본사</span>
+      case 'director':
+        return <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs">원장</span>
       case 'manager':
         return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">실장</span>
       case 'teacher':
@@ -102,23 +107,6 @@ export default function UsersPage() {
     )
   }
 
-  if (currentUserRole === 'teacher') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <p className="text-4xl mb-4">🔒</p>
-          <p className="text-gray-600">접근 권한이 없습니다</p>
-          <button 
-            onClick={() => router.push('/dashboard')}
-            className="mt-4 text-teal-600 hover:text-teal-700"
-          >
-            대시보드로 돌아가기
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
@@ -128,7 +116,7 @@ export default function UsersPage() {
               ← 대시보드
             </button>
             <h1 className="text-base md:text-lg font-bold text-gray-800">사용자 관리</h1>
-            <button 
+            <button
               onClick={() => router.push('/users/new')}
               className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm"
             >

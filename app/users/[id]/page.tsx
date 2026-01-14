@@ -23,7 +23,6 @@ interface ClassItem {
   id: string
   name: string
   branch_id: string
-  branch_name: string
 }
 
 export default function UserDetailPage() {
@@ -47,8 +46,26 @@ export default function UserDetailPage() {
   })
 
   useEffect(() => {
+    checkAuth()
     loadData()
   }, [userId])
+
+  async function checkAuth() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    
+    if (!profile || profile.role !== 'admin') {
+      router.push('/dashboard')
+    }
+  }
 
   async function loadData() {
     const { data: userData } = await supabase
@@ -80,14 +97,7 @@ export default function UserDetailPage() {
       .select('id, name, branch_id')
       .order('name')
 
-    if (classesData && branchesData) {
-      const branchMap = new Map(branchesData.map(b => [b.id, b.name]))
-      const classesWithBranch = classesData.map(c => ({
-        ...c,
-        branch_name: branchMap.get(c.branch_id) || ''
-      }))
-      setClasses(classesWithBranch)
-    }
+    if (classesData) setClasses(classesData)
 
     const { data: teacherClassesData } = await supabase
       .from('teacher_classes')
@@ -146,7 +156,7 @@ export default function UserDetailPage() {
         .delete()
         .eq('teacher_id', userId)
 
-      if (selectedClassIds.size > 0) {
+      if (selectedClassIds.size > 0 && form.role === 'teacher') {
         const teacherClassesInsert = Array.from(selectedClassIds).map(classId => ({
           teacher_id: userId,
           class_id: classId
@@ -178,6 +188,8 @@ export default function UserDetailPage() {
     switch (role) {
       case 'admin':
         return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">본사</span>
+      case 'director':
+        return <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs">원장</span>
       case 'manager':
         return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">실장</span>
       case 'teacher':
@@ -266,6 +278,7 @@ export default function UserDetailPage() {
             >
               <option value="teacher">강사</option>
               <option value="manager">실장</option>
+              <option value="director">원장</option>
               <option value="admin">본사</option>
             </select>
           </div>
@@ -287,7 +300,7 @@ export default function UserDetailPage() {
             </select>
           </div>
 
-          {form.branch_id && (form.role === 'teacher' || form.role === 'manager') && (
+          {form.branch_id && form.role === 'teacher' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 담당반 선택 <span className="text-gray-400 font-normal">(복수 선택 가능)</span>

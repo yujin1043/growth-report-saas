@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 interface Student {
@@ -14,6 +14,7 @@ interface Student {
   branch_id: string | null
   class_name: string | null
   branch_name: string | null
+  last_report_at: string | null
 }
 
 interface ClassOption {
@@ -24,16 +25,21 @@ interface ClassOption {
 
 export default function StudentsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const filterParam = searchParams.get('filter')
+
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<ClassOption[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [specialFilter, setSpecialFilter] = useState<string | null>(filterParam)
   const [userRole, setUserRole] = useState('')
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
+  const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkMode, setBulkMode] = useState(false)
@@ -48,8 +54,14 @@ export default function StudentsPage() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    setSpecialFilter(filterParam)
+  }, [filterParam])
+
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
+    let branchId: string | null = null
+
     if (user) {
       setUserId(user.id)
 
@@ -58,10 +70,11 @@ export default function StudentsPage() {
         .select('role, branch_id')
         .eq('id', user.id)
         .single()
-      
+
       if (profile) {
         setUserRole(profile.role)
         setUserBranchId(profile.branch_id)
+        branchId = profile.branch_id
       }
 
       const { data: teacherClasses } = await supabase
@@ -76,7 +89,7 @@ export default function StudentsPage() {
 
     const { data: studentsData, error } = await supabase
       .from('students')
-      .select('id, student_code, name, birth_year, status, class_id, branch_id')
+      .select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at')
       .order('name')
 
     if (error) {
@@ -106,6 +119,24 @@ export default function StudentsPage() {
       }))
 
       setStudents(studentsWithDetails)
+    }
+
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    let reportsQuery = supabase
+      .from('reports')
+      .select('student_id')
+      .gte('created_at', startOfMonth.toISOString())
+
+    if (branchId) {
+      reportsQuery = reportsQuery.eq('branch_id', branchId)
+    }
+
+    const { data: reportsData } = await reportsQuery
+
+    if (reportsData) {
+      setThisMonthReportedIds(new Set(reportsData.map(r => r.student_id)))
     }
 
     setLoading(false)
@@ -212,6 +243,11 @@ export default function StudentsPage() {
     setSelectedIds(new Set())
   }
 
+  const clearSpecialFilter = () => {
+    setSpecialFilter(null)
+    router.push('/students')
+  }
+
   const getAge = (birthYear: number) => currentYear - birthYear + 1
 
   const getStatusBadge = (status: string) => {
@@ -227,9 +263,12 @@ export default function StudentsPage() {
     }
   }
 
+  const now = new Date()
+  const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+
   const roleFilteredStudents = students.filter(student => {
     if (userRole === 'admin') return true
-    if (userRole === 'manager') {
+    if (userRole === 'director' || userRole === 'manager') {
       return student.branch_id === userBranchId
     }
     if (userRole === 'teacher') {
@@ -241,8 +280,24 @@ export default function StudentsPage() {
     return true
   })
 
-  const filteredStudents = roleFilteredStudents.filter(student => {
-    const matchesSearch = student.name.includes(searchTerm) || 
+  const specialFilteredStudents = roleFilteredStudents.filter(student => {
+    if (!specialFilter) return true
+
+    if (specialFilter === 'pending') {
+      return student.status === 'active' && !thisMonthReportedIds.has(student.id)
+    }
+
+    if (specialFilter === 'needReport') {
+      if (student.status !== 'active') return false
+      if (!student.last_report_at) return true
+      return new Date(student.last_report_at) < twoMonthsAgo
+    }
+
+    return true
+  })
+
+  const filteredStudents = specialFilteredStudents.filter(student => {
+    const matchesSearch = student.name.includes(searchTerm) ||
                           (student.student_code && student.student_code.includes(searchTerm)) ||
                           (student.branch_name && student.branch_name.includes(searchTerm))
     const matchesStatus = statusFilter === 'all' || student.status === statusFilter
@@ -268,6 +323,12 @@ export default function StudentsPage() {
     }
   })()
 
+  const getFilterTitle = () => {
+    if (specialFilter === 'pending') return '이번 달 미작성 학생'
+    if (specialFilter === 'needReport') return '리포트 필요 학생 (2개월 이상 경과)'
+    return '학생 관리'
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -287,15 +348,12 @@ export default function StudentsPage() {
             <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
               ← 대시보드
             </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">학생 관리</h1>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">{getFilterTitle()}</h1>
             <div className="flex gap-2">
               {!bulkMode ? (
                 <>
                   <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
                     대량수정
-                  </button>
-                  <button onClick={() => router.push('/students/import')} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
-                    일괄등록
                   </button>
                   <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
                     + 새 학생
@@ -312,6 +370,33 @@ export default function StudentsPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
+        {specialFilter && (
+          <div className={`rounded-2xl p-4 mb-4 flex items-center justify-between ${
+            specialFilter === 'pending' ? 'bg-rose-50 border border-rose-200' : 'bg-orange-50 border border-orange-200'
+          }`}>
+            <div>
+              <p className={`font-medium ${specialFilter === 'pending' ? 'text-rose-800' : 'text-orange-800'}`}>
+                {specialFilter === 'pending' ? '📝 이번 달 미작성 학생' : '⚠️ 리포트 필요 학생'}
+              </p>
+              <p className={`text-sm ${specialFilter === 'pending' ? 'text-rose-600' : 'text-orange-600'}`}>
+                {specialFilter === 'pending' 
+                  ? '이번 달에 아직 리포트가 작성되지 않은 학생입니다.' 
+                  : '마지막 리포트 후 2개월 이상 경과했거나 리포트가 없는 학생입니다.'}
+              </p>
+            </div>
+            <button 
+              onClick={clearSpecialFilter}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+                specialFilter === 'pending' 
+                  ? 'bg-rose-200 text-rose-700 hover:bg-rose-300' 
+                  : 'bg-orange-200 text-orange-700 hover:bg-orange-300'
+              }`}
+            >
+              필터 해제
+            </button>
+          </div>
+        )}
+
         {bulkMode && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -398,7 +483,7 @@ export default function StudentsPage() {
                   {status.label}
                 </button>
               ))}
-              
+
               {userRole === 'teacher' && teacherClassIds.length > 0 && (
                 <button
                   onClick={() => setShowMyClassOnly(!showMyClassOnly)}
@@ -419,6 +504,7 @@ export default function StudentsPage() {
           <p className="text-sm text-gray-500">
             총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
             {showMyClassOnly && <span className="ml-2 text-purple-500">(내 담당반)</span>}
+            {specialFilter && <span className="ml-2 text-orange-500">({specialFilter === 'pending' ? '미작성' : '리포트 필요'})</span>}
           </p>
           {bulkMode && (
             <button onClick={handleSelectAll} className="text-sm text-teal-600 hover:text-teal-700 font-medium">
