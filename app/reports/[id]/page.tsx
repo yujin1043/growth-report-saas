@@ -22,9 +22,14 @@ interface Report {
 }
 
 interface Student {
+  id: string
+  student_code: string
   name: string
   birth_year: number
-  classes: { name: string }
+  branch_id: string
+  classes: {
+    name: string
+  } | null
 }
 
 export default function ReportDetailPage() {
@@ -63,11 +68,18 @@ export default function ReportDetailPage() {
     if (reportData.student_id) {
       const { data: studentData } = await supabase
         .from('students')
-        .select('name, birth_year, classes(name)')
+        .select('id, student_code, name, birth_year, branch_id, classes(name)')
         .eq('id', reportData.student_id)
         .single()
 
-      if (studentData) setStudent(studentData)
+      if (studentData) {
+        setStudent({
+          ...studentData,
+          classes: Array.isArray(studentData.classes) 
+            ? studentData.classes[0] || null 
+            : studentData.classes
+        })
+      }
     }
 
     setLoading(false)

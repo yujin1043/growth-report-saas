@@ -15,10 +15,10 @@ interface Student {
   enrolled_at: string
   classes: {
     name: string
-  }
+  } | null
   branches: {
     name: string
-  }
+  } | null
 }
 
 interface Report {
@@ -50,7 +50,17 @@ export default function StudentDetailPage() {
       .eq('id', studentId)
       .single()
 
-    if (studentData) setStudent(studentData)
+    if (studentData) {
+      setStudent({
+        ...studentData,
+        classes: Array.isArray(studentData.classes) 
+          ? studentData.classes[0] || null 
+          : studentData.classes,
+        branches: Array.isArray(studentData.branches) 
+          ? studentData.branches[0] || null 
+          : studentData.branches
+      })
+    }
 
     const { data: reportsData } = await supabase
       .from('reports')
@@ -124,7 +134,6 @@ export default function StudentDetailPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-4 md:py-6">
-        {/* 프로필 카드 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 mb-4 md:mb-6">
           <div className="flex items-start gap-4 mb-5">
             <div className="w-14 h-14 md:w-16 md:h-16 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-2xl flex items-center justify-center text-white text-xl md:text-2xl font-bold shadow-lg shadow-teal-500/30">
@@ -175,7 +184,6 @@ export default function StudentDetailPage() {
           )}
         </div>
 
-        {/* 새 리포트 작성 버튼 */}
         <button
           onClick={() => router.push(`/reports/new?studentId=${student.id}`)}
           className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 mb-4 md:mb-6 text-sm md:text-base"
@@ -183,7 +191,6 @@ export default function StudentDetailPage() {
           📝 새 리포트 작성
         </button>
 
-        {/* 리포트 히스토리 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h3 className="font-semibold text-gray-800">📋 리포트 히스토리 ({reports.length}건)</h3>
@@ -191,7 +198,6 @@ export default function StudentDetailPage() {
 
           {reports.length > 0 ? (
             <>
-              {/* 데스크톱 테이블 */}
               <div className="hidden md:block">
                 <table className="w-full table-fixed">
                   <thead className="border-b border-gray-200">
@@ -234,7 +240,6 @@ export default function StudentDetailPage() {
                 </table>
               </div>
 
-              {/* 모바일 카드 */}
               <div className="md:hidden divide-y divide-gray-100">
                 {reports.map((report, index) => (
                   <div key={report.id} className="px-5 py-4">
