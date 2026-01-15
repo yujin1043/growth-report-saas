@@ -43,19 +43,14 @@ export default function BranchesPage() {
   }, [])
 
   async function loadData() {
-    const { data: branchData } = await supabase
-      .from('branches')
-      .select('*')
-      .order('name')
+    // 모든 데이터를 병렬로 가져오기 (성능 최적화)
+    const [branchResult, classResult] = await Promise.all([
+      supabase.from('branches').select('*').order('name'),
+      supabase.from('classes').select('*').order('name')
+    ])
 
-    if (branchData) setBranches(branchData)
-
-    const { data: classData } = await supabase
-      .from('classes')
-      .select('*')
-      .order('name')
-
-    if (classData) setClasses(classData)
+    if (branchResult.data) setBranches(branchResult.data)
+    if (classResult.data) setClasses(classResult.data)
 
     setLoading(false)
   }
@@ -137,16 +132,14 @@ export default function BranchesPage() {
   }
 
   async function createClassesForBranch(branchId: string, branchName: string, count: number) {
-    for (let i = 1; i <= count; i++) {
-      const className = `${String(i).padStart(2, '0')}반`
+    // 병렬로 반 생성 (성능 최적화)
+    const classInserts = Array.from({ length: count }, (_, i) => {
+      const className = `${String(i + 1).padStart(2, '0')}반`
       const classCode = `${branchName}_${className}`.replace(/\s/g, '')
-      
-      await supabase.from('classes').insert({
-        name: className,
-        code: classCode,
-        branch_id: branchId
-      })
-    }
+      return { name: className, code: classCode, branch_id: branchId }
+    })
+
+    await supabase.from('classes').insert(classInserts)
   }
 
   async function adjustClasses(branchId: string, branchName: string, newCount: number) {
@@ -154,34 +147,38 @@ export default function BranchesPage() {
     const currentCount = branchClasses.length
 
     if (newCount > currentCount) {
-      for (let i = currentCount + 1; i <= newCount; i++) {
-        const className = `${String(i).padStart(2, '0')}반`
+      // 병렬로 반 생성 (성능 최적화)
+      const classInserts = Array.from({ length: newCount - currentCount }, (_, i) => {
+        const num = currentCount + i + 1
+        const className = `${String(num).padStart(2, '0')}반`
         const classCode = `${branchName}_${className}`.replace(/\s/g, '')
-        
-        await supabase.from('classes').insert({
-          name: className,
-          code: classCode,
-          branch_id: branchId
-        })
-      }
+        return { name: className, code: classCode, branch_id: branchId }
+      })
+
+      await supabase.from('classes').insert(classInserts)
     } else if (newCount < currentCount) {
       const classesToDelete = branchClasses
         .sort((a, b) => b.name.localeCompare(a.name))
         .slice(0, currentCount - newCount)
 
-      for (const cls of classesToDelete) {
-        const { count } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_id', cls.id)
+      // 병렬로 학생 수 확인 (성능 최적화)
+      const studentCountChecks = await Promise.all(
+        classesToDelete.map(cls =>
+          supabase.from('students').select('*', { count: 'exact', head: true }).eq('class_id', cls.id)
+            .then(result => ({ cls, count: result.count || 0 }))
+        )
+      )
 
-        if (count && count > 0) {
-          alert(`"${cls.name}"에 학생이 있어 삭제할 수 없습니다.\n먼저 학생을 다른 반으로 이동해주세요.`)
-          return
-        }
-
-        await supabase.from('classes').delete().eq('id', cls.id)
+      const classWithStudents = studentCountChecks.find(item => item.count > 0)
+      if (classWithStudents) {
+        alert(`"${classWithStudents.cls.name}"에 학생이 있어 삭제할 수 없습니다.\n먼저 학생을 다른 반으로 이동해주세요.`)
+        return
       }
+
+      // 병렬로 반 삭제 (성능 최적화)
+      await Promise.all(
+        classesToDelete.map(cls => supabase.from('classes').delete().eq('id', cls.id))
+      )
     }
   }
 

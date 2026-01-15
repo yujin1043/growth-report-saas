@@ -35,39 +35,26 @@ export default function ReportsPage() {
   }, [])
 
   async function loadData() {
-    const { data: branchData } = await supabase
-      .from('branches')
-      .select('id, name')
-      .order('name')
+    // 모든 데이터를 병렬로 가져오기
+    const [branchResult, reportsResult, studentsResult] = await Promise.all([
+      supabase.from('branches').select('id, name').order('name'),
+      supabase.from('reports').select('id, period_start, period_end, created_at, student_id, branch_id').order('created_at', { ascending: false }),
+      supabase.from('students').select('id, name, student_code, branch_id')
+    ])
 
-    if (branchData) setBranches(branchData)
+    if (branchResult.data) setBranches(branchResult.data)
 
-    const { data: reportsData } = await supabase
-      .from('reports')
-      .select('id, period_start, period_end, created_at, student_id, branch_id')
-      .order('created_at', { ascending: false })
+    // Map 생성으로 O(1) 조회
+    const branchMap = new Map(branchResult.data?.map(b => [b.id, b.name]) || [])
+    const studentMap = new Map(studentsResult.data?.map(s => [s.id, s]) || [])
 
-    if (reportsData) {
-      const reportsWithDetails: Report[] = []
-      
-      for (const report of reportsData) {
-        const { data: student } = await supabase
-          .from('students')
-          .select('name, student_code, branch_id')
-          .eq('id', report.student_id)
-          .single()
+    if (reportsResult.data) {
+      // 모든 리포트를 한 번에 매핑 (N+1 쿼리 제거!)
+      const reportsWithDetails: Report[] = reportsResult.data.map(report => {
+        const student = studentMap.get(report.student_id)
+        const branchName = student?.branch_id ? branchMap.get(student.branch_id) || '-' : '-'
 
-        let branchName = '-'
-        if (student?.branch_id) {
-          const { data: branch } = await supabase
-            .from('branches')
-            .select('name')
-            .eq('id', student.branch_id)
-            .single()
-          branchName = branch?.name || '-'
-        }
-
-        reportsWithDetails.push({
+        return {
           id: report.id,
           period_start: report.period_start,
           period_end: report.period_end,
@@ -76,8 +63,8 @@ export default function ReportsPage() {
           student_code: student?.student_code || '-',
           branch_name: branchName,
           student_id: report.student_id
-        })
-      }
+        }
+      })
 
       setReports(reportsWithDetails)
     }

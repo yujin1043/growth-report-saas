@@ -61,62 +61,44 @@ function StudentsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     let branchId: string | null = null
 
+    // 모든 기본 데이터를 병렬로 가져오기 (성능 최적화)
+    const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
+      user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
+      user ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id) : Promise.resolve({ data: null }),
+      supabase.from('students').select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at').order('name'),
+      supabase.from('classes').select('id, name, branch_id'),
+      supabase.from('branches').select('id, name')
+    ])
+
     if (user) {
       setUserId(user.id)
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role, branch_id')
-        .eq('id', user.id)
-        .single()
-
-      if (profile) {
-        setUserRole(profile.role)
-        setUserBranchId(profile.branch_id)
-        branchId = profile.branch_id
+      if (profileResult.data) {
+        setUserRole(profileResult.data.role)
+        setUserBranchId(profileResult.data.branch_id)
+        branchId = profileResult.data.branch_id
       }
-
-      const { data: teacherClasses } = await supabase
-        .from('teacher_classes')
-        .select('class_id')
-        .eq('teacher_id', user.id)
-
-      if (teacherClasses) {
-        setTeacherClassIds(teacherClasses.map(tc => tc.class_id))
+      if (teacherClassesResult.data) {
+        setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
       }
     }
 
-    const { data: studentsData, error } = await supabase
-      .from('students')
-      .select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at')
-      .order('name')
-
-    if (error) {
-      console.error('Error:', error)
+    if (studentsResult.error) {
+      console.error('Error:', studentsResult.error)
       setLoading(false)
       return
     }
 
-    if (studentsData) {
-      const { data: classesData } = await supabase
-        .from('classes')
-        .select('id, name, branch_id')
+    // Map 생성으로 O(1) 조회 (성능 최적화)
+    setClasses(classesResult.data || [])
+    const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
+    const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
 
-      setClasses(classesData || [])
-      const classMap = new Map(classesData?.map(c => [c.id, c.name]) || [])
-
-      const { data: branchesData } = await supabase
-        .from('branches')
-        .select('id, name')
-
-      const branchMap = new Map(branchesData?.map(b => [b.id, b.name]) || [])
-
-      const studentsWithDetails = studentsData.map(student => ({
+    if (studentsResult.data) {
+      const studentsWithDetails = studentsResult.data.map(student => ({
         ...student,
         class_name: student.class_id ? classMap.get(student.class_id) || null : null,
         branch_name: student.branch_id ? branchMap.get(student.branch_id) || null : null
       }))
-
       setStudents(studentsWithDetails)
     }
 

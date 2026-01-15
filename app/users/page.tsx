@@ -27,35 +27,26 @@ export default function UsersPage() {
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+    
+    // 모든 데이터를 병렬로 가져오기 (성능 최적화)
+    const [profileResult, usersResult, branchesResult] = await Promise.all([
+      user ? supabase.from('user_profiles').select('role').eq('id', user.id).single() : Promise.resolve({ data: null }),
+      supabase.from('user_profiles').select('id, name, email, role, status, created_at, branch_id').order('created_at', { ascending: false }),
+      supabase.from('branches').select('id, name')
+    ])
 
-      if (profile) {
-        setCurrentUserRole(profile.role)
-        if (profile.role !== 'admin') {
-          router.push('/dashboard')
-          return
-        }
+    if (profileResult.data) {
+      setCurrentUserRole(profileResult.data.role)
+      if (profileResult.data.role !== 'admin') {
+        router.push('/dashboard')
+        return
       }
     }
 
-    const { data: usersData } = await supabase
-      .from('user_profiles')
-      .select('id, name, email, role, status, created_at, branch_id')
-      .order('created_at', { ascending: false })
+    if (usersResult.data) {
+      const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
 
-    if (usersData) {
-      const { data: branchesData } = await supabase
-        .from('branches')
-        .select('id, name')
-
-      const branchMap = new Map(branchesData?.map(b => [b.id, b.name]) || [])
-
-      const usersWithBranch = usersData.map(u => ({
+      const usersWithBranch = usersResult.data.map(u => ({
         ...u,
         branch_name: u.branch_id ? branchMap.get(u.branch_id) || null : null
       }))

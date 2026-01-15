@@ -55,81 +55,68 @@ export default function AdminPage() {
       return
     }
 
-    const { data: branches } = await supabase
-      .from('branches')
-      .select('id, name')
-      .order('name')
-
-    setTotalBranches(branches?.length || 0)
-
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
-    if (branches) {
-      const statsPromises = branches.map(async (branch) => {
-        const { count: activeStudentCount } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true })
-          .eq('branch_id', branch.id)
-          .eq('status', 'active')
+    // 모든 기본 데이터를 병렬로 가져오기 (성능 최적화)
+    const [branchesResult, studentsResult, usersResult, reportsResult] = await Promise.all([
+      supabase.from('branches').select('id, name').order('name'),
+      supabase.from('students').select('id, branch_id, status, last_report_at'),
+      supabase.from('user_profiles').select('id, branch_id, role'),
+      supabase.from('reports').select('id, branch_id, created_at')
+    ])
 
-        const { count: teacherCount } = await supabase
-          .from('user_profiles')
-          .select('*', { count: 'exact', head: true })
-          .eq('branch_id', branch.id)
-          .in('role', ['teacher', 'manager'])
+    const branches = branchesResult.data || []
+    const students = studentsResult.data || []
+    const users = usersResult.data || []
+    const reports = reportsResult.data || []
 
-        const { count: monthlyReportCount } = await supabase
-          .from('reports')
-          .select('*', { count: 'exact', head: true })
-          .eq('branch_id', branch.id)
-          .gte('created_at', startOfMonth.toISOString())
+    setTotalBranches(branches.length)
 
-        const { count: needReportCount } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true })
-          .eq('branch_id', branch.id)
-          .eq('status', 'active')
-          .or(`last_report_at.is.null,last_report_at.lt.${twoMonthsAgo.toISOString()}`)
+    // 메모리에서 통계 계산 (DB 호출 없음!)
+    const stats: BranchStats[] = branches.map(branch => {
+      const branchStudents = students.filter(s => s.branch_id === branch.id)
+      const activeStudents = branchStudents.filter(s => s.status === 'active')
+      const teacherCount = users.filter(u => u.branch_id === branch.id && ['teacher', 'manager'].includes(u.role)).length
+      const monthlyReportCount = reports.filter(r => r.branch_id === branch.id && new Date(r.created_at) >= startOfMonth).length
+      const needReportCount = activeStudents.filter(s => 
+        !s.last_report_at || new Date(s.last_report_at) < twoMonthsAgo
+      ).length
 
-        const active = activeStudentCount || 0
-        const need = needReportCount || 0
-        const completionRate = active > 0 ? Math.round(((active - need) / active) * 100) : 100
+      const active = activeStudents.length
+      const completionRate = active > 0 ? Math.round(((active - needReportCount) / active) * 100) : 100
 
-        return {
-          id: branch.id,
-          name: branch.name,
-          active_count: active,
-          teacher_count: teacherCount || 0,
-          monthly_reports: monthlyReportCount || 0,
-          need_report_count: need,
-          completion_rate: completionRate
-        }
-      })
+      return {
+        id: branch.id,
+        name: branch.name,
+        active_count: active,
+        teacher_count: teacherCount,
+        monthly_reports: monthlyReportCount,
+        need_report_count: needReportCount,
+        completion_rate: completionRate
+      }
+    })
 
-      const stats = await Promise.all(statsPromises)
-      setBranchStats(stats)
+    setBranchStats(stats)
+    setTotalActiveStudents(stats.reduce((sum, b) => sum + b.active_count, 0))
+    setTotalMonthlyReports(stats.reduce((sum, b) => sum + b.monthly_reports, 0))
+    setTotalNeedReport(stats.reduce((sum, b) => sum + b.need_report_count, 0))
 
-      setTotalActiveStudents(stats.reduce((sum, b) => sum + b.active_count, 0))
-      setTotalMonthlyReports(stats.reduce((sum, b) => sum + b.monthly_reports, 0))
-      setTotalNeedReport(stats.reduce((sum, b) => sum + b.need_report_count, 0))
-    }
-
+    // 월별 통계도 메모리에서 계산 (DB 호출 없음!)
     const monthlyData: MonthlyStats[] = []
     for (let i = 5; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const nextMonth = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
       
-      const { count } = await supabase
-        .from('reports')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', targetDate.toISOString())
-        .lt('created_at', nextMonth.toISOString())
+      const count = reports.filter(r => {
+        const createdAt = new Date(r.created_at)
+        return createdAt >= targetDate && createdAt < nextMonth
+      }).length
 
       monthlyData.push({
         month: `${targetDate.getMonth() + 1}월`,
-        count: count || 0
+        count
       })
     }
     setMonthlyStats(monthlyData)

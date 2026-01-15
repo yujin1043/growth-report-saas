@@ -7,7 +7,21 @@ export async function POST(request: NextRequest) {
 
     // 이름에서 성 제거 (2글자면 그대로, 3글자 이상이면 성 제거)
     const firstName = studentName.length >= 3 ? studentName.slice(1) : studentName
-    const nameWithSuffix = firstName + '이는'
+    
+    // 받침 유무 확인 함수
+    const hasFinalConsonant = (str: string) => {
+      const lastChar = str.charAt(str.length - 1)
+      const code = lastChar.charCodeAt(0)
+      if (code >= 0xAC00 && code <= 0xD7A3) {
+        return (code - 0xAC00) % 28 !== 0
+      }
+      return false
+    }
+    
+    // 받침에 따른 조사 선택
+    const hasJongseong = hasFinalConsonant(firstName)
+    const nameNun = firstName + (hasJongseong ? '이는' : '는')  // 민준이는, 준서는
+    const nameGa = firstName + (hasJongseong ? '이가' : '가')   // 민준이가, 준서가
 
     // 연령대 판별
     const age = parseInt(studentAge)
@@ -48,7 +62,10 @@ export async function POST(request: NextRequest) {
 
 # 말투 및 톤
 - 친근하고 따뜻한 선생님 말투
-- 학생 이름은 반드시 "${nameWithSuffix}" 형태로 사용 (예: 주빈이는, 서연이는)
+- 학생 이름 사용 규칙 (필수!):
+  * "${nameNun}" 또는 "${nameGa}" 형태로 자연스럽게 사용
+  * "${firstName}의 작품" 형태도 가능
+  * 중요: 각 섹션에서 이름은 1회 이하로만 사용하고, 나머지는 생략하거나 "작품에서", "이번 작품은", "표현이" 등으로 대체
 - 절대 "${studentName} 학생은", "${studentName}은/는" 형태 사용 금지
 - 문장 끝: ~했어요, ~보여요, ~있어요, ~좋았어요, ~느껴졌어요
 - 마치 학부모님과 대화하듯 자연스럽게
@@ -79,7 +96,8 @@ ${ageGuideline}
     const userPrompt = `아래 정보와 첨부된 이미지를 바탕으로 학부모님께 보내는 따뜻한 성장 리포트를 작성해주세요.
 
 ## 학생 정보
-- 이름: ${studentName} (리포트에서는 "${nameWithSuffix}" 형태로만 사용)
+- 이름: ${studentName}
+- 리포트에서 사용할 이름: "${nameNun}" 또는 "${nameGa}" 또는 "${firstName}의"
 - 나이: ${studentAge}세
 - 반: ${className}
 
@@ -91,20 +109,32 @@ ${ageGuideline}
 ## 교사 관찰 메모
 ${teacherMemo}
 
+### 중요: 교사 관찰 메모 활용 방법
+1. [향상된 부분]에 체크된 항목들은 이번 기간 동안 학생이 특히 성장한 영역입니다.
+   - 해당 영역을 리포트에서 더 구체적이고 긍정적으로 강조해주세요.
+   - 예: "형태/구도"가 체크되었다면 content_form에서 성장을 더 상세히 묘사
+   - 예: "창의성"이 체크되었다면 content_expression에서 독창적 표현을 강조
+
+2. [학생 특성]은 이 학생만의 고유한 특징입니다.
+   - 이 내용을 리포트 전체에 자연스럽게 녹여 개인화된 표현을 해주세요.
+   - 학생의 선호, 습관, 성향을 반영한 맞춤형 문장을 작성해주세요.
+   - 예: "초록색을 좋아함" → "초록색 계열을 다양하게 활용하며..."
+   - 예: "디테일에 집중함" → "작은 부분까지 세심하게 표현하려는 모습이..."
+
 ${parentRequest ? `## 학부모 요청사항\n${parentRequest}\n(이 내용을 [표현] 또는 [지도방향]에 자연스럽게 반영해주세요)` : ''}
 
 ## 출력 형식 (JSON)
 반드시 아래 JSON 형식으로만 응답하세요. 각 항목은 반드시 3문장 이상 작성하세요.
-이미지에서 관찰한 구체적인 내용을 포함해주세요.
+이미지에서 관찰한 구체적인 내용과 학생 특성을 반영해주세요.
 절대로 [형태], [색채] 등의 태그를 붙이지 마세요. 바로 내용으로 시작하세요.
 
 {
-  "content_form": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 형태 표현 변화를 3문장 이상 작성. 선의 안정감, 비례, 크기, 구도 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
-  "content_color": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 색채 표현 변화를 3문장 이상 작성. 색 선택, 배색, 채색 방식의 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
-  "content_expression": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 표현력 변화를 3문장 이상 작성. 주제 표현, 디테일, 이야기 구성의 변화 등.",
-  "content_strength": "${nameWithSuffix} 강점 2-3문장. 이미지와 교사 메모를 바탕으로 성향과 미술적 특성을 결합한 긍정적 관찰.",
-  "content_attitude": "${nameWithSuffix} 수업 태도와 감성 3문장 이상. 교사 메모를 바탕으로 구체적 행동 묘사.",
-  "content_direction": "3문장 이상. 이미지 분석을 바탕으로 앞으로의 구체적인 지도 계획. 반드시 '~방향으로 지도하겠습니다', '~할 수 있도록 도와드리겠습니다' 형태로 작성."
+  "content_form": "이전 작품과 최근 작품을 비교하여 ${firstName}의 형태 표현 변화를 3문장 이상 작성. 선의 안정감, 비례, 크기, 구도 변화 등을 이미지에서 관찰한 내용으로 구체적으로. [향상된 부분]에 형태/구도가 있다면 특히 강조.",
+  "content_color": "이전 작품과 최근 작품을 비교하여 ${firstName}의 색채 표현 변화를 3문장 이상 작성. 색 선택, 배색, 채색 방식의 변화 등을 이미지에서 관찰한 내용으로 구체적으로. [향상된 부분]에 색채 활용이 있다면 특히 강조.",
+  "content_expression": "이전 작품과 최근 작품을 비교하여 ${firstName}의 표현력 변화를 3문장 이상 작성. 주제 표현, 디테일, 창의성, 이야기 구성의 변화 등. [향상된 부분]에 표현 기술이나 창의성이 있다면 특히 강조.",
+  "content_strength": "${firstName}의 강점 2-3문장. [학생 특성]을 바탕으로 이 학생만의 고유한 미술적 강점과 성향을 구체적으로 서술.",
+  "content_attitude": "${firstName}의 수업 태도와 감성 3문장 이상. [향상된 부분]에 집중력이나 자신감이 있다면 반영. [학생 특성]의 행동적 특징도 포함.",
+  "content_direction": "3문장 이상. 이미지 분석과 [학생 특성]을 바탕으로 ${firstName}에게 맞춤화된 구체적인 지도 계획. 반드시 '~방향으로 지도하겠습니다', '~할 수 있도록 도와드리겠습니다' 형태로 작성."
 }`
 
     // 메시지 구성 (이미지 포함)

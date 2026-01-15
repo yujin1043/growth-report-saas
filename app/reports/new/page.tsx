@@ -44,10 +44,34 @@ function NewReportPage() {
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const [periodStart, setPeriodStart] = useState('25.01')
-  const [periodEnd, setPeriodEnd] = useState('25.03')
-  const [teacherMemo, setTeacherMemo] = useState('')
+  // 지도 기간 (연/월 분리)
+  const [startYear, setStartYear] = useState(new Date().getFullYear())
+  const [startMonth, setStartMonth] = useState(1)
+  const [endYear, setEndYear] = useState(new Date().getFullYear())
+  const [endMonth, setEndMonth] = useState(3)
+  // 향상된 부분 체크박스
+  const [improvements, setImprovements] = useState<string[]>([])
+  const [studentMemo, setStudentMemo] = useState('')
   const [parentRequest, setParentRequest] = useState('')
+  const [showTooltip, setShowTooltip] = useState(false)
+
+  // 향상된 부분 옵션
+  const improvementOptions = [
+    { key: 'form', label: '형태/구도', desc: '사물의 형태, 비례, 공간 배치' },
+    { key: 'color', label: '색채 활용', desc: '색상 선택, 조화, 명암 표현' },
+    { key: 'technique', label: '표현 기술', desc: '도구 사용, 디테일, 질감 표현' },
+    { key: 'creativity', label: '창의성', desc: '독창적 발상, 자기만의 표현' },
+    { key: 'focus', label: '집중력', desc: '수업 참여, 작업 몰입도' },
+    { key: 'confidence', label: '자신감', desc: '표현에 대한 자신감, 적극성' },
+  ]
+
+  const toggleImprovement = (key: string) => {
+    setImprovements(prev => 
+      prev.includes(key) 
+        ? prev.filter(k => k !== key)
+        : [...prev, key]
+    )
+  }
   
   // 이미지 편집 상태
   const [imageBefore, setImageBefore] = useState<ImageEditState>({
@@ -68,6 +92,24 @@ function NewReportPage() {
   const [editingField, setEditingField] = useState<string | null>(null)
 
   const currentYear = new Date().getFullYear()
+  
+  // 지도기간 포맷 (예: "25.01")
+  const periodStart = `${String(startYear).slice(2)}.${String(startMonth).padStart(2, '0')}`
+  const periodEnd = `${String(endYear).slice(2)}.${String(endMonth).padStart(2, '0')}`
+  
+  // 연도 선택 옵션 (현재년도 기준 -2년 ~ +1년)
+  const yearOptions = Array.from({ length: 4 }, (_, i) => currentYear - 2 + i)
+
+  // 종료 기간이 시작 기간보다 이전이면 자동 조정
+  useEffect(() => {
+    const startDate = startYear * 12 + startMonth
+    const endDate = endYear * 12 + endMonth
+    
+    if (endDate < startDate) {
+      setEndYear(startYear)
+      setEndMonth(startMonth)
+    }
+  }, [startYear, startMonth, endYear, endMonth])
 
   useEffect(() => {
     if (studentId) {
@@ -263,12 +305,23 @@ function NewReportPage() {
       alert('이전 작품과 최근 작품 사진을 모두 업로드해주세요.')
       return
     }
-    if (!teacherMemo.trim()) {
-      alert('교사 관찰 메모를 입력해주세요.')
+    if (improvements.length === 0) {
+      alert('향상된 부분을 최소 1개 이상 선택해주세요.')
+      return
+    }
+    if (studentMemo.trim().length < 10) {
+      alert('학생 특성 메모를 10자 이상 입력해주세요.')
       return
     }
 
     setGenerating(true)
+
+    // 체크박스 + 자유서술 조합하여 teacherMemo 생성
+    const selectedImprovements = improvements
+      .map(key => improvementOptions.find(opt => opt.key === key)?.label)
+      .filter(Boolean)
+      .join(', ')
+    const teacherMemo = `[향상된 부분] ${selectedImprovements}\n[학생 특성] ${studentMemo.trim()}`
 
     try {
       // 이미지를 Base64로 변환
@@ -371,6 +424,13 @@ function NewReportPage() {
           .single()
         branchId = branches?.id
       }
+
+      // 체크박스 + 자유서술 조합하여 teacherMemo 생성
+      const selectedImprovements = improvements
+        .map(key => improvementOptions.find(opt => opt.key === key)?.label)
+        .filter(Boolean)
+        .join(', ')
+      const teacherMemo = `[향상된 부분] ${selectedImprovements}\n[학생 특성] ${studentMemo.trim()}`
 
       const insertData = {
         student_id: student.id,
@@ -579,22 +639,84 @@ function NewReportPage() {
           </div>
         </div>
 
+        {/* 지도 기간 - 연월 선택 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4">
           <h2 className="font-semibold text-gray-800 mb-3">📅 지도 기간</h2>
-          <div className="flex items-center gap-3">
-            <input 
-              type="text" 
-              value={periodStart} 
-              onChange={(e) => setPeriodStart(e.target.value)} 
-              className="flex-1 px-4 py-3 bg-gray-50 border-0 rounded-xl text-center focus:ring-2 focus:ring-teal-500 text-sm" 
-            />
-            <span className="text-gray-400">~</span>
-            <input 
-              type="text" 
-              value={periodEnd} 
-              onChange={(e) => setPeriodEnd(e.target.value)} 
-              className="flex-1 px-4 py-3 bg-gray-50 border-0 rounded-xl text-center focus:ring-2 focus:ring-teal-500 text-sm" 
-            />
+          <div className="flex items-center gap-2">
+            {/* 시작 연월 */}
+            <div className="flex-1 flex gap-1.5">
+              <div className="relative flex-1">
+                <select
+                  value={startYear}
+                  onChange={(e) => setStartYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-center text-sm font-medium text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-transparent appearance-none cursor-pointer hover:bg-gray-100 transition"
+                >
+                  {yearOptions.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+              </div>
+              <div className="relative flex-1">
+                <select
+                  value={startMonth}
+                  onChange={(e) => setStartMonth(parseInt(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-center text-sm font-medium text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-transparent appearance-none cursor-pointer hover:bg-gray-100 transition"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+                    <option key={month} value={month}>{month}월</option>
+                  ))}
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+              </div>
+            </div>
+            
+            <span className="text-gray-400 flex-shrink-0 font-medium">~</span>
+            
+            {/* 종료 연월 */}
+            <div className="flex-1 flex gap-1.5">
+              <div className="relative flex-1">
+                <select
+                  value={endYear}
+                  onChange={(e) => setEndYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-center text-sm font-medium text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-transparent appearance-none cursor-pointer hover:bg-gray-100 transition"
+                >
+                  {yearOptions.map(year => (
+                    <option 
+                      key={year} 
+                      value={year}
+                      disabled={year < startYear}
+                      className={year < startYear ? 'text-gray-300' : ''}
+                    >
+                      {year}
+                    </option>
+                  ))}
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+              </div>
+              <div className="relative flex-1">
+                <select
+                  value={endMonth}
+                  onChange={(e) => setEndMonth(parseInt(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-center text-sm font-medium text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-transparent appearance-none cursor-pointer hover:bg-gray-100 transition"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
+                    const isDisabled = endYear === startYear && month < startMonth
+                    return (
+                      <option 
+                        key={month} 
+                        value={month}
+                        disabled={isDisabled}
+                        className={isDisabled ? 'text-gray-300' : ''}
+                      >
+                        {month}월
+                      </option>
+                    )
+                  })}
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -678,15 +800,66 @@ function NewReportPage() {
           </div>
         </div>
 
+        {/* 교사 관찰 메모 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4">
           <h2 className="font-semibold text-gray-800 mb-3">📝 교사 관찰 메모</h2>
-          <textarea 
-            value={teacherMemo} 
-            onChange={(e) => setTeacherMemo(e.target.value)} 
-            placeholder="형태 표현, 색채 사용, 수업 태도 등 관찰한 내용을 자유롭게 입력해주세요." 
-            rows={5} 
-            className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 text-sm resize-none" 
-          />
+          
+          {/* 향상된 부분 체크박스 */}
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-sm text-gray-600">향상된 부분 <span className="text-red-500">*</span></p>
+              <button
+                type="button"
+                onClick={() => setShowTooltip(!showTooltip)}
+                className="text-gray-400 hover:text-gray-600 transition"
+              >
+                ⓘ
+              </button>
+            </div>
+            
+            {showTooltip && (
+              <div className="mb-3 p-3 bg-gray-100 text-gray-700 text-xs rounded-xl border border-gray-200">
+                <ul className="space-y-1.5">
+                  {improvementOptions.map(option => (
+                    <li key={option.key}>
+                      <span className="font-medium">{option.label}</span>
+                      <span className="text-gray-500"> - {option.desc}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              {improvementOptions.map(option => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => toggleImprovement(option.key)}
+                  className={`w-full px-3 py-2.5 rounded-xl text-sm font-medium transition text-left ${
+                    improvements.includes(option.key)
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                  }`}
+                >
+                  {improvements.includes(option.key) ? '✓ ' : ''}{option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 학생 특성 메모 */}
+          <div>
+            <p className="text-sm text-gray-600 mb-2">학생 특성 메모 <span className="text-red-500">*</span></p>
+            <textarea 
+              value={studentMemo} 
+              onChange={(e) => setStudentMemo(e.target.value)} 
+              placeholder="이 학생만의 특징, 지도 기간 중 변화 등을 자유롭게 적어주세요. (최소 10자)" 
+              rows={4} 
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm resize-none" 
+            />
+            <p className="text-xs text-gray-400 mt-1 text-right">{studentMemo.length}자</p>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-6">
@@ -696,7 +869,7 @@ function NewReportPage() {
             onChange={(e) => setParentRequest(e.target.value)} 
             placeholder="학부모가 요청한 사항이 있으면 입력해주세요." 
             rows={2} 
-            className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 text-sm resize-none" 
+            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm resize-none" 
           />
         </div>
 
@@ -716,34 +889,34 @@ function NewReportPage() {
         </button>
       </div>
 
-      {/* 이미지 편집 모달 */}
+      {/* 이미지 편집 모달 - 모바일 전체화면 */}
       {editingImage && currentEditImage.originalUrl && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-start md:items-center justify-center overflow-y-auto">
+          <div className="bg-white w-full md:max-w-lg md:mx-4 md:my-4 md:rounded-2xl min-h-screen md:min-h-0 md:max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <h3 className="font-bold text-gray-800">이미지 편집</h3>
               <button onClick={closeEditModal} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
             
-            <div className="p-4 overflow-auto" style={{ maxHeight: 'calc(90vh - 160px)' }}>
+            <div className="p-4 overflow-auto flex-1">
               {/* 회전 버튼 */}
-              <div className="flex justify-center gap-3 mb-4">
+              <div className="flex justify-center gap-2 mb-4">
                 <button
                   onClick={() => handleRotate('left')}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition"
+                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition"
                 >
                   ↺ 왼쪽 회전
                 </button>
                 <button
                   onClick={() => handleRotate('right')}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition"
+                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition"
                 >
                   ↻ 오른쪽 회전
                 </button>
               </div>
 
               {/* 이미지 및 자르기 영역 */}
-              <div className="flex justify-center">
+              <div className="flex justify-center overflow-auto">
                 <ReactCrop
                   crop={tempCrop}
                   onChange={(c) => setTempCrop(c)}
@@ -753,8 +926,9 @@ function NewReportPage() {
                     ref={imgRef}
                     src={currentEditImage.originalUrl}
                     alt="편집"
+                    className="max-w-full"
                     style={{ 
-                      maxHeight: '400px',
+                      maxHeight: '50vh',
                       transform: `rotate(${currentEditImage.rotation}deg)`,
                       transition: 'transform 0.3s'
                     }}
@@ -767,7 +941,7 @@ function NewReportPage() {
               </p>
             </div>
 
-            <div className="px-5 py-4 border-t border-gray-100 flex gap-3">
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
               <button
                 onClick={closeEditModal}
                 className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-medium hover:bg-gray-200 transition"
@@ -787,6 +961,7 @@ function NewReportPage() {
     </div>
   )
 }
+
 export default function NewReportPageWrapper() {
   return (
     <Suspense fallback={

@@ -58,11 +58,16 @@ export default function DashboardPage() {
       return
     }
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('name, role, branch_id')
-      .eq('id', authUser.id)
-      .single()
+    // 1단계: 사용자 프로필과 기본 데이터를 병렬로 가져오기
+    const [profileResult, branchesResult, classesResult] = await Promise.all([
+      supabase.from('user_profiles').select('name, role, branch_id').eq('id', authUser.id).single(),
+      supabase.from('branches').select('id, name'),
+      supabase.from('classes').select('id, name')
+    ])
+
+    const profile = profileResult.data
+    const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
+    const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
 
     let userBranchId: string | null = null
     let userRole = ''
@@ -75,12 +80,7 @@ export default function DashboardPage() {
       let classNames: string[] = []
 
       if (profile.branch_id) {
-        const { data: branch } = await supabase
-          .from('branches')
-          .select('name')
-          .eq('id', profile.branch_id)
-          .single()
-        branchName = branch?.name || null
+        branchName = branchMap.get(profile.branch_id) || null
       }
 
       if (profile.role === 'teacher') {
@@ -90,15 +90,9 @@ export default function DashboardPage() {
           .eq('teacher_id', authUser.id)
 
         if (teacherClasses && teacherClasses.length > 0) {
-          const classIds = teacherClasses.map(tc => tc.class_id)
-          const { data: classesData } = await supabase
-            .from('classes')
-            .select('name')
-            .in('id', classIds)
-          
-          if (classesData) {
-            classNames = classesData.map(c => c.name)
-          }
+          classNames = teacherClasses
+            .map(tc => classMap.get(tc.class_id))
+            .filter((name): name is string => !!name)
         }
       }
 
@@ -115,34 +109,11 @@ export default function DashboardPage() {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
+    // 2단계: 통계 쿼리들을 병렬로 실행
     let totalQuery = supabase.from('students').select('*', { count: 'exact', head: true })
     let activeStudentsQuery = supabase.from('students').select('id').eq('status', 'active')
     let reportsQuery = supabase.from('reports').select('*', { count: 'exact', head: true }).gte('created_at', startOfMonth.toISOString())
     let reportsStudentQuery = supabase.from('reports').select('student_id').gte('created_at', startOfMonth.toISOString())
-
-    if (userRole !== 'admin' && userBranchId) {
-      totalQuery = totalQuery.eq('branch_id', userBranchId)
-      activeStudentsQuery = activeStudentsQuery.eq('branch_id', userBranchId)
-      reportsQuery = reportsQuery.eq('branch_id', userBranchId)
-      reportsStudentQuery = reportsStudentQuery.eq('branch_id', userBranchId)
-    }
-
-    const { count: total } = await totalQuery
-    setTotalStudents(total || 0)
-
-    const { data: activeStudentsData } = await activeStudentsQuery
-    const activeCount = activeStudentsData?.length || 0
-    setActiveStudents(activeCount)
-
-    const { count: reports } = await reportsQuery
-    setMonthlyReports(reports || 0)
-
-    const { data: studentsWithReports } = await reportsStudentQuery
-    const reportedStudentIds = new Set(studentsWithReports?.map(r => r.student_id) || [])
-    
-    const pendingCount = activeStudentsData?.filter(s => !reportedStudentIds.has(s.id)).length || 0
-    setPendingStudents(pendingCount)
-
     let needReportQuery = supabase
       .from('students')
       .select('id, name, student_code, branch_id, class_id, last_report_at')
@@ -150,25 +121,48 @@ export default function DashboardPage() {
       .or(`last_report_at.is.null,last_report_at.lt.${twoMonthsAgo.toISOString()}`)
       .order('last_report_at', { ascending: true, nullsFirst: true })
       .limit(10)
+    let recentQuery = supabase
+      .from('reports')
+      .select('id, period_start, period_end, created_at, student_id')
+      .order('created_at', { ascending: false })
+      .limit(10)
 
     if (userRole !== 'admin' && userBranchId) {
+      totalQuery = totalQuery.eq('branch_id', userBranchId)
+      activeStudentsQuery = activeStudentsQuery.eq('branch_id', userBranchId)
+      reportsQuery = reportsQuery.eq('branch_id', userBranchId)
+      reportsStudentQuery = reportsStudentQuery.eq('branch_id', userBranchId)
       needReportQuery = needReportQuery.eq('branch_id', userBranchId)
+      recentQuery = recentQuery.eq('branch_id', userBranchId)
     }
 
-    const { data: needReportData } = await needReportQuery
+    const [totalResult, activeResult, reportsCountResult, reportsStudentResult, needReportResult, recentResult] = await Promise.all([
+      totalQuery,
+      activeStudentsQuery,
+      reportsQuery,
+      reportsStudentQuery,
+      needReportQuery,
+      recentQuery
+    ])
 
-    if (needReportData) {
-      const { data: branchesData } = await supabase.from('branches').select('id, name')
-      const { data: classesData } = await supabase.from('classes').select('id, name')
-      
-      const branchMap = new Map(branchesData?.map(b => [b.id, b.name]) || [])
-      const classMap = new Map(classesData?.map(c => [c.id, c.name]) || [])
+    setTotalStudents(totalResult.count || 0)
 
-      const needReportList: NeedReportStudent[] = needReportData.map(student => {
-        const daysSince = student.last_report_at 
+    const activeStudentsData = activeResult.data || []
+    setActiveStudents(activeStudentsData.length)
+
+    setMonthlyReports(reportsCountResult.count || 0)
+
+    const reportedStudentIds = new Set(reportsStudentResult.data?.map(r => r.student_id) || [])
+    const pendingCount = activeStudentsData.filter(s => !reportedStudentIds.has(s.id)).length
+    setPendingStudents(pendingCount)
+
+    // 리포트 필요 학생 처리
+    if (needReportResult.data) {
+      const needReportList: NeedReportStudent[] = needReportResult.data.map(student => {
+        const daysSince = student.last_report_at
           ? Math.floor((now.getTime() - new Date(student.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
           : 999
-        
+
         return {
           id: student.id,
           name: student.name,
@@ -179,53 +173,31 @@ export default function DashboardPage() {
           days_since_report: daysSince
         }
       })
-
       setNeedReportStudents(needReportList)
     }
 
-    let recentQuery = supabase
-      .from('reports')
-      .select('id, period_start, period_end, created_at, student_id')
-      .order('created_at', { ascending: false })
-      .limit(10)
+    // 최근 리포트 처리 - 학생 정보 일괄 조회 (N+1 제거)
+    if (recentResult.data && recentResult.data.length > 0) {
+      const studentIds = [...new Set(recentResult.data.map(r => r.student_id))]
+      const { data: studentsData } = await supabase
+        .from('students')
+        .select('id, name, student_code, branch_id')
+        .in('id', studentIds)
 
-    if (userRole !== 'admin' && userBranchId) {
-      recentQuery = recentQuery.eq('branch_id', userBranchId)
-    }
+      const studentMap = new Map(studentsData?.map(s => [s.id, s]) || [])
 
-    const { data: reportsData } = await recentQuery
-
-    if (reportsData) {
-      const reportsWithDetails: RecentReport[] = []
-
-      for (const report of reportsData) {
-        const { data: student } = await supabase
-          .from('students')
-          .select('name, student_code, branch_id')
-          .eq('id', report.student_id)
-          .single()
-
-        let branchName = '-'
-        if (student?.branch_id) {
-          const { data: branch } = await supabase
-            .from('branches')
-            .select('name')
-            .eq('id', student.branch_id)
-            .single()
-          branchName = branch?.name || '-'
-        }
-
-        reportsWithDetails.push({
+      const reportsWithDetails: RecentReport[] = recentResult.data.map(report => {
+        const student = studentMap.get(report.student_id)
+        return {
           id: report.id,
           period_start: report.period_start,
           period_end: report.period_end,
           created_at: report.created_at,
           student_name: student?.name || '-',
           student_code: student?.student_code || '-',
-          branch_name: branchName
-        })
-      }
-
+          branch_name: student?.branch_id ? branchMap.get(student.branch_id) || '-' : '-'
+        }
+      })
       setRecentReports(reportsWithDetails)
     }
 
