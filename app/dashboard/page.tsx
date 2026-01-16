@@ -379,12 +379,18 @@ export default function DashboardPage() {
             리포트 작성
           </button>
           <button
+            onClick={() => router.push('/daily-message')}
+            className="bg-gradient-to-r from-orange-400 to-amber-500 text-white py-4 md:py-5 rounded-2xl font-medium hover:from-orange-500 hover:to-amber-600 transition shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2 text-sm md:text-base"
+          >
+            <span className="text-xl">💬</span>
+            일일 메시지
+          </button>
+          <button
             onClick={() => router.push('/students')}
             className="bg-white text-gray-700 py-4 md:py-5 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2 text-sm md:text-base"
           >
             <span className="text-xl">👨‍🎓</span>
-            학생 관리
-          </button>
+            학생 관리          </button>
           {user?.role === 'admin' && (
             <>
               <button
