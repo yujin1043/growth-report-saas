@@ -91,37 +91,32 @@ export default function ResultPage() {
     if (!result) return
     setSharing(true)
     try {
-      // 이미지 파일 생성
+      // 이미지 파일 병렬 생성 (훨씬 빠름!)
       const files: File[] = []
       if (result.imageUrls.length > 0) {
-        for (let i = 0; i < result.imageUrls.length; i++) {
+        const filePromises = result.imageUrls.map(async (url, i) => {
           try {
-            const res = await fetch(result.imageUrls[i])
+            const res = await fetch(url)
             const blob = await res.blob()
-            const file = new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
-            files.push(file)
+            return new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
           } catch (e) {
             console.error('이미지 로드 실패:', e)
+            return null
           }
-        }
+        })
+        
+        const results = await Promise.all(filePromises)
+        files.push(...results.filter((f): f is File => f !== null))
       }
 
-      // 파일+텍스트 공유 시도
+      // 파일 공유
       if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
-        try {
-          // 먼저 이미지만 공유
-          await navigator.share({ files: files })
-          
-          // 그 다음 텍스트 복사
-          await copyToClipboard(result.message)
-          
-          setCopiedId('shared')
-          await markAsSent()
-          setTimeout(() => setCopiedId(null), 2000)
-          return
-        } catch (e) {
-          console.error('파일 공유 실패:', e)
-        }
+        await navigator.share({ files: files })
+        await copyToClipboard(result.message)
+        setCopiedId('shared')
+        await markAsSent()
+        setTimeout(() => setCopiedId(null), 2000)
+        return
       }
 
       // 텍스트만 공유
@@ -133,7 +128,6 @@ export default function ResultPage() {
         return
       }
 
-      // 클립보드 복사
       await copyToClipboard(result.message)
       
     } catch (error: any) {
