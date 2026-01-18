@@ -91,41 +91,12 @@ export default function ResultPage() {
     if (!result) return
     setSharing(true)
     try {
-      // 카카오톡 SDK 사용
-      if (window.Kakao && window.Kakao.isInitialized()) {
-        if (result.imageUrls.length > 0) {
-          window.Kakao.Share.sendDefault({
-            objectType: 'feed',
-            content: {
-              title: '오늘의 미술 수업 안내',
-              description: result.message.substring(0, 200),
-              imageUrl: result.imageUrls[0],
-              link: {
-                mobileWebUrl: window.location.href,
-                webUrl: window.location.href,
-              },
-            },
-            buttons: [],
-          })
-        } else {
-          window.Kakao.Share.sendDefault({
-            objectType: 'text',
-            text: result.message,
-            link: {
-              mobileWebUrl: window.location.href,
-              webUrl: window.location.href,
-            },
-          })
-        }
-        setCopiedId('shared')
-        await markAsSent()
-        setTimeout(() => setCopiedId(null), 2000)
-        return
-      }
-      // 카카오 SDK 없으면 Web Share API
+      // 1. Web Share API 시도 (Android에서 이미지+텍스트 직접 공유)
       if (navigator.share) {
         const shareData: ShareData = { text: result.message }
-        if (result.imageUrls.length > 0 && navigator.canShare) {
+        
+        // 이미지가 있으면 파일로 변환
+        if (result.imageUrls.length > 0) {
           const files: File[] = []
           for (let i = 0; i < result.imageUrls.length; i++) {
             try {
@@ -136,22 +107,55 @@ export default function ResultPage() {
               console.error('Image fetch error:', e)
             }
           }
-          if (files.length > 0 && navigator.canShare({ files })) {
+          // 파일 공유 가능 여부 확인
+          if (files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
             shareData.files = files
           }
         }
+        
         await navigator.share(shareData)
         setCopiedId('shared')
         await markAsSent()
         setTimeout(() => setCopiedId(null), 2000)
+        return
+      }
+      
+      // 2. Web Share API 미지원 시: 이미지 다운로드 + 텍스트 복사
+      await copyToClipboard(result.message)
+      
+      if (result.imageUrls.length > 0) {
+        // 이미지 다운로드
+        for (let i = 0; i < result.imageUrls.length; i++) {
+          try {
+            const res = await fetch(result.imageUrls[i])
+            const blob = await res.blob()
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${result.studentName}_작품_${i + 1}.jpg`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            window.URL.revokeObjectURL(url)
+          } catch (e) {
+            console.error('Image download error:', e)
+          }
+        }
+        alert('✅ 문구가 복사되었습니다.\n✅ 이미지가 다운로드되었습니다.\n\n카카오톡에서 붙여넣기 후 이미지를 첨부해주세요.')
       } else {
-        await copyToClipboard(result.message)
         alert('문구가 복사되었습니다. 카카오톡에 붙여넣기 해주세요.')
       }
+      
+      setCopiedId('shared')
+      await markAsSent()
+      setTimeout(() => setCopiedId(null), 2000)
+      
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         console.error('Share failed:', error)
+        // 공유 실패 시 텍스트만 복사
         await copyToClipboard(result.message)
+        alert('문구가 복사되었습니다.')
       }
     } finally {
       setSharing(false)
