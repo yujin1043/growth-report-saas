@@ -91,61 +91,53 @@ export default function ResultPage() {
     if (!result) return
     setSharing(true)
     try {
-      // Web Share API로 이미지+텍스트 직접 공유
-      if (navigator.share) {
-        let shareData: ShareData = { text: result.message }
-        
-        // 이미지가 있으면 파일로 변환
-        if (result.imageUrls.length > 0) {
-          const files: File[] = []
-          for (let i = 0; i < result.imageUrls.length; i++) {
-            try {
-              const res = await fetch(result.imageUrls[i])
-              const blob = await res.blob()
-              const file = new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
-              files.push(file)
-              console.log('파일 생성 성공:', file.name, file.size)
-            } catch (e) {
-              console.error('Image fetch error:', e)
-            }
-          }
-          
-          if (files.length > 0) {
-            // 파일 포함해서 공유 시도
-            try {
-              await navigator.share({ text: result.message, files: files })
-              console.log('파일 공유 성공')
-              setCopiedId('shared')
-              await markAsSent()
-              setTimeout(() => setCopiedId(null), 2000)
-              return
-            } catch (fileShareError) {
-              console.log('파일 공유 실패, 텍스트만 공유:', fileShareError)
-            }
+      // 이미지 파일 생성
+      const files: File[] = []
+      if (result.imageUrls.length > 0) {
+        for (let i = 0; i < result.imageUrls.length; i++) {
+          try {
+            const res = await fetch(result.imageUrls[i])
+            const blob = await res.blob()
+            const file = new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
+            files.push(file)
+          } catch (e) {
+            alert('이미지 로드 실패: ' + e)
           }
         }
+      }
+
+      alert(`파일 개수: ${files.length}, navigator.share: ${!!navigator.share}, navigator.canShare: ${!!navigator.canShare}`)
+
+      // 파일+텍스트 공유 시도
+      if (navigator.share && files.length > 0) {
+        const canShareFiles = navigator.canShare && navigator.canShare({ files })
+        alert(`canShareFiles: ${canShareFiles}`)
         
-        // 이미지 없거나 파일 공유 실패 시 텍스트만 공유
-        await navigator.share(shareData)
+        if (canShareFiles) {
+          await navigator.share({ text: result.message, files: files })
+          setCopiedId('shared')
+          await markAsSent()
+          setTimeout(() => setCopiedId(null), 2000)
+          return
+        }
+      }
+
+      // 텍스트만 공유
+      if (navigator.share) {
+        await navigator.share({ text: result.message })
         setCopiedId('shared')
         await markAsSent()
         setTimeout(() => setCopiedId(null), 2000)
         return
       }
-      
-      // Web Share API 미지원
+
+      // 클립보드 복사
       await copyToClipboard(result.message)
-      alert('문구가 복사되었습니다. 카카오톡에 붙여넣기 해주세요.')
-      setCopiedId('shared')
-      await markAsSent()
-      setTimeout(() => setCopiedId(null), 2000)
+      alert('문구가 복사되었습니다.')
       
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-        await copyToClipboard(result.message)
-        alert('문구가 복사되었습니다.')
-      }
+    } catch (error: any) {
+      alert('에러: ' + error.message)
+      await copyToClipboard(result.message)
     } finally {
       setSharing(false)
     }
