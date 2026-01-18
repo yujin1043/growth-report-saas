@@ -4,12 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-declare global {
-  interface Window {
-    Kakao: any
-  }
-}
-
 interface Result {
   id: string
   studentId: string
@@ -32,30 +26,11 @@ export default function ResultPage() {
   const [editedMessage, setEditedMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [kakaoReady, setKakaoReady] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
     loadResult()
-    
-    // 카카오 SDK 로드
-    if (typeof window !== 'undefined' && !window.Kakao) {
-      const script = document.createElement('script')
-      script.src = 'https://t1.kakaocdn.net/kakao_js_sdk/2.6.0/kakao.min.js'
-      script.async = true
-      script.onload = () => {
-        if (window.Kakao && !window.Kakao.isInitialized()) {
-          const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY
-          if (kakaoKey) {
-            window.Kakao.init(kakaoKey)
-            setKakaoReady(true)
-          }
-        }
-      }
-      document.head.appendChild(script)
-    } else if (window.Kakao?.isInitialized()) {
-      setKakaoReady(true)
-    }
   }, [studentId])
 
   async function loadResult() {
@@ -106,6 +81,54 @@ export default function ResultPage() {
     }
   }
 
+  // 통합 공유 (이미지 + 문구)
+  const shareAll = async () => {
+    if (!result) return
+    
+    setSharing(true)
+    
+    try {
+      // Web Share API 지원 확인
+      if (navigator.share) {
+        const shareData: ShareData = { text: result.message }
+        
+        // 이미지가 있으면 파일로 변환
+        if (result.imageUrls.length > 0 && navigator.canShare) {
+          const files: File[] = []
+          for (let i = 0; i < result.imageUrls.length; i++) {
+            try {
+              const res = await fetch(result.imageUrls[i])
+              const blob = await res.blob()
+              files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
+            } catch (e) {
+              console.error('Image fetch error:', e)
+            }
+          }
+          
+          if (files.length > 0 && navigator.canShare({ files })) {
+            shareData.files = files
+          }
+        }
+        
+        await navigator.share(shareData)
+        setCopiedId('shared')
+        await markAsSent()
+        setTimeout(() => setCopiedId(null), 2000)
+      } else {
+        // Web Share API 미지원시 클립보드 복사
+        await copyToClipboard(result.message)
+        alert('문구가 복사되었습니다. 카카오톡에 붙여넣기 해주세요.')
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error)
+        await copyToClipboard(result.message)
+      }
+    } finally {
+      setSharing(false)
+    }
+  }
+
   const downloadImages = async () => {
     if (!result) return
     
@@ -123,90 +146,9 @@ export default function ResultPage() {
         URL.revokeObjectURL(url)
       }
       setCopiedId('download')
-      await markAsSent()
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Download failed:', error)
-      alert('이미지 다운로드에 실패했습니다.')
-    }
-  }
-
-  // 이미지 공유 (Web Share API 사용)
-  const shareImages = async () => {
-    if (!result || result.imageUrls.length === 0) return
-    
-    try {
-      if (navigator.share && navigator.canShare) {
-        const files: File[] = []
-        for (let i = 0; i < result.imageUrls.length; i++) {
-          try {
-            const res = await fetch(result.imageUrls[i])
-            const blob = await res.blob()
-            files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
-          } catch (e) {
-            console.error('Image fetch error:', e)
-          }
-        }
-        
-        if (files.length > 0 && navigator.canShare({ files })) {
-          await navigator.share({ 
-            files,
-            title: `${result.studentName} 작품 사진`
-          })
-          setCopiedId('share-image')
-          await markAsSent()
-          setTimeout(() => setCopiedId(null), 2000)
-          return
-        }
-      }
-      // 폴백: 다운로드
-      await downloadImages()
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-        await downloadImages()
-      }
-    }
-  }
-
-  // 문구 공유 (카카오톡 SDK 또는 Web Share API)
-  const shareMessage = async () => {
-    if (!result) return
-    
-    try {
-      // 1. 카카오톡 SDK 사용
-      if (kakaoReady && window.Kakao) {
-        window.Kakao.Share.sendDefault({
-          objectType: 'text',
-          text: result.message,
-          link: {
-            mobileWebUrl: window.location.origin,
-            webUrl: window.location.origin,
-          },
-        })
-        setCopiedId('share-message')
-        await markAsSent()
-        setTimeout(() => setCopiedId(null), 2000)
-        return
-      }
-      
-      // 2. Web Share API
-      if (navigator.share) {
-        await navigator.share({ text: result.message })
-        setCopiedId('share-message')
-        await markAsSent()
-        setTimeout(() => setCopiedId(null), 2000)
-        return
-      }
-      
-      // 3. 폴백: 클립보드 복사
-      await copyToClipboard(result.message)
-      await markAsSent()
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-        await copyToClipboard(result.message)
-      }
     }
   }
 
@@ -375,33 +317,31 @@ export default function ResultPage() {
 
         {!isEditing && (
           <div className="space-y-2">
+            {/* 모바일: 통합 공유 버튼 */}
             {isMobile ? (
-              <>
-                {result.imageUrls.length > 0 && (
-                  <button
-                    onClick={shareImages}
-                    className={`w-full py-4 rounded-2xl text-base font-medium transition flex items-center justify-center gap-2 ${
-                      copiedId === 'share-image' || copiedId === 'download'
-                        ? 'bg-green-500 text-white'
-                        : 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500'
-                    }`}
-                  >
-                    {copiedId === 'share-image' || copiedId === 'download' ? '✓ 공유됨' : '📤 이미지 카톡 공유'}
-                  </button>
+              <button
+                onClick={shareAll}
+                disabled={sharing}
+                className={`w-full py-4 rounded-2xl text-base font-medium transition flex items-center justify-center gap-2 ${
+                  copiedId === 'shared'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500'
+                }`}
+              >
+                {sharing ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-900"></div>
+                    준비 중...
+                  </>
+                ) : copiedId === 'shared' ? (
+                  '✓ 공유됨'
+                ) : (
+                  <>📤 카톡 공유하기 {result.imageUrls.length > 0 ? '(이미지+문구)' : '(문구)'}</>
                 )}
-                <button
-                  onClick={shareMessage}
-                  className={`w-full py-4 rounded-2xl text-base font-medium transition flex items-center justify-center gap-2 ${
-                    copiedId === 'share-message' || copiedId === 'message'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500'
-                  }`}
-                >
-                  {copiedId === 'share-message' || copiedId === 'message' ? '✓ 공유됨' : '📤 문구 카톡 공유'}
-                </button>
-              </>
+              </button>
             ) : (
               <>
+                {/* PC: 다운로드 + 복사 */}
                 {result.imageUrls.length > 0 && (
                   <button
                     onClick={downloadImages}
@@ -427,7 +367,7 @@ export default function ResultPage() {
               </>
             )}
 
-            {!isMobile && !result.isSent && (
+            {!result.isSent && (
               <button
                 onClick={markAsSent}
                 className="w-full py-3 rounded-2xl text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition"
