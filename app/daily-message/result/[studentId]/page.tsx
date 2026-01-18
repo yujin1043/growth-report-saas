@@ -106,13 +106,22 @@ export default function ResultPage() {
         }
       }
 
-      // 파일+텍스트 공유
+      // 파일+텍스트 공유 시도
       if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
-        await navigator.share({ text: result.message, files: files })
-        setCopiedId('shared')
-        await markAsSent()
-        setTimeout(() => setCopiedId(null), 2000)
-        return
+        try {
+          // 먼저 이미지만 공유
+          await navigator.share({ files: files })
+          
+          // 그 다음 텍스트 복사
+          await copyToClipboard(result.message)
+          
+          setCopiedId('shared')
+          await markAsSent()
+          setTimeout(() => setCopiedId(null), 2000)
+          return
+        } catch (e) {
+          console.error('파일 공유 실패:', e)
+        }
       }
 
       // 텍스트만 공유
