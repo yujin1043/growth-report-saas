@@ -81,18 +81,15 @@ export default function ResultPage() {
     }
   }
 
-  // 통합 공유 (이미지 + 문구)
   const shareAll = async () => {
     if (!result) return
     
     setSharing(true)
     
     try {
-      // Web Share API 지원 확인
       if (navigator.share) {
         const shareData: ShareData = { text: result.message }
         
-        // 이미지가 있으면 파일로 변환
         if (result.imageUrls.length > 0 && navigator.canShare) {
           const files: File[] = []
           for (let i = 0; i < result.imageUrls.length; i++) {
@@ -115,7 +112,6 @@ export default function ResultPage() {
         await markAsSent()
         setTimeout(() => setCopiedId(null), 2000)
       } else {
-        // Web Share API 미지원시 클립보드 복사
         await copyToClipboard(result.message)
         alert('문구가 복사되었습니다. 카카오톡에 붙여넣기 해주세요.')
       }
@@ -317,7 +313,6 @@ export default function ResultPage() {
 
         {!isEditing && (
           <div className="space-y-2">
-            {/* 모바일: 통합 공유 버튼 */}
             {isMobile ? (
               <button
                 onClick={shareAll}
@@ -341,7 +336,6 @@ export default function ResultPage() {
               </button>
             ) : (
               <>
-                {/* PC: 다운로드 + 복사 */}
                 {result.imageUrls.length > 0 && (
                   <button
                     onClick={downloadImages}

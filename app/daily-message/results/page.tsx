@@ -4,12 +4,6 @@ import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-declare global {
-  interface Window {
-    Kakao: any
-  }
-}
-
 interface Result {
   id: string
   studentId: string
@@ -26,10 +20,9 @@ export default function AllResultsPage() {
   const [results, setResults] = useState<Result[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [sharedStatus, setSharedStatus] = useState<Map<string, { image: boolean, message: boolean }>>(new Map())
+  const [sharingId, setSharingId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [kakaoReady, setKakaoReady] = useState(false)
 
   const filteredResults = useMemo(() => {
     if (searchQuery.trim() === '') {
@@ -50,25 +43,6 @@ export default function AllResultsPage() {
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
     loadResults()
-    
-    // 카카오 SDK 로드
-    if (typeof window !== 'undefined' && !window.Kakao) {
-      const script = document.createElement('script')
-      script.src = 'https://t1.kakaocdn.net/kakao_js_sdk/2.6.0/kakao.min.js'
-      script.async = true
-      script.onload = () => {
-        if (window.Kakao && !window.Kakao.isInitialized()) {
-          const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY
-          if (kakaoKey) {
-            window.Kakao.init(kakaoKey)
-            setKakaoReady(true)
-          }
-        }
-      }
-      document.head.appendChild(script)
-    } else if (window.Kakao?.isInitialized()) {
-      setKakaoReady(true)
-    }
   }, [])
 
   async function loadResults() {
@@ -132,38 +106,55 @@ export default function AllResultsPage() {
     }
   }
 
-  const handleImageAction = async (result: Result) => {
-    const newStatus = new Map(sharedStatus)
-    const current = newStatus.get(result.id) || { image: false, message: false }
-    current.image = true
-    newStatus.set(result.id, current)
-    setSharedStatus(newStatus)
-    
-    if (current.message) {
-      await markAsSent(result.id)
-    }
-  }
-
-  const handleMessageAction = async (result: Result) => {
-    const newStatus = new Map(sharedStatus)
-    const current = newStatus.get(result.id) || { image: false, message: false }
-    current.message = true
-    newStatus.set(result.id, current)
-    setSharedStatus(newStatus)
-    
-    if (current.image || result.imageUrls.length === 0) {
-      await markAsSent(result.id)
-    }
-  }
-
-  const copyToClipboard = async (text: string, id: string, result: Result) => {
+  const copyToClipboard = async (text: string, id: string) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedId(id)
-      await handleMessageAction(result)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
+    }
+  }
+
+  const shareAll = async (result: Result) => {
+    setSharingId(result.id)
+    
+    try {
+      if (navigator.share) {
+        const shareData: ShareData = { text: result.message }
+        
+        if (result.imageUrls.length > 0 && navigator.canShare) {
+          const files: File[] = []
+          for (let i = 0; i < result.imageUrls.length; i++) {
+            try {
+              const res = await fetch(result.imageUrls[i])
+              const blob = await res.blob()
+              files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
+            } catch (e) {
+              console.error('Image fetch error:', e)
+            }
+          }
+          
+          if (files.length > 0 && navigator.canShare({ files })) {
+            shareData.files = files
+          }
+        }
+        
+        await navigator.share(shareData)
+        setCopiedId(`shared-${result.id}`)
+        await markAsSent(result.id)
+        setTimeout(() => setCopiedId(null), 2000)
+      } else {
+        await copyToClipboard(result.message, result.id)
+        alert('문구가 복사되었습니다.')
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error)
+        await copyToClipboard(result.message, result.id)
+      }
+    } finally {
+      setSharingId(null)
     }
   }
 
@@ -181,75 +172,10 @@ export default function AllResultsPage() {
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
       }
-      setCopiedId(`download-${result.studentId}`)
-      await handleImageAction(result)
+      setCopiedId(`download-${result.id}`)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Download failed:', error)
-    }
-  }
-
-  const shareImages = async (result: Result) => {
-    if (result.imageUrls.length === 0) return
-    
-    try {
-      if (navigator.share && navigator.canShare) {
-        const files: File[] = []
-        for (let i = 0; i < result.imageUrls.length; i++) {
-          try {
-            const res = await fetch(result.imageUrls[i])
-            const blob = await res.blob()
-            files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
-          } catch (e) {
-            console.error('Image fetch error:', e)
-          }
-        }
-        
-        if (files.length > 0 && navigator.canShare({ files })) {
-          await navigator.share({ files, title: `${result.studentName} 작품 사진` })
-          setCopiedId(`share-img-${result.studentId}`)
-          await handleImageAction(result)
-          setTimeout(() => setCopiedId(null), 2000)
-          return
-        }
-      }
-      await downloadImages(result)
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-        await downloadImages(result)
-      }
-    }
-  }
-
-  const shareMessage = async (result: Result) => {
-    try {
-      if (kakaoReady && window.Kakao) {
-        window.Kakao.Share.sendDefault({
-          objectType: 'text',
-          text: result.message,
-          link: { mobileWebUrl: window.location.origin, webUrl: window.location.origin },
-        })
-        setCopiedId(`share-msg-${result.studentId}`)
-        await handleMessageAction(result)
-        setTimeout(() => setCopiedId(null), 2000)
-        return
-      }
-      
-      if (navigator.share) {
-        await navigator.share({ text: result.message })
-        setCopiedId(`share-msg-${result.studentId}`)
-        await handleMessageAction(result)
-        setTimeout(() => setCopiedId(null), 2000)
-        return
-      }
-      
-      await copyToClipboard(result.message, result.studentId, result)
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-        await copyToClipboard(result.message, result.studentId, result)
-      }
     }
   }
 
@@ -351,7 +277,6 @@ export default function AllResultsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* 미발송 섹션 */}
             {unsentResults.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-orange-200 overflow-hidden">
                 <div className="px-4 py-3 bg-orange-50 border-b border-orange-200">
@@ -361,7 +286,6 @@ export default function AllResultsPage() {
                   </h2>
                 </div>
                 
-                {/* 데스크톱 테이블 */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
@@ -406,21 +330,21 @@ export default function AllResultsPage() {
                                 <button
                                   onClick={() => downloadImages(result)}
                                   className={`px-2 py-1 rounded text-xs font-medium ${
-                                    copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image
+                                    copiedId === `download-${result.id}`
                                       ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                   }`}
                                 >
-                                  {copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image ? '✓' : '📥'}
+                                  {copiedId === `download-${result.id}` ? '✓' : '📥'}
                                 </button>
                               )}
                               <button
-                                onClick={() => copyToClipboard(result.message, result.studentId, result)}
+                                onClick={() => copyToClipboard(result.message, result.id)}
                                 className={`px-2 py-1 rounded text-xs font-medium ${
-                                  copiedId === result.studentId || sharedStatus.get(result.id)?.message
+                                  copiedId === result.id
                                     ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
                                 }`}
                               >
-                                {copiedId === result.studentId || sharedStatus.get(result.id)?.message ? '✓' : '📋'}
+                                {copiedId === result.id ? '✓' : '📋'}
                               </button>
                               <button
                                 onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
@@ -442,7 +366,6 @@ export default function AllResultsPage() {
                   </table>
                 </div>
 
-                {/* 모바일 카드 */}
                 <div className="md:hidden divide-y divide-gray-100">
                   {unsentResults.map(result => (
                     <div key={result.id} className="p-4">
@@ -465,25 +388,16 @@ export default function AllResultsPage() {
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{result.message}</p>
                       
                       <div className="flex gap-2">
-                        {result.imageUrls.length > 0 && (
-                          <button
-                            onClick={() => shareImages(result)}
-                            className={`flex-1 py-2 rounded-lg text-xs font-medium ${
-                              copiedId === `share-img-${result.studentId}` || copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image
-                                ? 'bg-green-500 text-white' : 'bg-yellow-400 text-yellow-900'
-                            }`}
-                          >
-                            {copiedId === `share-img-${result.studentId}` || copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image ? '✓' : '📤 이미지'}
-                          </button>
-                        )}
                         <button
-                          onClick={() => shareMessage(result)}
+                          onClick={() => shareAll(result)}
+                          disabled={sharingId === result.id}
                           className={`flex-1 py-2 rounded-lg text-xs font-medium ${
-                            copiedId === `share-msg-${result.studentId}` || sharedStatus.get(result.id)?.message
-                              ? 'bg-green-500 text-white' : 'bg-yellow-400 text-yellow-900'
+                            copiedId === `shared-${result.id}`
+                              ? 'bg-green-500 text-white' 
+                              : 'bg-yellow-400 text-yellow-900'
                           }`}
                         >
-                          {copiedId === `share-msg-${result.studentId}` || sharedStatus.get(result.id)?.message ? '✓' : '📤 문구'}
+                          {sharingId === result.id ? '준비중...' : copiedId === `shared-${result.id}` ? '✓ 공유됨' : '📤 공유'}
                         </button>
                         <button
                           onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
@@ -498,7 +412,6 @@ export default function AllResultsPage() {
               </div>
             )}
 
-            {/* 발송 완료 섹션 */}
             {sentResults.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-green-200 overflow-hidden opacity-80">
                 <div className="px-4 py-3 bg-green-50 border-b border-green-200">
@@ -508,7 +421,6 @@ export default function AllResultsPage() {
                   </h2>
                 </div>
                 
-                {/* 모바일 카드 */}
                 <div className="md:hidden divide-y divide-gray-100">
                   {sentResults.map(result => (
                     <div key={result.id} className="p-4">
@@ -525,7 +437,6 @@ export default function AllResultsPage() {
                   ))}
                 </div>
 
-                {/* 데스크톱 테이블 */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
