@@ -233,10 +233,14 @@ export default function DailyMessagePage() {
     setGenerating(true)
     
     const student = students.find(s => s.id === selectedStudentId)
-    if (!student) return
+    if (!student) {
+      setGenerating(false)
+      return
+    }
 
     const selectedTopic = curriculumTopics.find(t => t.id === selectedTopicId)
     
+    // 이름 처리
     const firstName = student.name.length >= 3 ? student.name.slice(1) : student.name
     const hasFinalConsonant = (str: string) => {
       const lastChar = str.charAt(str.length - 1)
@@ -248,151 +252,179 @@ export default function DailyMessagePage() {
     }
     const hasJongseong = hasFinalConsonant(firstName)
     const nameNun = firstName + (hasJongseong ? '이는' : '는')
-    const nameGa = firstName + (hasJongseong ? '이가' : '가')
+    const nameMan = firstName + (hasJongseong ? '이만의' : '만의')
 
     const currentYear = new Date().getFullYear()
     const studentAge = currentYear - student.birth_year + 1
 
-    let prompt = ''
+    let message = ''
     let topicTitle = ''
     
+    // 연령별 말투 설정
+    const isKindergarten = lessonType === 'curriculum' 
+      ? selectedTopic?.age_group === 'kindergarten'
+      : studentAge <= 7
+
+    const endingStyle = isKindergarten 
+      ? { doing: '해보았어요', did: '해주었답니다', nice: '예뻐요', great: '기특했어요' }
+      : { doing: '표현해주었습니다', did: '해보았습니다', nice: '인상적이에요', great: '훌륭했습니다' }
+
+    const emojis = ['🎨', '🖌️', '✨', '🌟', '💫', '🖼️', '👏', '😊']
+    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)]
+
     if (lessonType === 'curriculum' && selectedTopic) {
-      const baseTemplate = selectedTopic.parent_message_template || ''
-      const ageGroup = selectedTopic.age_group
       topicTitle = selectedTopic.title
+      const template = selectedTopic.parent_message_template || ''
+      const materials = selectedTopic.materials?.join(', ') || '다양한 재료'
+
+      // 템플릿 내용을 문장으로 분리하고 정리
+      const templateSentences = template
+        .replace(/합니다\./g, '해요.')
+        .replace(/합니다/g, '해요')
+        .replace(/줍니다\./g, '줘요.')
+        .replace(/줍니다/g, '줘요')
+        .replace(/됩니다\./g, '돼요.')
+        .replace(/됩니다/g, '돼요')
+        .split(/[.]\s*/)
+        .filter(s => s.trim().length > 10)
+        .slice(0, 3)
+        .join('. ')
+
+      // 1문장: 오늘 활동 소개
+      const sentence1 = `오늘 ${nameNun} ${topicTitle}을 ${materials}로 ${endingStyle.doing}.`
       
-      prompt = `당신은 미술학원 선생님입니다. 학부모에게 보낼 오늘의 수업 메시지를 작성해주세요.
+      // 2~4문장: 템플릿 내용 반영 (학생 주어로 변환)
+      const sentence2to4 = templateSentences
+        .replace(/이번 작품은/g, '')
+        .replace(/표현합니다/g, `표현${endingStyle.did}`)
+        .replace(/그려줍니다/g, `그려${endingStyle.did}`)
+        .replace(/그려요/g, `그려${endingStyle.did}`)
+        .replace(/묘사하여/g, '묘사하며')
+        .replace(/느낌을 줍니다/g, `느낌을 살려${endingStyle.did}`)
+        .replace(/느낌을 줘요/g, `느낌을 살려${endingStyle.did}`)
+        .trim()
 
-[학생 정보]
-- 이름: ${student.name} (메시지에서는 "${firstName}"으로 자연스럽게 호칭)
-- 연령대: ${ageGroup === 'kindergarten' ? '유치부' : '초등부'}
-
-[수업 정보]
-- 주제: ${selectedTopic.title}
-- 사용 재료: ${selectedTopic.materials?.join(', ') || ''}
-${progressStatus === 'started' ? '- 진행 상태: 오늘 처음 시작함' : ''}
-${progressStatus === 'completed' ? '- 진행 상태: 오늘 완성함' : ''}
-${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
-
-[참고 템플릿]
-${baseTemplate}
-
-[작성 규칙]
-1. 정확히 5문장으로 작성
-2. 문장 구조:
-   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작)
-   - 2문장: 구체적 기법/표현 설명
-   - 3문장: 배운 점이나 시도한 것
-   - 4문장: 아이의 태도/반응 칭찬
-   - 5문장: 마무리 격려 + 이모지 1개
-3. 톤: ${ageGroup === 'kindergarten' ? '따뜻하고 친근하게' : '기법 설명 포함'}
-4. 150-200자 내외`
-    } else {
-      let ageGroup: 'young' | 'middle' | 'upper'
-      let ageGroupLabel: string
-      
-      if (studentAge <= 7) {
-        ageGroup = 'young'
-        ageGroupLabel = '유치/저학년'
-      } else if (studentAge <= 10) {
-        ageGroup = 'middle'
-        ageGroupLabel = '중학년'
-      } else {
-        ageGroup = 'upper'
-        ageGroupLabel = '고학년'
+      // 진행 상태별 문구
+      let progressText = ''
+      if (progressStatus === 'started') {
+        progressText = '오늘 처음 시작한 작품이에요.'
+      } else if (progressStatus === 'none') {
+        progressText = '작품을 열심히 진행하고 있어요.'
+      } else if (progressStatus === 'completed') {
+        progressText = '오늘 작품을 멋지게 완성했어요!'
       }
 
+      // 5문장: 메모 + 마무리
+      const memoText = teacherMemo ? teacherMemo : `집중하며 작업하는 모습이 ${endingStyle.great}`
+      const sentence5 = `${progressText} ${memoText}. ${nameMan} 멋진 작품이에요! ${randomEmoji}`
+
+      message = `${sentence1} ${sentence2to4}. ${sentence5}`
+
+    } else {
+      // 자유화
       topicTitle = freeSubject
+      const materials = selectedMaterials.join(', ') || '다양한 재료'
 
-      prompt = `당신은 미술학원 선생님입니다. 학부모에게 보낼 오늘의 수업 메시지를 작성해주세요.
+      // 재료별 기법 설명
+      const materialTechniques: { [key: string]: string } = {
+        '연필': '선의 강약을 조절하며 형태를 잡아',
+        '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
+        '매직': '선명한 색감으로 또렷하게 표현하며',
+        '사인펜': '깔끔한 선으로 윤곽을 잡고',
+        '수채화': '물의 양을 조절하며 부드러운 색감을 만들어',
+        '아크릴': '선명하고 강렬한 색감으로',
+        '파스텔': '부드러운 색감과 그라데이션을 활용하여',
+        '점토': '손으로 형태를 만들며 입체감을 살려',
+        '스티커': '다양한 스티커로 작품을 꾸며',
+        '기타': '다양한 재료를 활용하여'
+      }
 
-[학생 정보]
-- 이름: ${student.name} (메시지에서는 "${firstName}"으로 자연스럽게 호칭)
-- 연령: ${studentAge}세 (${ageGroupLabel})
+      const mainMaterial = selectedMaterials[0] || '기타'
+      const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
 
-[수업 정보]
-- 자유화 주제: ${freeSubject}
-- 사용 재료: ${selectedMaterials.join(', ')}
-${progressStatus === 'started' ? '- 진행 상태: 오늘 처음 시작함' : ''}
-${progressStatus === 'completed' ? '- 진행 상태: 오늘 완성함' : ''}
-${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
+      // 진행 상태별 문구
+      let progressText = ''
+      if (progressStatus === 'started') {
+        progressText = '오늘 처음 시작한 작품이에요.'
+      } else if (progressStatus === 'none') {
+        progressText = '작품을 열심히 진행하고 있어요.'
+      } else if (progressStatus === 'completed') {
+        progressText = '오늘 작품을 멋지게 완성했어요!'
+      }
 
-[작성 규칙]
-1. 정확히 5문장으로 작성
-2. 문장 구조:
-   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작)
-   - 2문장: 관찰/표현 과정
-   - 3문장: 기법/재료 활용 설명
-   - 4문장: 아이의 강점/인상적인 점 칭찬
-   - 5문장: 마무리 기대 + 이모지 1개
-3. 150-200자 내외`
+      // 1문장: 오늘 활동 소개
+      const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 자유화를 ${endingStyle.doing}.`
+      
+      // 2문장: 재료/기법
+      const sentence2 = `${materials}를 사용하여 ${technique} ${endingStyle.did}.`
+      
+      // 3문장: 표현 과정
+      const sentence3 = `자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}.`
+      
+      // 4문장: 메모 또는 칭찬
+      const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
+      
+      // 5문장: 마무리
+      const sentence5 = `${nameMan} 멋진 작품이에요! ${randomEmoji}`
+
+      message = `${sentence1} ${sentence2} ${sentence3} ${memoText}. ${progressText} ${sentence5}`
     }
 
     try {
-      const response = await fetch('/api/generate-daily-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      })
+      // 기존 메시지 삭제
+      await supabase
+        .from('daily_messages')
+        .delete()
+        .eq('student_id', student.id)
+        .eq('teacher_id', userId)
 
-      if (response.ok) {
-        const data = await response.json()
-        
-        await supabase
-          .from('daily_messages')
-          .delete()
-          .eq('student_id', student.id)
-          .eq('teacher_id', userId)
+      const { data: studentData } = await supabase
+        .from('students')
+        .select('branch_id')
+        .eq('id', student.id)
+        .single()
 
-        const { data: studentData } = await supabase
-          .from('students')
-          .select('branch_id')
-          .eq('id', student.id)
-          .single()
+      // 새 메시지 저장
+      const { data: newMessage, error: insertError } = await supabase
+        .from('daily_messages')
+        .insert({
+          student_id: student.id,
+          teacher_id: userId,
+          branch_id: studentData?.branch_id || userBranchId,
+          message: message,
+          lesson_type: lessonType,
+          topic_title: topicTitle,
+          progress_status: progressStatus
+        })
+        .select()
+        .single()
 
-        const { data: newMessage, error: insertError } = await supabase
-          .from('daily_messages')
-          .insert({
-            student_id: student.id,
-            teacher_id: userId,
-            branch_id: studentData?.branch_id || userBranchId,
-            message: data.message,
-            lesson_type: lessonType,
-            topic_title: topicTitle,
-            progress_status: progressStatus
-          })
-          .select()
-          .single()
-
-        if (insertError) {
-          console.error('Insert error:', insertError)
-          alert('메시지 저장에 실패했습니다')
-          setGenerating(false)
-          return
-        }
-
-        if (images.length > 0 && newMessage) {
-          const uploadedUrls = await uploadImages(newMessage.id)
-          
-          for (let i = 0; i < uploadedUrls.length; i++) {
-            await supabase
-              .from('daily_message_images')
-              .insert({
-                daily_message_id: newMessage.id,
-                image_url: uploadedUrls[i],
-                image_order: i
-              })
-          }
-        }
-
-        router.push(`/daily-message/result/${student.id}`)
-      } else {
-        const errorData = await response.json()
-        alert(errorData.error || '메시지 생성에 실패했습니다')
+      if (insertError) {
+        console.error('Insert error:', insertError)
+        alert('메시지 저장에 실패했습니다')
+        setGenerating(false)
+        return
       }
+
+      // 이미지 업로드
+      if (images.length > 0 && newMessage) {
+        const uploadedUrls = await uploadImages(newMessage.id)
+        
+        for (let i = 0; i < uploadedUrls.length; i++) {
+          await supabase
+            .from('daily_message_images')
+            .insert({
+              daily_message_id: newMessage.id,
+              image_url: uploadedUrls[i],
+              image_order: i
+            })
+        }
+      }
+
+      router.push(`/daily-message/result/${student.id}`)
     } catch (error) {
-      console.error('Error generating message:', error)
-      alert('메시지 생성에 실패했습니다. 네트워크 연결을 확인해주세요.')
+      console.error('Error:', error)
+      alert('메시지 저장에 실패했습니다.')
     }
     
     setGenerating(false)
@@ -610,8 +642,8 @@ ${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
               <h2 className="font-semibold text-gray-800 mb-3">📊 진행 상태</h2>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { key: 'none', label: '선택 안함' },
                   { key: 'started', label: '시작' },
+                  { key: 'none', label: '진행중' },
                   { key: 'completed', label: '완성' }
                 ].map(status => (
                   <button

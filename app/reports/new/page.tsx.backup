@@ -1,5 +1,4 @@
 'use client'
-import { compressImage } from '@/lib/imageUtils'
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -326,8 +325,8 @@ function NewReportPage() {
 
     try {
       // 이미지를 Base64로 변환
-      const imageBeforeBase64 = await compressImage(imageBefore.croppedUrl, 800, 0.7)
-      const imageAfterBase64 = await compressImage(imageAfter.croppedUrl, 800, 0.7)
+      const imageBeforeBase64 = await convertToBase64(imageBefore.croppedUrl)
+      const imageAfterBase64 = await convertToBase64(imageAfter.croppedUrl)
 
       const response = await fetch('/api/generate-report', {
         method: 'POST',
