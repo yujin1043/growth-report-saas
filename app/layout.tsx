@@ -1,3 +1,4 @@
+import KakaoProvider from '@/components/KakaoProvider'
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -25,9 +26,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}><KakaoProvider>
         <AdminLayout>{children}</AdminLayout>
-      </body>
+      </KakaoProvider></body>
     </html>
   );
 }

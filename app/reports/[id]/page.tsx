@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 interface Report {
   id: string
@@ -114,15 +116,47 @@ export default function ReportDetailPage() {
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
 
-  const handlePrint = () => {
-    // 파일명 설정: 성장리포트_학생명_생성날짜
-    const today = new Date()
-    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
-    const fileName = `성장리포트_${student?.name || '학생'}_${dateStr}`
+  const handlePrint = async () => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
     
-    document.title = fileName
-    window.print()
-    document.title = '성장 리포트'
+    if (isMobile) {
+      // 모바일: PDF 다운로드
+      try {
+        const printArea = document.getElementById('print-area')
+        if (!printArea) return
+        
+        const canvas = await html2canvas(printArea, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff'
+        })
+        
+        const imgData = canvas.toDataURL('image/jpeg', 0.95)
+        const pdf = new jsPDF('p', 'mm', 'a4')
+        const pdfWidth = pdf.internal.pageSize.getWidth()
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight)
+        
+        const today = new Date()
+        const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
+        const fileName = `성장리포트_${student?.name || '학생'}_${dateStr}.pdf`
+        
+        pdf.save(fileName)
+      } catch (error) {
+        console.error('PDF 생성 실패:', error)
+        alert('PDF 생성에 실패했습니다. 다시 시도해주세요.')
+      }
+    } else {
+      // PC: 기존 인쇄 기능
+      const today = new Date()
+      const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
+      const fileName = `성장리포트_${student?.name || '학생'}_${dateStr}`
+      document.title = fileName
+      window.print()
+      document.title = '성장 리포트'
+    }
   }
 
   if (loading) {

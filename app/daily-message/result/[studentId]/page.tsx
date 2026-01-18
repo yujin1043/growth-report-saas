@@ -1,5 +1,11 @@
 'use client'
 
+declare global {
+  interface Window {
+    Kakao: any
+  }
+}
+
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -83,13 +89,42 @@ export default function ResultPage() {
 
   const shareAll = async () => {
     if (!result) return
-    
     setSharing(true)
-    
     try {
+      // 카카오톡 SDK 사용
+      if (window.Kakao && window.Kakao.isInitialized()) {
+        if (result.imageUrls.length > 0) {
+          window.Kakao.Share.sendDefault({
+            objectType: 'feed',
+            content: {
+              title: '오늘의 미술 수업 안내',
+              description: result.message.substring(0, 200),
+              imageUrl: result.imageUrls[0],
+              link: {
+                mobileWebUrl: window.location.href,
+                webUrl: window.location.href,
+              },
+            },
+            buttons: [],
+          })
+        } else {
+          window.Kakao.Share.sendDefault({
+            objectType: 'text',
+            text: result.message,
+            link: {
+              mobileWebUrl: window.location.href,
+              webUrl: window.location.href,
+            },
+          })
+        }
+        setCopiedId('shared')
+        await markAsSent()
+        setTimeout(() => setCopiedId(null), 2000)
+        return
+      }
+      // 카카오 SDK 없으면 Web Share API
       if (navigator.share) {
         const shareData: ShareData = { text: result.message }
-        
         if (result.imageUrls.length > 0 && navigator.canShare) {
           const files: File[] = []
           for (let i = 0; i < result.imageUrls.length; i++) {
@@ -101,12 +136,10 @@ export default function ResultPage() {
               console.error('Image fetch error:', e)
             }
           }
-          
           if (files.length > 0 && navigator.canShare({ files })) {
             shareData.files = files
           }
         }
-        
         await navigator.share(shareData)
         setCopiedId('shared')
         await markAsSent()
