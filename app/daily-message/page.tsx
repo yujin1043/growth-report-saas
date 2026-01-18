@@ -61,6 +61,9 @@ export default function DailyMessagePage() {
   const [allResultsCount, setAllResultsCount] = useState(0)
   const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
 
+  // 커리큘럼 선택 모달 상태
+  const [showCurriculumModal, setShowCurriculumModal] = useState(false)
+
   useEffect(() => {
     loadInitialData()
   }, [])
@@ -119,37 +122,28 @@ export default function DailyMessagePage() {
       }
     }
 
-    // 커리큘럼 조회 (admin은 전체, 나머지는 당월+전월만)
-    let topicsQuery = supabase
-    .from('curriculum_topics')
-    .select('*')
+    // 커리큘럼 조회
+    let topicsQuery = supabase.from('curriculum_topics').select('*')
 
     if (profile?.role !== 'admin') {
-    const now = new Date()
-    const currentYear = now.getFullYear()
-    const currentMonth = now.getMonth() + 1
-
-    // 전월 계산
-    let prevYear = currentYear
-    let prevMonth = currentMonth - 1
-    if (prevMonth === 0) {
-      prevMonth = 12
-      prevYear = currentYear - 1
-    }
-
-    topicsQuery = topicsQuery.or(
-      `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
-    )
+      const now = new Date()
+      const currentYear = now.getFullYear()
+      const currentMonth = now.getMonth() + 1
+      let prevYear = currentYear
+      let prevMonth = currentMonth - 1
+      if (prevMonth === 0) {
+        prevMonth = 12
+        prevYear = currentYear - 1
+      }
+      topicsQuery = topicsQuery.or(
+        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
+      )
     }
 
     const { data: topics } = await topicsQuery
-    .order('year', { ascending: false })
-    .order('month', { ascending: false })
-    .order('created_at')
-
-    if (topics) {
-    setCurriculumTopics(topics)
-    }
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
+      .order('created_at')
 
     if (topics) {
       setCurriculumTopics(topics)
@@ -285,20 +279,16 @@ ${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
 [참고 템플릿]
 ${baseTemplate}
 
-[작성 규칙 - 반드시 지켜주세요]
+[작성 규칙]
 1. 정확히 5문장으로 작성
 2. 문장 구조:
    - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작)
-   - 2문장: 구체적 기법/표현 설명 (물 조절, 붓 터치, 명암, 색 혼합 등)
+   - 2문장: 구체적 기법/표현 설명
    - 3문장: 배운 점이나 시도한 것
    - 4문장: 아이의 태도/반응 칭찬
    - 5문장: 마무리 격려 + 이모지 1개
-3. 톤: ${ageGroup === 'kindergarten' ? '따뜻하고 친근하게 ("~해보았어요", "~했답니다")' : '기법 설명 포함하며 ("~를 표현해 주었습니다", "~를 배워보았습니다")'}
-4. 기법 용어 자연스럽게 포함 (번짐, 그라데이션, 명암, 질감, 원근감, 붓터치, 물 농도 등)
-5. 150-200자 내외
-
-[좋은 예시]
-"오늘 서윤이는 수채화로 겨울 나무를 표현해보았어요. 물의 양을 조절하며 연한 색과 진한 색의 차이를 만들어보았답니다. 붓 터치를 달리하며 나뭇잎의 질감도 살려주었어요. 차분하게 집중하며 색을 겹쳐 칠하는 모습이 기특했어요! 서윤이만의 색감이 담긴 멋진 작품이에요 🎨"`
+3. 톤: ${ageGroup === 'kindergarten' ? '따뜻하고 친근하게' : '기법 설명 포함'}
+4. 150-200자 내외`
     } else {
       let ageGroup: 'young' | 'middle' | 'upper'
       let ageGroupLabel: string
@@ -315,28 +305,6 @@ ${baseTemplate}
       }
 
       topicTitle = freeSubject
-      
-      let toneGuide = ''
-      if (ageGroup === 'young') {
-        toneGuide = `- 따뜻하고 친근하게 ("~해보았어요", "~했답니다", "~예쁘게 꾸며주었어요")
-   - 활동의 즐거움과 시도한 점 위주로 칭찬`
-      } else if (ageGroup === 'middle') {
-        toneGuide = `- 균형잡힌 설명 ("~해주었습니다", "~표현했어요", "~시간을 가졌습니다")
-   - 관찰력과 표현력을 구체적으로 언급`
-      } else {
-        toneGuide = `- 전문적 기법 중심 ("~기법을 활용해", "~의 완성도를 높이며", "~점이 인상적입니다")
-   - 조형 감각, 구도, 명암, 질감 등 미술 용어 적극 사용
-   - 작품의 의도와 표현력에 대한 심층적 피드백`
-      }
-
-      let exampleMessage = ''
-      if (ageGroup === 'young') {
-        exampleMessage = `"오늘 아준이는 자유화로 예쁜 집과 동물친구들을 그려주었어요. 매직과 사인펜으로 강렬한 색감을 표현하고 여러 동물들의 형태를 관찰하는 시간을 가졌답니다. 각 동물의 특징을 살려 귀엽게 그려주었어요. 보석스티커로 반짝반짝 예쁘게 꾸며주는 모습이 기특했어요! 아준이만의 동물 마을이 완성되어가고 있어요 ☺️"`
-      } else if (ageGroup === 'middle') {
-        exampleMessage = `"오늘 수호는 자유화로 젤리곰들을 주인공으로 한 이야기를 그려보았습니다. 식탁 위 토마토와 함께 있는 젤리곰들의 배치와 구도를 고민하며 장면을 구성해주었어요. 사인펜으로 선명한 색감을 살리고 각 캐릭터의 표정도 다양하게 표현했습니다. 일상 속 소재를 재미있는 이야기로 풀어낸 상상력이 인상적이에요! 앞으로 완성될 작품이 기대됩니다 ☺️"`
-      } else {
-        exampleMessage = `"오늘 노엘이는 자유화로 우리나라 역사를 주제로 한 장면을 표현해주었습니다. 전쟁이라는 무거운 소재를 단순한 충돌이 아닌 시대적 배경과 나라를 지키려는 마음을 중심으로 풀어낸 점이 인상적이에요. 인물들의 동세와 구도를 고려하며 긴장감 있는 화면을 구성해주었습니다. 주제에 대한 깊은 이해와 조형적 표현력이 잘 드러난 작품입니다! 앞으로의 완성이 기대됩니다 👍"`
-      }
 
       prompt = `당신은 미술학원 선생님입니다. 학부모에게 보낼 오늘의 수업 메시지를 작성해주세요.
 
@@ -351,30 +319,15 @@ ${progressStatus === 'started' ? '- 진행 상태: 오늘 처음 시작함' : ''
 ${progressStatus === 'completed' ? '- 진행 상태: 오늘 완성함' : ''}
 ${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
 
-[작성 규칙 - 반드시 지켜주세요]
+[작성 규칙]
 1. 정확히 5문장으로 작성
 2. 문장 구조:
-   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작, 무엇을 그렸는지)
-   - 2문장: 관찰/표현 과정 (형태, 구도, 색감 등)
+   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작)
+   - 2문장: 관찰/표현 과정
    - 3문장: 기법/재료 활용 설명
    - 4문장: 아이의 강점/인상적인 점 칭찬
    - 5문장: 마무리 기대 + 이모지 1개
-
-3. 연령별 톤:
-   ${toneGuide}
-
-4. 재료별 기법 용어:
-   - 연필/색연필: 선의 강약, 명암 표현, 질감, 터치
-   - 수채화: 물 농도 조절, 번짐 효과, 색의 겹침, 붓터치, 그라데이션
-   - 아크릴: 색의 선명함, 덧칠, 임파스토, 질감
-   - 매직/사인펜: 강렬한 색감, 선명한 윤곽, 대비
-   - 파스텔: 부드러운 색감, 그라데이션, 블렌딩
-   - 점토: 형태 조형, 질감 표현, 입체감
-
-5. 150-200자 내외
-
-[좋은 예시]
-${exampleMessage}`
+3. 150-200자 내외`
     }
 
     try {
@@ -435,10 +388,13 @@ ${exampleMessage}`
         }
 
         router.push(`/daily-message/result/${student.id}`)
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || '메시지 생성에 실패했습니다')
       }
     } catch (error) {
       console.error('Error generating message:', error)
-      alert('메시지 생성에 실패했습니다')
+      alert('메시지 생성에 실패했습니다. 네트워크 연결을 확인해주세요.')
     }
     
     setGenerating(false)
@@ -454,6 +410,7 @@ ${exampleMessage}`
   }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
 
   const selectedStudent = students.find(s => s.id === selectedStudentId)
+  const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
 
   if (loading) {
     return (
@@ -602,22 +559,18 @@ ${exampleMessage}`
             {lessonType === 'curriculum' && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
                 <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
-                <select
-                  value={selectedTopicId}
-                  onChange={(e) => setSelectedTopicId(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                <button
+                  onClick={() => setShowCurriculumModal(true)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
                 >
-                  <option value="">선택해주세요</option>
-                  {Object.values(groupedTopics).map(group => (
-                    <optgroup key={`${group.year}-${group.month}`} label={`${group.year}년 ${group.month}월`}>
-                      {group.topics.map(topic => (
-                        <option key={topic.id} value={topic.id}>
-                          {topic.title} ({topic.materials?.join(', ') || ''}) [{topic.age_group === 'kindergarten' ? '유치' : '초등'}]
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
+                    {selectedTopicData 
+                      ? `${selectedTopicData.title} (${selectedTopicData.materials?.join(', ') || ''}) [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
+                      : '선택해주세요'
+                    }
+                  </span>
+                  <span className="text-gray-400">▼</span>
+                </button>
               </div>
             )}
 
@@ -709,6 +662,66 @@ ${exampleMessage}`
           </>
         )}
       </div>
+
+      {/* 커리큘럼 선택 모달 */}
+      {showCurriculumModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
+          <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-t-3xl md:rounded-2xl overflow-hidden">
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between z-10">
+              <h3 className="font-bold text-gray-800 text-lg">주제 선택</h3>
+              <button 
+                onClick={() => setShowCurriculumModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto max-h-[calc(80vh-60px)]">
+              {Object.values(groupedTopics).map(group => (
+                <div key={`${group.year}-${group.month}`}>
+                  <div className="sticky top-0 bg-gray-50 px-4 py-2 border-b border-gray-100">
+                    <span className="font-semibold text-gray-700">{group.year}년 {group.month}월</span>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {group.topics.map(topic => (
+                      <button
+                        key={topic.id}
+                        onClick={() => {
+                          setSelectedTopicId(topic.id)
+                          setShowCurriculumModal(false)
+                        }}
+                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
+                          selectedTopicId === topic.id ? 'bg-teal-50' : ''
+                        }`}
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">{topic.title}</p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {topic.materials?.join(', ') || ''}
+                            <span className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
+                              {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                            </span>
+                          </p>
+                        </div>
+                        {selectedTopicId === topic.id && (
+                          <span className="text-teal-500 text-xl">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              
+              {curriculumTopics.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  <p>등록된 커리큘럼이 없습니다</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

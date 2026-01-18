@@ -4,6 +4,12 @@ import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+declare global {
+  interface Window {
+    Kakao: any
+  }
+}
+
 interface Result {
   id: string
   studentId: string
@@ -23,8 +29,8 @@ export default function AllResultsPage() {
   const [sharedStatus, setSharedStatus] = useState<Map<string, { image: boolean, message: boolean }>>(new Map())
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [kakaoReady, setKakaoReady] = useState(false)
 
-  // 검색 필터링 - useMemo로 최적화
   const filteredResults = useMemo(() => {
     if (searchQuery.trim() === '') {
       return results
@@ -36,7 +42,6 @@ export default function AllResultsPage() {
     )
   }, [searchQuery, results])
 
-  // 미발송/발송 분리 - useMemo로 최적화
   const { unsentResults, sentResults } = useMemo(() => ({
     unsentResults: filteredResults.filter(r => !r.isSent),
     sentResults: filteredResults.filter(r => r.isSent)
@@ -45,57 +50,55 @@ export default function AllResultsPage() {
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
     loadResults()
+    
+    // 카카오 SDK 로드
+    if (typeof window !== 'undefined' && !window.Kakao) {
+      const script = document.createElement('script')
+      script.src = 'https://t1.kakaocdn.net/kakao_js_sdk/2.6.0/kakao.min.js'
+      script.async = true
+      script.onload = () => {
+        if (window.Kakao && !window.Kakao.isInitialized()) {
+          const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY
+          if (kakaoKey) {
+            window.Kakao.init(kakaoKey)
+            setKakaoReady(true)
+          }
+        }
+      }
+      document.head.appendChild(script)
+    } else if (window.Kakao?.isInitialized()) {
+      setKakaoReady(true)
+    }
   }, [])
 
   async function loadResults() {
     try {
-      // 1. 메시지 조회
       const { data: messages, error: messagesError } = await supabase
         .from('daily_messages')
         .select('id, student_id, message, is_sent, created_at')
         .gte('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false })
 
-      if (messagesError) {
-        console.error('Messages error:', messagesError)
+      if (messagesError || !messages || messages.length === 0) {
         setLoading(false)
         return
       }
 
-      if (!messages || messages.length === 0) {
-        setLoading(false)
-        return
-      }
-
-      // 2. 학생 정보와 이미지 정보를 병렬로 조회 (최적화!)
       const studentIds = [...new Set(messages.map(m => m.student_id))]
       const messageIds = messages.map(m => m.id)
 
       const [studentsResult, imagesResult] = await Promise.all([
-        supabase
-          .from('students')
-          .select('id, name')
-          .in('id', studentIds),
-        supabase
-          .from('daily_message_images')
-          .select('daily_message_id, image_url')
-          .in('daily_message_id', messageIds)
-          .order('image_order')
+        supabase.from('students').select('id, name').in('id', studentIds),
+        supabase.from('daily_message_images').select('daily_message_id, image_url').in('daily_message_id', messageIds).order('image_order')
       ])
 
-      // 학생 맵 생성
-      const studentMap = new Map(
-        studentsResult.data?.map(s => [s.id, s.name]) || []
-      )
-
-      // 이미지 맵 생성
+      const studentMap = new Map(studentsResult.data?.map(s => [s.id, s.name]) || [])
       const imageMap = new Map<string, string[]>()
       imagesResult.data?.forEach(img => {
         const existing = imageMap.get(img.daily_message_id) || []
         imageMap.set(img.daily_message_id, [...existing, img.image_url])
       })
 
-      // 결과 조합
       const resultList: Result[] = messages.map(msg => ({
         id: msg.id,
         studentId: msg.student_id,
@@ -164,49 +167,6 @@ export default function AllResultsPage() {
     }
   }
 
-  const shareImages = async (result: Result) => {
-    if (result.imageUrls.length === 0) return
-    
-    try {
-      if (navigator.share && navigator.canShare) {
-        const files: File[] = []
-        for (let i = 0; i < result.imageUrls.length; i++) {
-          const res = await fetch(result.imageUrls[i])
-          const blob = await res.blob()
-          files.push(new File([blob], `작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
-        }
-        
-        if (navigator.canShare({ files })) {
-          await navigator.share({ files })
-          setCopiedId(`share-img-${result.studentId}`)
-          await handleImageAction(result)
-          setTimeout(() => setCopiedId(null), 2000)
-        }
-      }
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-      }
-    }
-  }
-
-  const shareMessage = async (result: Result) => {
-    try {
-      if (navigator.share) {
-        await navigator.share({ text: result.message })
-        setCopiedId(`share-msg-${result.studentId}`)
-        await handleMessageAction(result)
-        setTimeout(() => setCopiedId(null), 2000)
-      } else {
-        await copyToClipboard(result.message, result.studentId, result)
-      }
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Share failed:', error)
-      }
-    }
-  }
-
   const downloadImages = async (result: Result) => {
     try {
       for (let i = 0; i < result.imageUrls.length; i++) {
@@ -229,15 +189,75 @@ export default function AllResultsPage() {
     }
   }
 
+  const shareImages = async (result: Result) => {
+    if (result.imageUrls.length === 0) return
+    
+    try {
+      if (navigator.share && navigator.canShare) {
+        const files: File[] = []
+        for (let i = 0; i < result.imageUrls.length; i++) {
+          try {
+            const res = await fetch(result.imageUrls[i])
+            const blob = await res.blob()
+            files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
+          } catch (e) {
+            console.error('Image fetch error:', e)
+          }
+        }
+        
+        if (files.length > 0 && navigator.canShare({ files })) {
+          await navigator.share({ files, title: `${result.studentName} 작품 사진` })
+          setCopiedId(`share-img-${result.studentId}`)
+          await handleImageAction(result)
+          setTimeout(() => setCopiedId(null), 2000)
+          return
+        }
+      }
+      await downloadImages(result)
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error)
+        await downloadImages(result)
+      }
+    }
+  }
+
+  const shareMessage = async (result: Result) => {
+    try {
+      if (kakaoReady && window.Kakao) {
+        window.Kakao.Share.sendDefault({
+          objectType: 'text',
+          text: result.message,
+          link: { mobileWebUrl: window.location.origin, webUrl: window.location.origin },
+        })
+        setCopiedId(`share-msg-${result.studentId}`)
+        await handleMessageAction(result)
+        setTimeout(() => setCopiedId(null), 2000)
+        return
+      }
+      
+      if (navigator.share) {
+        await navigator.share({ text: result.message })
+        setCopiedId(`share-msg-${result.studentId}`)
+        await handleMessageAction(result)
+        setTimeout(() => setCopiedId(null), 2000)
+        return
+      }
+      
+      await copyToClipboard(result.message, result.studentId, result)
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error)
+        await copyToClipboard(result.message, result.studentId, result)
+      }
+    }
+  }
+
   const deleteResult = async (messageId: string) => {
     if (!confirm('삭제하시겠습니까?')) return
     
     try {
-      await supabase
-        .from('daily_messages')
-        .delete()
-        .eq('id', messageId)
-
+      await supabase.from('daily_messages').delete().eq('id', messageId)
       setResults(prev => prev.filter(r => r.id !== messageId))
     } catch (error) {
       console.error('Delete failed:', error)
@@ -249,17 +269,11 @@ export default function AllResultsPage() {
 
     try {
       const messageIds = results.map(r => r.id)
-      
-      // 배치로 삭제 (최적화)
       const batchSize = 100
       for (let i = 0; i < messageIds.length; i += batchSize) {
         const batch = messageIds.slice(i, i + batchSize)
-        await supabase
-          .from('daily_messages')
-          .delete()
-          .in('id', batch)
+        await supabase.from('daily_messages').delete().in('id', batch)
       }
-
       setResults([])
     } catch (error) {
       console.error('Clear all failed:', error)
@@ -337,6 +351,7 @@ export default function AllResultsPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* 미발송 섹션 */}
             {unsentResults.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-orange-200 overflow-hidden">
                 <div className="px-4 py-3 bg-orange-50 border-b border-orange-200">
@@ -346,6 +361,7 @@ export default function AllResultsPage() {
                   </h2>
                 </div>
                 
+                {/* 데스크톱 테이블 */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
@@ -382,9 +398,7 @@ export default function AllResultsPage() {
                             </div>
                           </td>
                           <td className="px-5 py-4">
-                            <p className="text-sm text-gray-600 line-clamp-2 max-w-xs">
-                              {result.message}
-                            </p>
+                            <p className="text-sm text-gray-600 line-clamp-2 max-w-xs">{result.message}</p>
                           </td>
                           <td className="px-5 py-4">
                             <div className="flex items-center justify-center gap-1">
@@ -393,8 +407,7 @@ export default function AllResultsPage() {
                                   onClick={() => downloadImages(result)}
                                   className={`px-2 py-1 rounded text-xs font-medium ${
                                     copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image
-                                      ? 'bg-green-500 text-white'
-                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                      ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                   }`}
                                 >
                                   {copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image ? '✓' : '📥'}
@@ -404,8 +417,7 @@ export default function AllResultsPage() {
                                 onClick={() => copyToClipboard(result.message, result.studentId, result)}
                                 className={`px-2 py-1 rounded text-xs font-medium ${
                                   copiedId === result.studentId || sharedStatus.get(result.id)?.message
-                                    ? 'bg-green-500 text-white'
-                                    : 'bg-teal-500 text-white hover:bg-teal-600'
+                                    ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
                                 }`}
                               >
                                 {copiedId === result.studentId || sharedStatus.get(result.id)?.message ? '✓' : '📋'}
@@ -430,6 +442,7 @@ export default function AllResultsPage() {
                   </table>
                 </div>
 
+                {/* 모바일 카드 */}
                 <div className="md:hidden divide-y divide-gray-100">
                   {unsentResults.map(result => (
                     <div key={result.id} className="p-4">
@@ -438,12 +451,7 @@ export default function AllResultsPage() {
                           <span className="font-medium text-gray-800">{result.studentName}</span>
                           <span className="text-xs text-gray-400">{formatDate(result.createdAt)}</span>
                         </div>
-                        <button
-                          onClick={() => deleteResult(result.id)}
-                          className="text-red-400 text-xs"
-                        >
-                          삭제
-                        </button>
+                        <button onClick={() => deleteResult(result.id)} className="text-red-400 text-xs">삭제</button>
                       </div>
                       
                       {result.imageUrls.length > 0 && (
@@ -461,20 +469,18 @@ export default function AllResultsPage() {
                           <button
                             onClick={() => shareImages(result)}
                             className={`flex-1 py-2 rounded-lg text-xs font-medium ${
-                              copiedId === `share-img-${result.studentId}` || sharedStatus.get(result.id)?.image
-                                ? 'bg-green-500 text-white'
-                                : 'bg-yellow-400 text-yellow-900'
+                              copiedId === `share-img-${result.studentId}` || copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image
+                                ? 'bg-green-500 text-white' : 'bg-yellow-400 text-yellow-900'
                             }`}
                           >
-                            {copiedId === `share-img-${result.studentId}` || sharedStatus.get(result.id)?.image ? '✓' : '📤 이미지'}
+                            {copiedId === `share-img-${result.studentId}` || copiedId === `download-${result.studentId}` || sharedStatus.get(result.id)?.image ? '✓' : '📤 이미지'}
                           </button>
                         )}
                         <button
                           onClick={() => shareMessage(result)}
                           className={`flex-1 py-2 rounded-lg text-xs font-medium ${
                             copiedId === `share-msg-${result.studentId}` || sharedStatus.get(result.id)?.message
-                              ? 'bg-green-500 text-white'
-                              : 'bg-yellow-400 text-yellow-900'
+                              ? 'bg-green-500 text-white' : 'bg-yellow-400 text-yellow-900'
                           }`}
                         >
                           {copiedId === `share-msg-${result.studentId}` || sharedStatus.get(result.id)?.message ? '✓' : '📤 문구'}
@@ -492,6 +498,7 @@ export default function AllResultsPage() {
               </div>
             )}
 
+            {/* 발송 완료 섹션 */}
             {sentResults.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-green-200 overflow-hidden opacity-80">
                 <div className="px-4 py-3 bg-green-50 border-b border-green-200">
@@ -501,13 +508,30 @@ export default function AllResultsPage() {
                   </h2>
                 </div>
                 
+                {/* 모바일 카드 */}
+                <div className="md:hidden divide-y divide-gray-100">
+                  {sentResults.map(result => (
+                    <div key={result.id} className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800">{result.studentName}</span>
+                          <span className="text-green-500 text-xs">✓</span>
+                          <span className="text-xs text-gray-400">{formatDate(result.createdAt)}</span>
+                        </div>
+                        <button onClick={() => deleteResult(result.id)} className="text-red-400 text-xs">삭제</button>
+                      </div>
+                      <p className="text-sm text-gray-600 line-clamp-2">{result.message}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 데스크톱 테이블 */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">날짜</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">이름</th>
-                        <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">사진</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">문구</th>
                         <th className="px-5 py-3 text-center text-sm font-medium text-gray-600">액션</th>
                       </tr>
@@ -515,9 +539,7 @@ export default function AllResultsPage() {
                     <tbody className="divide-y divide-gray-100">
                       {sentResults.map(result => (
                         <tr key={result.id} className="hover:bg-gray-50">
-                          <td className="px-5 py-4 text-sm text-gray-500 whitespace-nowrap">
-                            {formatDate(result.createdAt)}
-                          </td>
+                          <td className="px-5 py-4 text-sm text-gray-500 whitespace-nowrap">{formatDate(result.createdAt)}</td>
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-gray-800">{result.studentName}</span>
@@ -525,24 +547,7 @@ export default function AllResultsPage() {
                             </div>
                           </td>
                           <td className="px-5 py-4">
-                            <div className="flex gap-1">
-                              {result.imageUrls.slice(0, 3).map((url, i) => (
-                                <img key={i} src={url} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                              ))}
-                              {result.imageUrls.length > 3 && (
-                                <span className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500">
-                                  +{result.imageUrls.length - 3}
-                                </span>
-                              )}
-                              {result.imageUrls.length === 0 && (
-                                <span className="text-gray-400 text-sm">-</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <p className="text-sm text-gray-600 line-clamp-2 max-w-xs">
-                              {result.message}
-                            </p>
+                            <p className="text-sm text-gray-600 line-clamp-2 max-w-xs">{result.message}</p>
                           </td>
                           <td className="px-5 py-4">
                             <div className="flex items-center justify-center gap-1">
@@ -564,28 +569,6 @@ export default function AllResultsPage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
-
-                <div className="md:hidden divide-y divide-gray-100">
-                  {sentResults.map(result => (
-                    <div key={result.id} className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-800">{result.studentName}</span>
-                          <span className="text-green-500 text-xs">✓</span>
-                          <span className="text-xs text-gray-400">{formatDate(result.createdAt)}</span>
-                        </div>
-                        <button
-                          onClick={() => deleteResult(result.id)}
-                          className="text-red-400 text-xs"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                      
-                      <p className="text-sm text-gray-600 line-clamp-2">{result.message}</p>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
