@@ -101,25 +101,18 @@ export default function ResultPage() {
             const file = new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
             files.push(file)
           } catch (e) {
-            alert('이미지 로드 실패: ' + e)
+            console.error('이미지 로드 실패:', e)
           }
         }
       }
 
-      alert(`파일 개수: ${files.length}, navigator.share: ${!!navigator.share}, navigator.canShare: ${!!navigator.canShare}`)
-
-      // 파일+텍스트 공유 시도
-      if (navigator.share && files.length > 0) {
-        const canShareFiles = navigator.canShare && navigator.canShare({ files })
-        alert(`canShareFiles: ${canShareFiles}`)
-        
-        if (canShareFiles) {
-          await navigator.share({ text: result.message, files: files })
-          setCopiedId('shared')
-          await markAsSent()
-          setTimeout(() => setCopiedId(null), 2000)
-          return
-        }
+      // 파일+텍스트 공유
+      if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
+        await navigator.share({ text: result.message, files: files })
+        setCopiedId('shared')
+        await markAsSent()
+        setTimeout(() => setCopiedId(null), 2000)
+        return
       }
 
       // 텍스트만 공유
@@ -133,11 +126,12 @@ export default function ResultPage() {
 
       // 클립보드 복사
       await copyToClipboard(result.message)
-      alert('문구가 복사되었습니다.')
       
     } catch (error: any) {
-      alert('에러: ' + error.message)
-      await copyToClipboard(result.message)
+      if (error.name !== 'AbortError') {
+        console.error('공유 실패:', error)
+        await copyToClipboard(result.message)
+      }
     } finally {
       setSharing(false)
     }
