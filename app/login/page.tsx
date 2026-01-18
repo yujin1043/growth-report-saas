@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -11,6 +11,15 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // 이미 로그인 되어있으면 대시보드로 이동
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        router.push('/dashboard')
+      }
+    })
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -36,10 +45,11 @@ export default function LoginPage() {
       {/* 왼쪽: 브랜드 영역 */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-teal-500 via-teal-600 to-cyan-600 p-12 flex-col justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-white mb-2">
-            그리마미술
+          <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3">
+            <span>🎨</span>
+            그리마노트
           </h1>
-          <p className="text-teal-100 text-lg">성장리포트 시스템</p>
+          <p className="text-teal-100 text-lg">그리마미술 학생 관리 시스템</p>
         </div>
         
         <div className="space-y-8">
@@ -50,15 +60,15 @@ export default function LoginPage() {
             <ul className="space-y-3 text-teal-50">
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
-                AI 기반 리포트 자동 생성
+                일일 수업 메시지 발송
               </li>
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
-                학생별 성장 히스토리 관리
+                AI 기반 성장 리포트 생성
               </li>
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
-                전문적인 PDF 리포트 출력
+                학생별 상담 일지 관리
               </li>
             </ul>
           </div>
@@ -70,18 +80,23 @@ export default function LoginPage() {
       </div>
 
       {/* 오른쪽: 로그인 폼 */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-gray-50">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50">
         <div className="w-full max-w-md">
           {/* 모바일 로고 */}
           <div className="lg:hidden text-center mb-8">
-            <h1 className="text-3xl font-bold text-teal-600 mb-1">🎨 그리마미술</h1>
-            <p className="text-gray-500">성장리포트 시스템</p>
+            <h1 className="text-3xl font-bold flex items-center justify-center gap-2 mb-1">
+              <span>🎨</span>
+              <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
+                그리마노트
+              </span>
+            </h1>
+            <p className="text-slate-500">그리마미술 학생 관리 시스템</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-800">로그인</h2>
-              <p className="text-gray-500 mt-2">계정 정보를 입력해주세요</p>
+              <h2 className="text-2xl font-bold text-slate-800">로그인</h2>
+              <p className="text-slate-500 mt-2">계정 정보를 입력해주세요</p>
             </div>
 
             {error && (
@@ -92,11 +107,11 @@ export default function LoginPage() {
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
                   이메일
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     ✉️
                   </span>
                   <input
@@ -105,17 +120,17 @@ export default function LoginPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@grimaart.com"
                     required
-                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                    className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
                   비밀번호
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     🔒
                   </span>
                   <input
@@ -124,12 +139,12 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    className="w-full pl-12 pr-12 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                    className="w-full pl-12 pr-12 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
                   >
                     {showPassword ? '🙈' : '👁️'}
                   </button>
@@ -154,8 +169,8 @@ export default function LoginPage() {
             </form>
           </div>
 
-          <p className="text-center text-gray-400 text-sm mt-8">
-            문의: contact@grimart.com
+          <p className="text-center text-slate-400 text-sm mt-8">
+            문의: contact@grimaart.com
           </p>
         </div>
       </div>

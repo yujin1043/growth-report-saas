@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -18,87 +18,115 @@ export default function AllResultsPage() {
   const router = useRouter()
   
   const [results, setResults] = useState<Result[]>([])
-  const [filteredResults, setFilteredResults] = useState<Result[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sharedStatus, setSharedStatus] = useState<Map<string, { image: boolean, message: boolean }>>(new Map())
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // 검색 필터링 - useMemo로 최적화
+  const filteredResults = useMemo(() => {
+    if (searchQuery.trim() === '') {
+      return results
+    }
+    const query = searchQuery.toLowerCase()
+    return results.filter(r => 
+      r.studentName.toLowerCase().includes(query) ||
+      r.studentId.toLowerCase().includes(query)
+    )
+  }, [searchQuery, results])
+
+  // 미발송/발송 분리 - useMemo로 최적화
+  const { unsentResults, sentResults } = useMemo(() => ({
+    unsentResults: filteredResults.filter(r => !r.isSent),
+    sentResults: filteredResults.filter(r => r.isSent)
+  }), [filteredResults])
+
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
     loadResults()
   }, [])
 
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredResults(results)
-    } else {
-      const query = searchQuery.toLowerCase()
-      setFilteredResults(results.filter(r => 
-        r.studentName.toLowerCase().includes(query) ||
-        r.studentId.toLowerCase().includes(query)
-      ))
-    }
-  }, [searchQuery, results])
-
   async function loadResults() {
-    const { data: messages } = await supabase
-      .from('daily_messages')
-      .select('id, student_id, message, is_sent, created_at')
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
+    try {
+      // 1. 메시지 조회
+      const { data: messages, error: messagesError } = await supabase
+        .from('daily_messages')
+        .select('id, student_id, message, is_sent, created_at')
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
 
-    if (!messages || messages.length === 0) {
+      if (messagesError) {
+        console.error('Messages error:', messagesError)
+        setLoading(false)
+        return
+      }
+
+      if (!messages || messages.length === 0) {
+        setLoading(false)
+        return
+      }
+
+      // 2. 학생 정보와 이미지 정보를 병렬로 조회 (최적화!)
+      const studentIds = [...new Set(messages.map(m => m.student_id))]
+      const messageIds = messages.map(m => m.id)
+
+      const [studentsResult, imagesResult] = await Promise.all([
+        supabase
+          .from('students')
+          .select('id, name')
+          .in('id', studentIds),
+        supabase
+          .from('daily_message_images')
+          .select('daily_message_id, image_url')
+          .in('daily_message_id', messageIds)
+          .order('image_order')
+      ])
+
+      // 학생 맵 생성
+      const studentMap = new Map(
+        studentsResult.data?.map(s => [s.id, s.name]) || []
+      )
+
+      // 이미지 맵 생성
+      const imageMap = new Map<string, string[]>()
+      imagesResult.data?.forEach(img => {
+        const existing = imageMap.get(img.daily_message_id) || []
+        imageMap.set(img.daily_message_id, [...existing, img.image_url])
+      })
+
+      // 결과 조합
+      const resultList: Result[] = messages.map(msg => ({
+        id: msg.id,
+        studentId: msg.student_id,
+        studentName: studentMap.get(msg.student_id) || '',
+        message: msg.message,
+        imageUrls: imageMap.get(msg.id) || [],
+        isSent: msg.is_sent,
+        createdAt: msg.created_at
+      }))
+
+      setResults(resultList)
+    } catch (error) {
+      console.error('Load results error:', error)
+    } finally {
       setLoading(false)
-      return
     }
-
-    const studentIds = [...new Set(messages.map(m => m.student_id))]
-    const { data: students } = await supabase
-      .from('students')
-      .select('id, name')
-      .in('id', studentIds)
-
-    const studentMap = new Map(students?.map(s => [s.id, s.name]) || [])
-
-    const messageIds = messages.map(m => m.id)
-    const { data: images } = await supabase
-      .from('daily_message_images')
-      .select('daily_message_id, image_url')
-      .in('daily_message_id', messageIds)
-      .order('image_order')
-
-    const imageMap = new Map<string, string[]>()
-    images?.forEach(img => {
-      const existing = imageMap.get(img.daily_message_id) || []
-      imageMap.set(img.daily_message_id, [...existing, img.image_url])
-    })
-
-    const resultList: Result[] = messages.map(msg => ({
-      id: msg.id,
-      studentId: msg.student_id,
-      studentName: studentMap.get(msg.student_id) || '',
-      message: msg.message,
-      imageUrls: imageMap.get(msg.id) || [],
-      isSent: msg.is_sent,
-      createdAt: msg.created_at
-    }))
-
-    setResults(resultList)
-    setFilteredResults(resultList)
-    setLoading(false)
   }
 
   const markAsSent = async (messageId: string) => {
-    await supabase
-      .from('daily_messages')
-      .update({ is_sent: true, sent_at: new Date().toISOString() })
-      .eq('id', messageId)
+    try {
+      await supabase
+        .from('daily_messages')
+        .update({ is_sent: true, sent_at: new Date().toISOString() })
+        .eq('id', messageId)
 
-    setResults(prev => prev.map(r => 
-      r.id === messageId ? { ...r, isSent: true } : r
-    ))
+      setResults(prev => prev.map(r => 
+        r.id === messageId ? { ...r, isSent: true } : r
+      ))
+    } catch (error) {
+      console.error('Mark as sent error:', error)
+    }
   }
 
   const handleImageAction = async (result: Result) => {
@@ -126,10 +154,14 @@ export default function AllResultsPage() {
   }
 
   const copyToClipboard = async (text: string, id: string, result: Result) => {
-    await navigator.clipboard.writeText(text)
-    setCopiedId(id)
-    await handleMessageAction(result)
-    setTimeout(() => setCopiedId(null), 2000)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(id)
+      await handleMessageAction(result)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (error) {
+      console.error('Copy failed:', error)
+    }
   }
 
   const shareImages = async (result: Result) => {
@@ -176,44 +208,62 @@ export default function AllResultsPage() {
   }
 
   const downloadImages = async (result: Result) => {
-    for (let i = 0; i < result.imageUrls.length; i++) {
-      const response = await fetch(result.imageUrls[i])
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${result.studentName}_작품_${i + 1}.jpg`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+    try {
+      for (let i = 0; i < result.imageUrls.length; i++) {
+        const response = await fetch(result.imageUrls[i])
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${result.studentName}_작품_${i + 1}.jpg`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      }
+      setCopiedId(`download-${result.studentId}`)
+      await handleImageAction(result)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (error) {
+      console.error('Download failed:', error)
     }
-    setCopiedId(`download-${result.studentId}`)
-    await handleImageAction(result)
-    setTimeout(() => setCopiedId(null), 2000)
   }
 
   const deleteResult = async (messageId: string) => {
     if (!confirm('삭제하시겠습니까?')) return
     
-    await supabase
-      .from('daily_messages')
-      .delete()
-      .eq('id', messageId)
+    try {
+      await supabase
+        .from('daily_messages')
+        .delete()
+        .eq('id', messageId)
 
-    setResults(prev => prev.filter(r => r.id !== messageId))
+      setResults(prev => prev.filter(r => r.id !== messageId))
+    } catch (error) {
+      console.error('Delete failed:', error)
+    }
   }
 
   const clearAllResults = async () => {
     if (!confirm('모든 결과를 삭제하시겠습니까?')) return
 
-    const messageIds = results.map(r => r.id)
-    await supabase
-      .from('daily_messages')
-      .delete()
-      .in('id', messageIds)
+    try {
+      const messageIds = results.map(r => r.id)
+      
+      // 배치로 삭제 (최적화)
+      const batchSize = 100
+      for (let i = 0; i < messageIds.length; i += batchSize) {
+        const batch = messageIds.slice(i, i + batchSize)
+        await supabase
+          .from('daily_messages')
+          .delete()
+          .in('id', batch)
+      }
 
-    setResults([])
+      setResults([])
+    } catch (error) {
+      console.error('Clear all failed:', error)
+    }
   }
 
   const formatDate = (dateString: string) => {
@@ -224,9 +274,6 @@ export default function AllResultsPage() {
     const minutes = date.getMinutes().toString().padStart(2, '0')
     return `${month}/${day} ${hours}:${minutes}`
   }
-
-  const unsentResults = filteredResults.filter(r => !r.isSent)
-  const sentResults = filteredResults.filter(r => r.isSent)
 
   if (loading) {
     return (

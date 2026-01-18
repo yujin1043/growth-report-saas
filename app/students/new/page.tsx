@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -30,7 +30,8 @@ export default function NewStudentPage() {
     class_id: '',
     parent_name: '',
     parent_phone: '',
-    status: 'active'
+    status: 'active',
+    enrolled_at: new Date().toISOString().split('T')[0]
   })
 
   useEffect(() => {
@@ -133,7 +134,7 @@ export default function NewStudentPage() {
           parent_phone: formData.parent_phone || null,
           status: formData.status,
           student_code: studentCode,
-          enrolled_at: new Date().toISOString().split('T')[0]
+          enrolled_at: formData.enrolled_at
         })
 
       if (error) {
@@ -154,7 +155,7 @@ export default function NewStudentPage() {
   }
 
   const currentYear = new Date().getFullYear()
-  const yearOptions = Array.from({ length: 20 }, (_, i) => currentYear - 5 - i)
+  const yearOptions = Array.from({ length: 12 }, (_, i) => currentYear - 4 - i)
 
   if (loading) {
     return (
@@ -263,6 +264,19 @@ export default function NewStudentPage() {
               {classes.length === 0 && (
                 <p className="text-xs text-red-500 mt-1">이 지점에 등록된 반이 없습니다.</p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                등록일 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                name="enrolled_at"
+                value={formData.enrolled_at}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+              />
             </div>
 
             <div>

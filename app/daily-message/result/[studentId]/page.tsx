@@ -25,6 +25,7 @@ export default function ResultPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editedMessage, setEditedMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
@@ -32,49 +33,61 @@ export default function ResultPage() {
   }, [studentId])
 
   async function loadResult() {
-    const { data: message } = await supabase
-      .from('daily_messages')
-      .select('id, student_id, message, is_sent, created_at')
-      .eq('student_id', studentId)
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
+    try {
+      // 1. 먼저 메시지 조회
+      const { data: message, error: messageError } = await supabase
+        .from('daily_messages')
+        .select('id, student_id, message, is_sent, created_at')
+        .eq('student_id', studentId)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
 
-    if (!message) {
+      if (messageError || !message) {
+        setLoading(false)
+        return
+      }
+
+      // 2. 학생 정보와 이미지 정보를 병렬로 조회 (최적화!)
+      const [studentResult, imagesResult] = await Promise.all([
+        supabase
+          .from('students')
+          .select('name')
+          .eq('id', studentId)
+          .single(),
+        supabase
+          .from('daily_message_images')
+          .select('image_url')
+          .eq('daily_message_id', message.id)
+          .order('image_order')
+      ])
+
+      setResult({
+        id: message.id,
+        studentId: message.student_id,
+        studentName: studentResult.data?.name || '',
+        message: message.message,
+        imageUrls: imagesResult.data?.map(img => img.image_url) || [],
+        isSent: message.is_sent,
+        createdAt: message.created_at
+      })
+      setEditedMessage(message.message)
+    } catch (error) {
+      console.error('Load result error:', error)
+    } finally {
       setLoading(false)
-      return
     }
-
-    const { data: student } = await supabase
-      .from('students')
-      .select('name')
-      .eq('id', studentId)
-      .single()
-
-    const { data: images } = await supabase
-      .from('daily_message_images')
-      .select('image_url')
-      .eq('daily_message_id', message.id)
-      .order('image_order')
-
-    setResult({
-      id: message.id,
-      studentId: message.student_id,
-      studentName: student?.name || '',
-      message: message.message,
-      imageUrls: images?.map(img => img.image_url) || [],
-      isSent: message.is_sent,
-      createdAt: message.created_at
-    })
-    setEditedMessage(message.message)
-    setLoading(false)
   }
 
   const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text)
-    setCopiedId('message')
-    setTimeout(() => setCopiedId(null), 2000)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId('message')
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (error) {
+      console.error('Copy failed:', error)
+    }
   }
 
   const shareImages = async () => {
@@ -125,44 +138,62 @@ export default function ResultPage() {
   const downloadImages = async () => {
     if (!result) return
     
-    for (let i = 0; i < result.imageUrls.length; i++) {
-      const response = await fetch(result.imageUrls[i])
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${result.studentName}_작품_${i + 1}.jpg`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+    try {
+      for (let i = 0; i < result.imageUrls.length; i++) {
+        const response = await fetch(result.imageUrls[i])
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${result.studentName}_작품_${i + 1}.jpg`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      }
+      setCopiedId('download')
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (error) {
+      console.error('Download failed:', error)
     }
-    setCopiedId('download')
-    setTimeout(() => setCopiedId(null), 2000)
   }
 
   const markAsSent = async () => {
     if (!result) return
     
-    await supabase
-      .from('daily_messages')
-      .update({ is_sent: true, sent_at: new Date().toISOString() })
-      .eq('id', result.id)
+    try {
+      await supabase
+        .from('daily_messages')
+        .update({ is_sent: true, sent_at: new Date().toISOString() })
+        .eq('id', result.id)
 
-    setResult({ ...result, isSent: true })
+      setResult({ ...result, isSent: true })
+    } catch (error) {
+      console.error('Mark as sent error:', error)
+    }
   }
 
   const saveEditedMessage = async () => {
     if (!result) return
     
-    const { error } = await supabase
-      .from('daily_messages')
-      .update({ message: editedMessage })
-      .eq('id', result.id)
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('daily_messages')
+        .update({ message: editedMessage })
+        .eq('id', result.id)
 
-    if (!error) {
-      setResult({ ...result, message: editedMessage })
-      setIsEditing(false)
+      if (!error) {
+        setResult({ ...result, message: editedMessage })
+        setIsEditing(false)
+      } else {
+        alert('저장에 실패했습니다. 다시 시도해주세요.')
+      }
+    } catch (error) {
+      console.error('Save error:', error)
+      alert('저장에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -267,13 +298,15 @@ export default function ResultPage() {
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={saveEditedMessage}
-                  className="flex-1 py-2 rounded-xl text-sm font-medium bg-teal-500 text-white hover:bg-teal-600 transition"
+                  disabled={saving}
+                  className="flex-1 py-2 rounded-xl text-sm font-medium bg-teal-500 text-white hover:bg-teal-600 transition disabled:opacity-50"
                 >
-                  저장
+                  {saving ? '저장 중...' : '저장'}
                 </button>
                 <button
                   onClick={cancelEdit}
-                  className="flex-1 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+                  disabled={saving}
+                  className="flex-1 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-50"
                 >
                   취소
                 </button>

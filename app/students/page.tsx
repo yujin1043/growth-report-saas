@@ -26,6 +26,7 @@ function StudentsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterParam = searchParams.get('filter')
+  const branchParam = searchParams.get('branch')
 
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<ClassOption[]>([])
@@ -33,6 +34,7 @@ function StudentsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [specialFilter, setSpecialFilter] = useState<string | null>(filterParam)
+  const [branchFilter, setBranchFilter] = useState<string | null>(branchParam)
   const [userRole, setUserRole] = useState('')
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
@@ -56,6 +58,10 @@ function StudentsPage() {
   useEffect(() => {
     setSpecialFilter(filterParam)
   }, [filterParam])
+  
+  useEffect(() => {
+    setBranchFilter(branchParam)
+  }, [branchParam])
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -277,7 +283,13 @@ function StudentsPage() {
     return true
   })
 
-  const filteredStudents = specialFilteredStudents.filter(student => {
+
+  const branchFilteredStudents = specialFilteredStudents.filter(student => {
+    if (!branchFilter) return true
+    return student.branch_id === branchFilter
+  })
+  
+  const filteredStudents = branchFilteredStudents.filter(student => {
     const matchesSearch = student.name.includes(searchTerm) ||
                           (student.student_code && student.student_code.includes(searchTerm)) ||
                           (student.branch_name && student.branch_name.includes(searchTerm))
@@ -589,6 +601,7 @@ function StudentsPage() {
     </div>
   )
 }
+
 
 export default function StudentsPageWrapper() {
   return (

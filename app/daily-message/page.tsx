@@ -119,18 +119,42 @@ export default function DailyMessagePage() {
       }
     }
 
-    const { data: topics } = await supabase
-      .from('curriculum_topics')
-      .select('*')
-      .order('year', { ascending: false })
-      .order('month', { ascending: false })
-      .order('order_num')
+    // 커리큘럼 조회 (admin은 전체, 나머지는 당월+전월만)
+    let topicsQuery = supabase
+    .from('curriculum_topics')
+    .select('*')
+
+    if (profile?.role !== 'admin') {
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+
+    // 전월 계산
+    let prevYear = currentYear
+    let prevMonth = currentMonth - 1
+    if (prevMonth === 0) {
+      prevMonth = 12
+      prevYear = currentYear - 1
+    }
+
+    topicsQuery = topicsQuery.or(
+      `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
+    )
+    }
+
+    const { data: topics } = await topicsQuery
+    .order('year', { ascending: false })
+    .order('month', { ascending: false })
+    .order('created_at')
+
+    if (topics) {
+    setCurriculumTopics(topics)
+    }
 
     if (topics) {
       setCurriculumTopics(topics)
     }
 
-    // 기존 메시지 개수 조회
     const { count } = await supabase
       .from('daily_messages')
       .select('*', { count: 'exact', head: true })
@@ -138,7 +162,6 @@ export default function DailyMessagePage() {
 
     setAllResultsCount(count || 0)
 
-    // 이미 생성된 학생 ID 조회
     const { data: existingMessages } = await supabase
       .from('daily_messages')
       .select('student_id')
@@ -202,8 +225,6 @@ export default function DailyMessagePage() {
           .from('daily-message-images')
           .getPublicUrl(fileName)
         
-        console.log('Uploaded URL:', publicUrl)
-        
         uploadedUrls.push(publicUrl)
       }
     }
@@ -237,34 +258,123 @@ export default function DailyMessagePage() {
     const nameNun = firstName + (hasJongseong ? '이는' : '는')
     const nameGa = firstName + (hasJongseong ? '이가' : '가')
 
+    const currentYear = new Date().getFullYear()
+    const studentAge = currentYear - student.birth_year + 1
+
     let prompt = ''
     let topicTitle = ''
     
     if (lessonType === 'curriculum' && selectedTopic) {
+      const baseTemplate = selectedTopic.parent_message_template || ''
+      const ageGroup = selectedTopic.age_group
       topicTitle = selectedTopic.title
-      prompt = `다음 정보를 바탕으로 학부모에게 보낼 일일 수업 메시지를 작성해주세요.
+      
+      prompt = `당신은 미술학원 선생님입니다. 학부모에게 보낼 오늘의 수업 메시지를 작성해주세요.
 
-학생 이름: ${student.name} (메시지에서는 "${nameNun}" 또는 "${nameGa}" 형태로 자연스럽게 사용)
-수업 주제: ${selectedTopic.title}
-사용 재료: ${selectedTopic.materials?.join(', ') || ''}
-기본 템플릿: ${selectedTopic.parent_message_template || ''}
-${progressStatus === 'started' ? '진행 상태: 오늘 처음 시작' : ''}
-${progressStatus === 'completed' ? '진행 상태: 오늘 완성' : ''}
-${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
+[학생 정보]
+- 이름: ${student.name} (메시지에서는 "${firstName}"으로 자연스럽게 호칭)
+- 연령대: ${ageGroup === 'kindergarten' ? '유치부' : '초등부'}
 
-템플릿을 기반으로 자연스럽게 변형해주세요. 2-4문장, 이모지 1-2개 포함.`
+[수업 정보]
+- 주제: ${selectedTopic.title}
+- 사용 재료: ${selectedTopic.materials?.join(', ') || ''}
+${progressStatus === 'started' ? '- 진행 상태: 오늘 처음 시작함' : ''}
+${progressStatus === 'completed' ? '- 진행 상태: 오늘 완성함' : ''}
+${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
+
+[참고 템플릿]
+${baseTemplate}
+
+[작성 규칙 - 반드시 지켜주세요]
+1. 정확히 5문장으로 작성
+2. 문장 구조:
+   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작)
+   - 2문장: 구체적 기법/표현 설명 (물 조절, 붓 터치, 명암, 색 혼합 등)
+   - 3문장: 배운 점이나 시도한 것
+   - 4문장: 아이의 태도/반응 칭찬
+   - 5문장: 마무리 격려 + 이모지 1개
+3. 톤: ${ageGroup === 'kindergarten' ? '따뜻하고 친근하게 ("~해보았어요", "~했답니다")' : '기법 설명 포함하며 ("~를 표현해 주었습니다", "~를 배워보았습니다")'}
+4. 기법 용어 자연스럽게 포함 (번짐, 그라데이션, 명암, 질감, 원근감, 붓터치, 물 농도 등)
+5. 150-200자 내외
+
+[좋은 예시]
+"오늘 서윤이는 수채화로 겨울 나무를 표현해보았어요. 물의 양을 조절하며 연한 색과 진한 색의 차이를 만들어보았답니다. 붓 터치를 달리하며 나뭇잎의 질감도 살려주었어요. 차분하게 집중하며 색을 겹쳐 칠하는 모습이 기특했어요! 서윤이만의 색감이 담긴 멋진 작품이에요 🎨"`
     } else {
+      let ageGroup: 'young' | 'middle' | 'upper'
+      let ageGroupLabel: string
+      
+      if (studentAge <= 7) {
+        ageGroup = 'young'
+        ageGroupLabel = '유치/저학년'
+      } else if (studentAge <= 10) {
+        ageGroup = 'middle'
+        ageGroupLabel = '중학년'
+      } else {
+        ageGroup = 'upper'
+        ageGroupLabel = '고학년'
+      }
+
       topicTitle = freeSubject
-      prompt = `다음 정보를 바탕으로 학부모에게 보낼 일일 수업 메시지를 작성해주세요.
+      
+      let toneGuide = ''
+      if (ageGroup === 'young') {
+        toneGuide = `- 따뜻하고 친근하게 ("~해보았어요", "~했답니다", "~예쁘게 꾸며주었어요")
+   - 활동의 즐거움과 시도한 점 위주로 칭찬`
+      } else if (ageGroup === 'middle') {
+        toneGuide = `- 균형잡힌 설명 ("~해주었습니다", "~표현했어요", "~시간을 가졌습니다")
+   - 관찰력과 표현력을 구체적으로 언급`
+      } else {
+        toneGuide = `- 전문적 기법 중심 ("~기법을 활용해", "~의 완성도를 높이며", "~점이 인상적입니다")
+   - 조형 감각, 구도, 명암, 질감 등 미술 용어 적극 사용
+   - 작품의 의도와 표현력에 대한 심층적 피드백`
+      }
 
-학생 이름: ${student.name} (메시지에서는 "${nameNun}" 또는 "${nameGa}" 형태로 자연스럽게 사용)
-자유 주제: ${freeSubject}
-사용 재료: ${selectedMaterials.join(', ')}
-${progressStatus === 'started' ? '진행 상태: 오늘 처음 시작' : ''}
-${progressStatus === 'completed' ? '진행 상태: 오늘 완성' : ''}
-${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
+      let exampleMessage = ''
+      if (ageGroup === 'young') {
+        exampleMessage = `"오늘 아준이는 자유화로 예쁜 집과 동물친구들을 그려주었어요. 매직과 사인펜으로 강렬한 색감을 표현하고 여러 동물들의 형태를 관찰하는 시간을 가졌답니다. 각 동물의 특징을 살려 귀엽게 그려주었어요. 보석스티커로 반짝반짝 예쁘게 꾸며주는 모습이 기특했어요! 아준이만의 동물 마을이 완성되어가고 있어요 ☺️"`
+      } else if (ageGroup === 'middle') {
+        exampleMessage = `"오늘 수호는 자유화로 젤리곰들을 주인공으로 한 이야기를 그려보았습니다. 식탁 위 토마토와 함께 있는 젤리곰들의 배치와 구도를 고민하며 장면을 구성해주었어요. 사인펜으로 선명한 색감을 살리고 각 캐릭터의 표정도 다양하게 표현했습니다. 일상 속 소재를 재미있는 이야기로 풀어낸 상상력이 인상적이에요! 앞으로 완성될 작품이 기대됩니다 ☺️"`
+      } else {
+        exampleMessage = `"오늘 노엘이는 자유화로 우리나라 역사를 주제로 한 장면을 표현해주었습니다. 전쟁이라는 무거운 소재를 단순한 충돌이 아닌 시대적 배경과 나라를 지키려는 마음을 중심으로 풀어낸 점이 인상적이에요. 인물들의 동세와 구도를 고려하며 긴장감 있는 화면을 구성해주었습니다. 주제에 대한 깊은 이해와 조형적 표현력이 잘 드러난 작품입니다! 앞으로의 완성이 기대됩니다 👍"`
+      }
 
-친근한 선생님 톤으로 작성해주세요. 2-4문장, 이모지 1-2개 포함.`
+      prompt = `당신은 미술학원 선생님입니다. 학부모에게 보낼 오늘의 수업 메시지를 작성해주세요.
+
+[학생 정보]
+- 이름: ${student.name} (메시지에서는 "${firstName}"으로 자연스럽게 호칭)
+- 연령: ${studentAge}세 (${ageGroupLabel})
+
+[수업 정보]
+- 자유화 주제: ${freeSubject}
+- 사용 재료: ${selectedMaterials.join(', ')}
+${progressStatus === 'started' ? '- 진행 상태: 오늘 처음 시작함' : ''}
+${progressStatus === 'completed' ? '- 진행 상태: 오늘 완성함' : ''}
+${teacherMemo ? `- 선생님 메모: ${teacherMemo}` : ''}
+
+[작성 규칙 - 반드시 지켜주세요]
+1. 정확히 5문장으로 작성
+2. 문장 구조:
+   - 1문장: 오늘 활동 소개 ("오늘 ${nameNun}" 또는 "${nameGa}"로 시작, 무엇을 그렸는지)
+   - 2문장: 관찰/표현 과정 (형태, 구도, 색감 등)
+   - 3문장: 기법/재료 활용 설명
+   - 4문장: 아이의 강점/인상적인 점 칭찬
+   - 5문장: 마무리 기대 + 이모지 1개
+
+3. 연령별 톤:
+   ${toneGuide}
+
+4. 재료별 기법 용어:
+   - 연필/색연필: 선의 강약, 명암 표현, 질감, 터치
+   - 수채화: 물 농도 조절, 번짐 효과, 색의 겹침, 붓터치, 그라데이션
+   - 아크릴: 색의 선명함, 덧칠, 임파스토, 질감
+   - 매직/사인펜: 강렬한 색감, 선명한 윤곽, 대비
+   - 파스텔: 부드러운 색감, 그라데이션, 블렌딩
+   - 점토: 형태 조형, 질감 표현, 입체감
+
+5. 150-200자 내외
+
+[좋은 예시]
+${exampleMessage}`
     }
 
     try {
@@ -277,21 +387,18 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
       if (response.ok) {
         const data = await response.json()
         
-        // 기존 메시지 삭제 (같은 학생)
         await supabase
           .from('daily_messages')
           .delete()
           .eq('student_id', student.id)
           .eq('teacher_id', userId)
 
-        // 학생의 branch_id 조회
         const { data: studentData } = await supabase
           .from('students')
           .select('branch_id')
           .eq('id', student.id)
           .single()
 
-        // 새 메시지 저장
         const { data: newMessage, error: insertError } = await supabase
           .from('daily_messages')
           .insert({
@@ -313,11 +420,9 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
           return
         }
 
-        // 이미지 업로드
         if (images.length > 0 && newMessage) {
           const uploadedUrls = await uploadImages(newMessage.id)
           
-          // 이미지 URL DB 저장
           for (let i = 0; i < uploadedUrls.length; i++) {
             await supabase
               .from('daily_message_images')
@@ -329,7 +434,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
           }
         }
 
-        // 결과 페이지로 이동
         router.push(`/daily-message/result/${student.id}`)
       }
     } catch (error) {
@@ -386,7 +490,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
-        {/* 전체 결과 보기 버튼 */}
         {allResultsCount > 0 && (
           <button
             onClick={() => router.push('/daily-message/results')}
@@ -399,7 +502,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
           </button>
         )}
 
-        {/* 반 선택 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
           <select
@@ -413,7 +515,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
           </select>
         </div>
 
-        {/* 학생 선택 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
           <select
@@ -436,10 +537,9 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
             <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
           )}
         </div>
-        {/* 선택된 학생 입력 폼 */}
+
         {selectedStudent && (
           <>
-            {/* 사진 업로드 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-semibold text-gray-800 mb-3">
                 📷 {selectedStudent.name} 작품 사진
@@ -473,7 +573,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               </div>
             </div>
 
-            {/* 수업 유형 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-semibold text-gray-800 mb-3">📚 수업 유형</h2>
               <div className="grid grid-cols-2 gap-2">
@@ -500,7 +599,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               </div>
             </div>
 
-            {/* 커리큘럼 선택 */}
             {lessonType === 'curriculum' && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
                 <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
@@ -523,7 +621,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               </div>
             )}
 
-            {/* 자율 입력 */}
             {lessonType === 'free' && (
               <>
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
@@ -558,7 +655,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               </>
             )}
 
-            {/* 진행 상태 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-semibold text-gray-800 mb-3">📊 진행 상태</h2>
               <div className="grid grid-cols-3 gap-2">
@@ -582,7 +678,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               </div>
             </div>
 
-            {/* 한줄 메모 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-semibold text-gray-800 mb-3">
                 📝 한줄 메모
@@ -597,7 +692,6 @@ ${teacherMemo ? `교사 메모: ${teacherMemo}` : ''}
               />
             </div>
 
-            {/* 생성 버튼 */}
             <button
               onClick={generateMessage}
               disabled={generating || (lessonType === 'curriculum' && !selectedTopicId) || (lessonType === 'free' && !freeSubject)}
