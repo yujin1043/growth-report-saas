@@ -92,19 +92,51 @@ export default function ResultPage() {
     setSharing(true)
     
     try {
-      // 1. 먼저 문구 복사 (공유 전에 미리!)
+      // 1. 먼저 문구 복사
       await copyToClipboard(result.message)
       
-      // 2. 이미지 파일 병렬 생성
+      // 2. 이미지 파일 병렬 생성 (압축 포함)
       const files: File[] = []
       if (result.imageUrls.length > 0) {
         const filePromises = result.imageUrls.map(async (url, i) => {
           try {
-            const res = await fetch(url)
-            const blob = await res.blob()
+            // 이미지 로드
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            await new Promise((resolve, reject) => {
+              img.onload = resolve
+              img.onerror = reject
+              img.src = url
+            })
+            
+            // 압축: 최대 800px, 품질 70%
+            const canvas = document.createElement('canvas')
+            const maxSize = 800
+            let { width, height } = img
+            
+            if (width > maxSize || height > maxSize) {
+              if (width > height) {
+                height = (height / width) * maxSize
+                width = maxSize
+              } else {
+                width = (width / height) * maxSize
+                height = maxSize
+              }
+            }
+            
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+            ctx?.drawImage(img, 0, 0, width, height)
+            
+            // Blob으로 변환
+            const blob = await new Promise<Blob>((resolve) => {
+              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
+            })
+            
             return new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
           } catch (e) {
-            console.error('이미지 로드 실패:', e)
+            console.error('이미지 처리 실패:', e)
             return null
           }
         })
