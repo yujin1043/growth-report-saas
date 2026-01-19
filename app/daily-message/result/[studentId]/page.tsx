@@ -91,14 +91,13 @@ export default function ResultPage() {
     if (!result) return
     setSharing(true)
     
-    const startTime = Date.now()
-    
     try {
-      // 이미지 파일 병렬 생성
+      // 1. 먼저 문구 복사 (공유 전에 미리!)
+      await copyToClipboard(result.message)
+      
+      // 2. 이미지 파일 병렬 생성
       const files: File[] = []
       if (result.imageUrls.length > 0) {
-        const fetchStart = Date.now()
-        
         const filePromises = result.imageUrls.map(async (url, i) => {
           try {
             const res = await fetch(url)
@@ -112,24 +111,18 @@ export default function ResultPage() {
         
         const results = await Promise.all(filePromises)
         files.push(...results.filter((f): f is File => f !== null))
-        
-        const fetchEnd = Date.now()
-        alert(`이미지 ${files.length}개 로드: ${fetchEnd - fetchStart}ms\n총 크기: ${files.reduce((sum, f) => sum + f.size, 0) / 1024}KB`)
       }
 
-      // 파일 공유
+      // 3. 파일 공유
       if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
-        const shareStart = Date.now()
         await navigator.share({ files: files })
-        alert(`공유 완료: ${Date.now() - shareStart}ms`)
-        
-        await copyToClipboard(result.message)
         setCopiedId('shared')
         await markAsSent()
         setTimeout(() => setCopiedId(null), 2000)
         return
       }
 
+      // 텍스트만 공유
       if (navigator.share) {
         await navigator.share({ text: result.message })
         setCopiedId('shared')
@@ -137,17 +130,13 @@ export default function ResultPage() {
         setTimeout(() => setCopiedId(null), 2000)
         return
       }
-
-      await copyToClipboard(result.message)
       
     } catch (error: any) {
       if (error.name !== 'AbortError') {
         console.error('공유 실패:', error)
-        await copyToClipboard(result.message)
       }
     } finally {
       setSharing(false)
-      alert(`전체 소요시간: ${Date.now() - startTime}ms`)
     }
   }
 
