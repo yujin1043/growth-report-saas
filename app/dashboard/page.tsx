@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -555,6 +555,19 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6">
+          {/* 월별 운영 콘텐츠 배너 */}
+          <div 
+            onClick={() => router.push('/curriculum')}
+            className="mb-6 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-2xl p-4 cursor-pointer hover:shadow-lg transition"
+          >
+            <div className="flex items-center justify-between text-white">
+              <div>
+                <p className="text-sm opacity-90">📚 이번 달 운영 기준</p>
+                <p className="font-bold text-lg">월별 운영 콘텐츠 보기</p>
+              </div>
+              <div className="text-2xl">→</div>
+            </div>
+          </div>
         <div className="mb-6">
           <h2 className="text-lg font-semibold text-slate-800">
             👋 {user?.name || '\uC0AC\uC6A9\uC790'}{'\uB2D8'}
