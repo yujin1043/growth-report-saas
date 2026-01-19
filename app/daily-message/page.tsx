@@ -179,10 +179,65 @@ export default function DailyMessagePage() {
     }
   }
 
-  const handleImageUpload = (files: FileList) => {
+  const handleImageUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 4 - images.length)
-    const newUrls = fileArray.map(file => URL.createObjectURL(file))
-    setImages(prev => [...prev, ...fileArray])
+    
+    // 이미지 압축 처리
+    const compressedFiles: File[] = []
+    const newUrls: string[] = []
+    
+    for (const file of fileArray) {
+      try {
+        // 이미지 로드
+        const img = new Image()
+        const originalUrl = URL.createObjectURL(file)
+        
+        await new Promise((resolve, reject) => {
+          img.onload = resolve
+          img.onerror = reject
+          img.src = originalUrl
+        })
+        
+        // 압축: 최대 1200px, 품질 80%
+        const canvas = document.createElement('canvas')
+        const maxSize = 1200
+        let { width, height } = img
+        
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height / width) * maxSize
+            width = maxSize
+          } else {
+            width = (width / height) * maxSize
+            height = maxSize
+          }
+        }
+        
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, width, height)
+        
+        // Blob → File 변환
+        const blob = await new Promise<Blob>((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8)
+        })
+        
+        const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+        compressedFiles.push(compressedFile)
+        newUrls.push(URL.createObjectURL(compressedFile))
+        
+        // 원본 URL 해제
+        URL.revokeObjectURL(originalUrl)
+      } catch (e) {
+        console.error('이미지 압축 실패:', e)
+        // 실패 시 원본 사용
+        compressedFiles.push(file)
+        newUrls.push(URL.createObjectURL(file))
+      }
+    }
+    
+    setImages(prev => [...prev, ...compressedFiles])
     setImageUrls(prev => [...prev, ...newUrls])
   }
 
