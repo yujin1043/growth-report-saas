@@ -120,67 +120,8 @@ export default function ReportDetailPage() {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
     
     if (isMobile) {
-      // 모바일: PDF 다운로드
-      try {
-        const printArea = document.getElementById('print-area')
-        if (!printArea) {
-          alert('인쇄 영역을 찾을 수 없습니다.')
-          return
-        }
-        
-        // 이미지 로딩 대기
-        const images = printArea.querySelectorAll('img')
-        await Promise.all(
-          Array.from(images).map((img) => {
-            if (img.complete) return Promise.resolve()
-            return new Promise((resolve) => {
-              img.onload = resolve
-              img.onerror = resolve
-            })
-          })
-        )
-        
-        const canvas = await html2canvas(printArea, {
-          scale: 1.5,
-          useCORS: true,
-          allowTaint: false,
-          backgroundColor: '#ffffff',
-          logging: false,
-          imageTimeout: 15000,
-        })
-        
-        const imgData = canvas.toDataURL('image/jpeg', 0.8)
-        const pdf = new jsPDF('p', 'mm', 'a4')
-        const pdfWidth = pdf.internal.pageSize.getWidth()
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-        
-        // 페이지 높이 초과 시 여러 페이지로 분할
-        const pageHeight = pdf.internal.pageSize.getHeight()
-        if (pdfHeight > pageHeight) {
-          let position = 0
-          let remainingHeight = pdfHeight
-          
-          while (remainingHeight > 0) {
-            pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight)
-            remainingHeight -= pageHeight
-            if (remainingHeight > 0) {
-              pdf.addPage()
-              position -= pageHeight
-            }
-          }
-        } else {
-          pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight)
-        }
-        
-        const today = new Date()
-        const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
-        const fileName = `성장리포트_${student?.name || '학생'}_${dateStr}.pdf`
-        
-        pdf.save(fileName)
-      } catch (error: any) {
-        console.error('PDF 생성 실패:', error)
-        alert('PDF 생성에 실패했습니다.\n\n' + (error?.message || '다시 시도해주세요.'))
-      }
+      // 모바일: 브라우저 인쇄 기능 사용 (PDF로 저장 가능)
+      window.print()
     } else {
       // PC: 기존 인쇄 기능
       const today = new Date()
