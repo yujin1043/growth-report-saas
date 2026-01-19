@@ -136,7 +136,7 @@ export default function AllResultsPage() {
             })
             
             const canvas = document.createElement('canvas')
-            const maxSize = 800
+            const maxSize = 600
             let { width, height } = img
             
             if (width > maxSize || height > maxSize) {
@@ -155,7 +155,7 @@ export default function AllResultsPage() {
             ctx?.drawImage(img, 0, 0, width, height)
             
             const blob = await new Promise<Blob>((resolve) => {
-              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
+              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
             })
             
             return new File([blob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })

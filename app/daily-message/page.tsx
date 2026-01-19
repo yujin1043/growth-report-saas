@@ -200,7 +200,7 @@ export default function DailyMessagePage() {
         
         // 압축: 최대 1200px, 품질 80%
         const canvas = document.createElement('canvas')
-        const maxSize = 1200
+        const maxSize = 600
         let { width, height } = img
         
         if (width > maxSize || height > maxSize) {
@@ -220,7 +220,7 @@ export default function DailyMessagePage() {
         
         // Blob → File 변환
         const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8)
+          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
         })
         
         const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })

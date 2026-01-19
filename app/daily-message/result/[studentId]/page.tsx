@@ -111,7 +111,7 @@ export default function ResultPage() {
             
             // 압축: 최대 800px, 품질 70%
             const canvas = document.createElement('canvas')
-            const maxSize = 800
+            const maxSize = 600
             let { width, height } = img
             
             if (width > maxSize || height > maxSize) {
@@ -131,7 +131,7 @@ export default function ResultPage() {
             
             // Blob으로 변환
             const blob = await new Promise<Blob>((resolve) => {
-              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
+              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
             })
             
             return new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
