@@ -30,6 +30,8 @@ interface Curriculum {
   variation_guide: VariationGuide | null
   status: string
   created_at: string
+  parent_message_template: string | null
+  age_group: string | null
 }
 
 export default function CurriculumPage() {
@@ -205,7 +207,7 @@ export default function CurriculumPage() {
           </div>
         ) : (
           /* 상세 보기 */
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden" id="print-area">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100" id="print-area">
             {/* 뒤로 버튼 */}
             <div className="p-4 border-b no-print">
               <button
@@ -217,7 +219,7 @@ export default function CurriculumPage() {
             </div>
 
             {/* 헤더 */}
-            <div className="p-6 border-b bg-gradient-to-r from-teal-50 to-cyan-50">
+            <div className="p-6 bg-gradient-to-r from-teal-50 to-cyan-50">
               <div className="flex items-center gap-2 mb-2">
                 <span className="px-2 py-0.5 bg-teal-500 text-white rounded text-xs font-medium">
                   {selectedCurriculum.year}년 {selectedCurriculum.month}월
@@ -231,7 +233,7 @@ export default function CurriculumPage() {
 
             {/* 완성작품 사진 */}
             {selectedCurriculum.main_images && selectedCurriculum.main_images.length > 0 && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-gray-800 flex items-center gap-2">
                     🖼️ 완성작품
@@ -302,7 +304,7 @@ export default function CurriculumPage() {
 
             {/* 주재료 */}
             {selectedCurriculum.main_materials && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
                   🎨 주재료
                 </h3>
@@ -312,7 +314,7 @@ export default function CurriculumPage() {
 
             {/* 지도 포인트 */}
             {selectedCurriculum.teaching_points && selectedCurriculum.teaching_points.length > 0 && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                   📌 지도 포인트
                 </h3>
@@ -336,7 +338,7 @@ export default function CurriculumPage() {
 
             {/* 유의사항 */}
             {selectedCurriculum.cautions && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
                   ⚠️ 유의사항
                 </h3>
@@ -346,9 +348,23 @@ export default function CurriculumPage() {
               </div>
             )}
 
+            {/* 학부모 안내멘트 */}
+            {selectedCurriculum.parent_message_template && (
+              <div className="p-6">
+                <div className="bg-blue-50 rounded-2xl p-4">
+                  <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                    💬 학부모 안내멘트
+                  </h3>
+                  <p className="text-blue-700 whitespace-pre-wrap text-sm leading-relaxed">
+                    {selectedCurriculum.parent_message_template}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* 재료 구입처 */}
             {selectedCurriculum.material_sources && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
                   🛒 재료 구입처
                 </h3>
@@ -360,7 +376,7 @@ export default function CurriculumPage() {
             {selectedCurriculum.variation_guide && 
              (selectedCurriculum.variation_guide.description || 
               (selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.length > 0)) && (
-              <div className="p-6 border-b">
+              <div className="p-6">
                 <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
                   💡 Variation Guide
                 </h3>

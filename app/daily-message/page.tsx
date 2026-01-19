@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -20,10 +20,11 @@ interface CurriculumTopic {
   id: string
   year: number
   month: number
-  age_group: string
+  target_group: string
   title: string
-  materials: string[]
-  parent_message_template: string
+  main_materials: string | null
+  parent_message_template: string | null
+  age_group: string | null
 }
 
 const MATERIAL_OPTIONS = [
@@ -121,7 +122,7 @@ export default function DailyMessagePage() {
       }
     }
 
-    let topicsQuery = supabase.from('curriculum_topics').select('*')
+    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
 
     if (profile?.role !== 'admin') {
       const now = new Date()
@@ -182,13 +183,11 @@ export default function DailyMessagePage() {
   const handleImageUpload = async (files: FileList) => {
     const fileArray = Array.from(files).slice(0, 4 - images.length)
     
-    // 이미지 압축 처리
     const compressedFiles: File[] = []
     const newUrls: string[] = []
     
     for (const file of fileArray) {
       try {
-        // 이미지 로드
         const img = new Image()
         const originalUrl = URL.createObjectURL(file)
         
@@ -198,7 +197,6 @@ export default function DailyMessagePage() {
           img.src = originalUrl
         })
         
-        // 압축: 최대 1200px, 품질 80%
         const canvas = document.createElement('canvas')
         const maxSize = 600
         let { width, height } = img
@@ -218,7 +216,6 @@ export default function DailyMessagePage() {
         const ctx = canvas.getContext('2d')
         ctx?.drawImage(img, 0, 0, width, height)
         
-        // Blob → File 변환
         const blob = await new Promise<Blob>((resolve) => {
           canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
         })
@@ -227,11 +224,9 @@ export default function DailyMessagePage() {
         compressedFiles.push(compressedFile)
         newUrls.push(URL.createObjectURL(compressedFile))
         
-        // 원본 URL 해제
         URL.revokeObjectURL(originalUrl)
       } catch (e) {
         console.error('이미지 압축 실패:', e)
-        // 실패 시 원본 사용
         compressedFiles.push(file)
         newUrls.push(URL.createObjectURL(file))
       }
@@ -295,7 +290,6 @@ export default function DailyMessagePage() {
 
     const selectedTopic = curriculumTopics.find(t => t.id === selectedTopicId)
     
-    // 이름 처리
     const firstName = student.name.length >= 3 ? student.name.slice(1) : student.name
     const hasFinalConsonant = (str: string) => {
       const lastChar = str.charAt(str.length - 1)
@@ -315,7 +309,6 @@ export default function DailyMessagePage() {
     let message = ''
     let topicTitle = ''
     
-    // 연령별 말투 설정
     const isKindergarten = lessonType === 'curriculum' 
       ? selectedTopic?.age_group === 'kindergarten'
       : studentAge <= 7
@@ -330,9 +323,8 @@ export default function DailyMessagePage() {
     if (lessonType === 'curriculum' && selectedTopic) {
       topicTitle = selectedTopic.title
       const template = selectedTopic.parent_message_template || ''
-      const materials = selectedTopic.materials?.join(', ') || '다양한 재료'
+      const materials = selectedTopic.main_materials || '다양한 재료'
 
-      // 템플릿 내용을 문장으로 분리하고 정리
       const templateSentences = template
         .replace(/합니다\./g, '해요.')
         .replace(/합니다/g, '해요')
@@ -345,10 +337,8 @@ export default function DailyMessagePage() {
         .slice(0, 3)
         .join('. ')
 
-      // 1문장: 오늘 활동 소개
       const sentence1 = `오늘 ${nameNun} ${topicTitle}을 ${materials}로 ${endingStyle.doing}.`
       
-      // 2~4문장: 템플릿 내용 반영 (학생 주어로 변환)
       const sentence2to4 = templateSentences
         .replace(/이번 작품은/g, '')
         .replace(/표현합니다/g, `표현${endingStyle.did}`)
@@ -359,7 +349,6 @@ export default function DailyMessagePage() {
         .replace(/느낌을 줘요/g, `느낌을 살려${endingStyle.did}`)
         .trim()
 
-      // 진행 상태별 문구
       let progressText = ''
       if (progressStatus === 'started') {
         progressText = '오늘 처음 시작한 작품이에요.'
@@ -369,18 +358,15 @@ export default function DailyMessagePage() {
         progressText = '오늘 작품을 멋지게 완성했어요!'
       }
 
-      // 5문장: 메모 + 마무리
       const memoText = teacherMemo ? teacherMemo : `집중하며 작업하는 모습이 ${endingStyle.great}`
       const sentence5 = `${progressText} ${memoText}. ${nameMan} 멋진 작품이에요! ${randomEmoji}`
 
       message = `${sentence1} ${sentence2to4}. ${sentence5}`
 
     } else {
-      // 자유화
       topicTitle = freeSubject
       const materials = selectedMaterials.join(', ') || '다양한 재료'
 
-      // 재료별 기법 설명
       const materialTechniques: { [key: string]: string } = {
         '연필': '선의 강약을 조절하며 형태를 잡아',
         '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
@@ -397,7 +383,6 @@ export default function DailyMessagePage() {
       const mainMaterial = selectedMaterials[0] || '기타'
       const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
 
-      // 진행 상태별 문구
       let progressText = ''
       if (progressStatus === 'started') {
         progressText = '오늘 처음 시작한 작품이에요.'
@@ -407,26 +392,16 @@ export default function DailyMessagePage() {
         progressText = '오늘 작품을 멋지게 완성했어요!'
       }
 
-      // 1문장: 오늘 활동 소개
       const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 자유화를 ${endingStyle.doing}.`
-      
-      // 2문장: 재료/기법
       const sentence2 = `${materials}를 사용하여 ${technique} ${endingStyle.did}.`
-      
-      // 3문장: 표현 과정
       const sentence3 = `자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}.`
-      
-      // 4문장: 메모 또는 칭찬
       const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
-      
-      // 5문장: 마무리
       const sentence5 = `${nameMan} 멋진 작품이에요! ${randomEmoji}`
 
       message = `${sentence1} ${sentence2} ${sentence3} ${memoText}. ${progressText} ${sentence5}`
     }
 
     try {
-      // 기존 메시지 삭제
       await supabase
         .from('daily_messages')
         .delete()
@@ -439,7 +414,6 @@ export default function DailyMessagePage() {
         .eq('id', student.id)
         .single()
 
-      // 새 메시지 저장
       const { data: newMessage, error: insertError } = await supabase
         .from('daily_messages')
         .insert({
@@ -461,7 +435,6 @@ export default function DailyMessagePage() {
         return
       }
 
-      // 이미지 업로드
       if (images.length > 0 && newMessage) {
         const uploadedUrls = await uploadImages(newMessage.id)
         
@@ -650,7 +623,7 @@ export default function DailyMessagePage() {
                 >
                   <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
                     {selectedTopicData 
-                      ? `${selectedTopicData.title} (${selectedTopicData.materials?.join(', ') || ''}) [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
+                      ? `${selectedTopicData.title} [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
                       : '선택해주세요'
                     }
                   </span>
@@ -779,14 +752,15 @@ export default function DailyMessagePage() {
                           selectedTopicId === topic.id ? 'bg-teal-50' : ''
                         }`}
                       >
-                        <div className="flex-1">
+                        <div className="flex-1 flex items-center gap-3">
                           <p className="font-medium text-gray-800">{topic.title}</p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            {topic.materials?.join(', ') || ''}
-                            <span className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                              {topic.age_group === 'kindergarten' ? '유치' : '초등'}
-                            </span>
-                          </p>
+                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                            topic.age_group === 'kindergarten' 
+                              ? 'bg-pink-100 text-pink-600' 
+                              : 'bg-blue-100 text-blue-600'
+                          }`}>
+                            {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                          </span>
                         </div>
                         {selectedTopicId === topic.id && (
                           <span className="text-teal-500 text-xl">✓</span>

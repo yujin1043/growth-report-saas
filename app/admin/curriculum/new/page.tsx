@@ -28,6 +28,7 @@ export default function NewCurriculumPage() {
     month: currentMonth,
     target_group: '유치부',
     title: '',
+    parent_message_template: '',
     main_images: [] as string[],
     main_materials: '',
     teaching_points: [] as TeachingPoint[],
@@ -236,7 +237,9 @@ export default function NewCurriculumPage() {
           references: formData.variation_references.filter(r => r.title.trim() && r.image_url)
         },
         status: status,
-        created_by: user?.id
+        created_by: user?.id,
+        parent_message_template: formData.parent_message_template || null,
+        age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary'
       }
 
       const { error } = await supabase
@@ -371,6 +374,19 @@ export default function NewCurriculumPage() {
               onChange={(e) => setFormData(prev => ({ ...prev, main_materials: e.target.value }))}
               placeholder="예: 수채화 물감, 8절 도화지, 둥근 붓"
               rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+            />
+          </div>
+
+          {/* 학부모 안내멘트 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-2">💬 학부모 안내멘트</h2>
+            <p className="text-sm text-gray-500 mb-3">일일 메시지 생성 시 사용됩니다</p>
+            <textarea
+              value={formData.parent_message_template}
+              onChange={(e) => setFormData(prev => ({ ...prev, parent_message_template: e.target.value }))}
+              placeholder="예: 오늘은 겨울 풍경을 수채화로 표현해보았습니다. 차가운 색과 따뜻한 색의 대비를 통해 겨울의 느낌을 살려보았어요."
+              rows={4}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl"
             />
           </div>
