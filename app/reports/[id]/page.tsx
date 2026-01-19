@@ -171,6 +171,13 @@ export default function ReportDetailPage() {
             box-shadow: none !important;
           }
           @page { size: A4; margin: 0; }
+          
+          /* 배경색 강제 유지 */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
         }
         body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; }
       `}</style>
