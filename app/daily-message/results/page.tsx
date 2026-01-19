@@ -118,40 +118,78 @@ export default function AllResultsPage() {
 
   const shareAll = async (result: Result) => {
     setSharingId(result.id)
-    
     try {
-      if (navigator.share) {
-        const shareData: ShareData = { text: result.message }
-        
-        if (result.imageUrls.length > 0 && navigator.canShare) {
-          const files: File[] = []
-          for (let i = 0; i < result.imageUrls.length; i++) {
-            try {
-              const res = await fetch(result.imageUrls[i])
-              const blob = await res.blob()
-              files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
-            } catch (e) {
-              console.error('Image fetch error:', e)
+      // 1. 먼저 문구 복사
+      await copyToClipboard(result.message, result.id)
+      
+      // 2. 이미지 파일 병렬 생성 (압축 포함)
+      const files: File[] = []
+      if (result.imageUrls.length > 0) {
+        const filePromises = result.imageUrls.map(async (url, i) => {
+          try {
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            await new Promise((resolve, reject) => {
+              img.onload = resolve
+              img.onerror = reject
+              img.src = url
+            })
+            
+            const canvas = document.createElement('canvas')
+            const maxSize = 800
+            let { width, height } = img
+            
+            if (width > maxSize || height > maxSize) {
+              if (width > height) {
+                height = (height / width) * maxSize
+                width = maxSize
+              } else {
+                width = (width / height) * maxSize
+                height = maxSize
+              }
             }
+            
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+            ctx?.drawImage(img, 0, 0, width, height)
+            
+            const blob = await new Promise<Blob>((resolve) => {
+              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
+            })
+            
+            return new File([blob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })
+          } catch (e) {
+            console.error('이미지 처리 실패:', e)
+            return null
           }
-          
-          if (files.length > 0 && navigator.canShare({ files })) {
-            shareData.files = files
-          }
-        }
+        })
         
-        await navigator.share(shareData)
+        const results = await Promise.all(filePromises)
+        files.push(...results.filter((f): f is File => f !== null))
+      }
+
+      // 3. 파일 공유
+      if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
+        await navigator.share({ files: files })
         setCopiedId(`shared-${result.id}`)
         await markAsSent(result.id)
         setTimeout(() => setCopiedId(null), 2000)
-      } else {
-        await copyToClipboard(result.message, result.id)
-        alert('문구가 복사되었습니다.')
+        return
       }
+
+      // 텍스트만 공유
+      if (navigator.share) {
+        await navigator.share({ text: result.message })
+        setCopiedId(`shared-${result.id}`)
+        await markAsSent(result.id)
+        setTimeout(() => setCopiedId(null), 2000)
+        return
+      }
+      
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         console.error('Share failed:', error)
-        await copyToClipboard(result.message, result.id)
       }
     } finally {
       setSharingId(null)
