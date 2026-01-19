@@ -1,17 +1,17 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const adminMenuItems = [
-  { id: 'dashboard', label: '\uB300\uC2DC\uBCF4\uB4DC', icon: '📊', path: '/dashboard' },
-  { id: 'students', label: '\uD559\uC0DD \uAD00\uB9AC', icon: '👨‍🎓', path: '/students' },
-  { id: 'reports', label: '\uB9AC\uD3EC\uD2B8', icon: '📝', path: '/reports' },
-  { id: 'messages', label: '\uC77C\uC77C \uBA54\uC2DC\uC9C0', icon: '💬', path: '/daily-message' },
-  { id: 'curriculum', label: '\uCEE4\uB9AC\uD058\uB7FC', icon: '📚', path: '/admin/curriculum' },
-  { id: 'users', label: '\uC0AC\uC6A9\uC790 \uAD00\uB9AC', icon: '👥', path: '/users' },
-  { id: 'branches', label: '\uC9C0\uC810 \uAD00\uB9AC', icon: '🏢', path: '/branches' },
+  { id: 'dashboard', label: '대시보드', icon: '📊', path: '/dashboard' },
+  { id: 'students', label: '학생 관리', icon: '👨‍🎓', path: '/students' },
+  { id: 'reports', label: '리포트', icon: '📝', path: '/reports' },
+  { id: 'messages', label: '일일 메시지', icon: '💬', path: '/daily-message' },
+  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/admin/curriculum' },
+  { id: 'users', label: '사용자 관리', icon: '👥', path: '/users' },
+  { id: 'branches', label: '지점 관리', icon: '🏢', path: '/branches' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -19,35 +19,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userName, setUserName] = useState('')
-  const [userRole, setUserRole] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   useEffect(() => {
-    loadUser()
-  }, [])
+    let mounted = true
 
-  async function loadUser() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setUserRole('none')
-      setLoading(false)
-      return
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!mounted) return
+      
+      if (!user) {
+        setUserRole('none')
+        return
+      }
+
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('name, role')
+        .eq('id', user.id)
+        .single()
+
+      if (!mounted) return
+
+      if (profile) {
+        setUserName(profile.name)
+        setUserRole(profile.role)
+      } else {
+        setUserRole('none')
+      }
     }
-  
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('name, role')
-      .eq('id', user.id)
-      .single()
-  
-    if (profile) {
-      setUserName(profile.name)
-      setUserRole(profile.role)
-    } else {
-      setUserRole('none')
-    }
-    setLoading(false)
-  }
+
+    loadUser()
+
+    return () => { mounted = false }
+  }, [pathname])
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -63,7 +69,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const isPublicPage = pathname === '/login' || pathname === '/'
 
-  if (loading) {
+  // 로딩 중
+  if (userRole === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -73,7 +80,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  if (isPublicPage || userRole === '' || userRole !== 'admin') {
+  // 공개 페이지이거나 admin이 아니면 사이드바 없이 렌더링
+  if (isPublicPage || userRole !== 'admin') {
     return <>{children}</>
   }
 
@@ -84,10 +92,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <h1 className="text-lg font-bold flex items-center gap-2">
             <span>🎨</span>
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
-              {'\uADF8\uB9AC\uB9C8\uB178\uD2B8'}
+              그리마노트
             </span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">{'\uBCF8\uC0AC \uAD00\uB9AC'}</p>
+          <p className="text-xs text-slate-400 mt-1">본사 관리</p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -110,14 +118,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="px-3 py-4 border-t border-slate-100">
           <div className="px-3 py-2 mb-2">
             <p className="text-sm font-medium text-slate-700">{userName}</p>
-            <p className="text-xs text-slate-400">{'\uBCF8\uC0AC \uAD00\uB9AC\uC790'}</p>
+            <p className="text-xs text-slate-400">본사 관리자</p>
           </div>
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition"
           >
             <span className="text-lg">🚪</span>
-            {'\uB85C\uADF8\uC544\uC6C3'}
+            로그아웃
           </button>
         </div>
       </aside>
@@ -127,14 +135,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <h1 className="text-lg font-bold flex items-center gap-2">
             <span>🎨</span>
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
-              {'\uADF8\uB9AC\uB9C8\uB178\uD2B8'}
+              그리마노트
             </span>
           </h1>
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="text-2xl text-slate-600"
           >
-            {mobileMenuOpen ? '\u2715' : '\u2630'}
+            {mobileMenuOpen ? '✕' : '☰'}
           </button>
         </div>
 
@@ -161,14 +169,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <div className="border-t border-slate-100 pt-2 mt-2">
                 <div className="px-3 py-2">
                   <p className="text-sm font-medium text-slate-700">{userName}</p>
-                  <p className="text-xs text-slate-400">{'\uBCF8\uC0AC \uAD00\uB9AC\uC790'}</p>
+                  <p className="text-xs text-slate-400">본사 관리자</p>
                 </div>
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition"
                 >
                   <span className="text-lg">🚪</span>
-                  {'\uB85C\uADF8\uC544\uC6C3'}
+                  로그아웃
                 </button>
               </div>
             </nav>
