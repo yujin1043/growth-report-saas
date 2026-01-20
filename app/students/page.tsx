@@ -1,7 +1,8 @@
-﻿'use client'
+'use client'
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import BranchLayout from '@/components/BranchLayout'
 
 interface Student {
   id: string
@@ -38,6 +39,8 @@ function StudentsPage() {
   const [userRole, setUserRole] = useState('')
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState('')
+  const [userBranchName, setUserBranchName] = useState('')
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
@@ -67,9 +70,8 @@ function StudentsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     let branchId: string | null = null
 
-    // 모든 기본 데이터를 병렬로 가져오기 (성능 최적화)
     const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
-      user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
+      user ? supabase.from('user_profiles').select('name, role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
       user ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id) : Promise.resolve({ data: null }),
       supabase.from('students').select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at').order('name'),
       supabase.from('classes').select('id, name, branch_id'),
@@ -80,8 +82,14 @@ function StudentsPage() {
       setUserId(user.id)
       if (profileResult.data) {
         setUserRole(profileResult.data.role)
+        setUserName(profileResult.data.name || '')
         setUserBranchId(profileResult.data.branch_id)
         branchId = profileResult.data.branch_id
+        
+        if (profileResult.data.branch_id) {
+          const branchName = branchesResult.data?.find(b => b.id === profileResult.data.branch_id)?.name || ''
+          setUserBranchName(branchName)
+        }
       }
       if (teacherClassesResult.data) {
         setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
@@ -94,7 +102,6 @@ function StudentsPage() {
       return
     }
 
-    // Map 생성으로 O(1) 조회 (성능 최적화)
     setClasses(classesResult.data || [])
     const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
     const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
@@ -319,7 +326,7 @@ function StudentsPage() {
   const getFilterTitle = () => {
     if (specialFilter === 'pending') return '이번 달 미작성 학생'
     if (specialFilter === 'needReport') return '리포트 필요 학생 (2개월 이상 경과)'
-    return '학생 관리'
+    return userRole === 'admin' ? '학생 관리 (본사)' : '학생 관리'
   }
 
   if (loading) {
@@ -333,270 +340,317 @@ function StudentsPage() {
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
+  // 공통 콘텐츠 렌더링
+  const renderContent = () => (
+    <>
+      {specialFilter && (
+        <div className={`rounded-2xl p-4 mb-4 flex items-center justify-between ${
+          specialFilter === 'pending' ? 'bg-rose-50 border border-rose-200' : 'bg-orange-50 border border-orange-200'
+        }`}>
+          <div>
+            <p className={`font-medium ${specialFilter === 'pending' ? 'text-rose-800' : 'text-orange-800'}`}>
+              {specialFilter === 'pending' ? '📝 이번 달 미작성 학생' : '⚠️ 리포트 필요 학생'}
+            </p>
+            <p className={`text-sm ${specialFilter === 'pending' ? 'text-rose-600' : 'text-orange-600'}`}>
+              {specialFilter === 'pending' 
+                ? '이번 달에 아직 리포트가 작성되지 않은 학생입니다.' 
+                : '마지막 리포트 후 2개월 이상 경과했거나 리포트가 없는 학생입니다.'}
+            </p>
+          </div>
+          <button 
+            onClick={clearSpecialFilter}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+              specialFilter === 'pending' 
+                ? 'bg-rose-200 text-rose-700 hover:bg-rose-300' 
+                : 'bg-orange-200 text-orange-700 hover:bg-orange-300'
+            }`}
+          >
+            필터 해제
+          </button>
+        </div>
+      )}
+
+      {bulkMode && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-amber-800">대량 수정 모드</p>
+              <p className="text-sm text-amber-600">{selectedIds.size}명 선택됨</p>
+            </div>
+            {!bulkAction ? (
+              <div className="flex gap-2">
+                <button onClick={() => setBulkAction('status')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
+                  상태 변경
+                </button>
+                <button onClick={() => setBulkAction('class')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
+                  반 이동
+                </button>
+              </div>
+            ) : bulkAction === 'status' ? (
+              <div className="flex items-center gap-2">
+                <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="px-3 py-2 border border-amber-300 rounded-xl text-sm bg-white">
+                  <option value="active">재원</option>
+                  <option value="paused">휴원</option>
+                  <option value="inactive">퇴원</option>
+                </select>
+                <button onClick={handleBulkStatusChange} disabled={processing} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
+                  {processing ? '처리 중...' : '적용'}
+                </button>
+                <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
+                  뒤로
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                {selectedBranchIds.size > 1 ? (
+                  <p className="text-sm text-red-500">같은 지점 학생만 반 이동 가능합니다</p>
+                ) : (
+                  <>
+                    <select value={bulkClassId} onChange={(e) => setBulkClassId(e.target.value)} className="px-3 py-2 border border-purple-300 rounded-xl text-sm bg-white">
+                      <option value="">반 선택</option>
+                      {availableClasses.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button onClick={handleBulkClassChange} disabled={processing || !bulkClassId} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
+                      {processing ? '처리 중...' : '이동'}
+                    </button>
+                  </>
+                )}
+                <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
+                  뒤로
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
+        <div className="flex flex-col gap-4">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="이름, 학생ID, 지점명으로 검색"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-4 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: 'all', label: '전체' },
+              { key: 'active', label: '재원' },
+              { key: 'paused', label: '휴원' },
+              { key: 'inactive', label: '퇴원' }
+            ].map((status) => (
+              <button
+                key={status.key}
+                onClick={() => setStatusFilter(status.key)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
+                  statusFilter === status.key
+                    ? 'bg-teal-500 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {status.label}
+              </button>
+            ))}
+
+            {userRole === 'teacher' && teacherClassIds.length > 0 && (
+              <button
+                onClick={() => setShowMyClassOnly(!showMyClassOnly)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
+                  showMyClassOnly
+                    ? 'bg-purple-500 text-white shadow-sm'
+                    : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
+                }`}
+              >
+                내 담당반만
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-gray-500">
+          총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
+          {showMyClassOnly && <span className="ml-2 text-purple-500">(내 담당반)</span>}
+          {specialFilter && <span className="ml-2 text-orange-500">({specialFilter === 'pending' ? '미작성' : '리포트 필요'})</span>}
+        </p>
+        {bulkMode && (
+          <button onClick={handleSelectAll} className="text-sm text-teal-600 hover:text-teal-700 font-medium">
+            {selectedIds.size === filteredStudents.length ? '전체 해제' : '전체 선택'}
+          </button>
+        )}
+      </div>
+
+      {/* PC 테이블 */}
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="border-b border-gray-200">
+            <tr>
+              {bulkMode && (
+                <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '5%'}}>
+                  <input type="checkbox" checked={selectedIds.size === filteredStudents.length && filteredStudents.length > 0} onChange={handleSelectAll} className="w-4 h-4 text-teal-500 rounded" />
+                </th>
+              )}
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">지점</th>
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">학생ID</th>
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">이름</th>
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">나이</th>
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">반</th>
+              <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">상태</th>
+              <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50">관리</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filteredStudents.map((student) => (
+              <tr
+                key={student.id}
+                onClick={() => bulkMode ? handleSelectOne(student.id) : router.push(`/students/${student.id}`)}
+                className={`hover:bg-teal-50/50 cursor-pointer transition ${selectedIds.has(student.id) ? 'bg-teal-50' : ''}`}
+              >
+                {bulkMode && (
+                  <td className="px-4 py-4 text-center">
+                    <input type="checkbox" checked={selectedIds.has(student.id)} onChange={() => handleSelectOne(student.id)} onClick={(e) => e.stopPropagation()} className="w-4 h-4 text-teal-500 rounded" />
+                  </td>
+                )}
+                <td className="px-5 py-4 text-sm text-gray-600">{student.branch_name || '-'}</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{student.student_code || '-'}</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{student.name}</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{getAge(student.birth_year)}세</td>
+                <td className="px-5 py-4 text-sm text-gray-600">{student.class_name || '-'}</td>
+                <td className="px-5 py-4">{getStatusBadge(student.status)}</td>
+                <td className="px-5 py-4 text-center">
+                  {!bulkMode && (
+                    <button onClick={(e) => handleDeleteStudent(e, student.id, student.name)} className="text-gray-400 hover:text-red-500 transition text-sm">
+                      삭제
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filteredStudents.length === 0 && (
+          <div className="text-center py-16 text-gray-500">
+            <p>검색 결과가 없습니다</p>
+          </div>
+        )}
+      </div>
+
+      {/* 모바일 카드 */}
+      <div className="md:hidden space-y-3">
+        {filteredStudents.map((student) => (
+          <div
+            key={student.id}
+            onClick={() => bulkMode ? handleSelectOne(student.id) : router.push(`/students/${student.id}`)}
+            className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md cursor-pointer transition ${selectedIds.has(student.id) ? 'ring-2 ring-teal-500 bg-teal-50' : ''}`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-3">
+                {bulkMode && (
+                  <input type="checkbox" checked={selectedIds.has(student.id)} onChange={() => handleSelectOne(student.id)} onClick={(e) => e.stopPropagation()} className="w-5 h-5 text-teal-500 rounded mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-medium text-gray-900">{student.name}</span>
+                    {getStatusBadge(student.status)}
+                  </div>
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p>{student.branch_name || '-'} / {student.class_name || '-'}</p>
+                    <p>{getAge(student.birth_year)}세 / {student.student_code}</p>
+                  </div>
+                </div>
+              </div>
+              {!bulkMode && (
+                <button onClick={(e) => handleDeleteStudent(e, student.id, student.name)} className="text-gray-300 hover:text-red-500 transition ml-2">
+                  삭제
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {filteredStudents.length === 0 && (
+          <div className="text-center py-16 text-gray-500">
+            <p>검색 결과가 없습니다</p>
+          </div>
+        )}
+      </div>
+    </>
+  )
+
+  // 본사 계정 (admin) - 루트 layout.tsx에서 AdminLayout이 이미 적용됨
+  if (userRole === 'admin') {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition">
               ← 대시보드
             </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">{getFilterTitle()}</h1>
+            <h1 className="text-xl font-bold text-gray-800">{getFilterTitle()}</h1>
+          </div>
+          <div className="flex gap-2">
+            {!bulkMode ? (
+              <>
+                <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                  대량수정
+                </button>
+                <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
+                  + 학생 등록
+                </button>
+              </>
+            ) : (
+              <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-600 transition">
+                취소
+              </button>
+            )}
+          </div>
+        </div>
+        {renderContent()}
+      </div>
+    )
+  }
+
+  // 지점 계정
+  if (userRole && userRole !== 'admin') {
+    return (
+      <BranchLayout userName={userName} branchName={userBranchName}>
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-xl font-bold text-gray-800">{getFilterTitle()}</h1>
             <div className="flex gap-2">
               {!bulkMode ? (
                 <>
-                  <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
+                  <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
                     대량수정
                   </button>
-                  <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
-                    + 새 학생
+                  <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
+                    + 학생 등록
                   </button>
                 </>
               ) : (
-                <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-600 transition">
+                <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-600 transition">
                   취소
                 </button>
               )}
             </div>
           </div>
+          {renderContent()}
         </div>
-      </header>
+      </BranchLayout>
+    )
+  }
 
-      <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
-        {specialFilter && (
-          <div className={`rounded-2xl p-4 mb-4 flex items-center justify-between ${
-            specialFilter === 'pending' ? 'bg-rose-50 border border-rose-200' : 'bg-orange-50 border border-orange-200'
-          }`}>
-            <div>
-              <p className={`font-medium ${specialFilter === 'pending' ? 'text-rose-800' : 'text-orange-800'}`}>
-                {specialFilter === 'pending' ? '📝 이번 달 미작성 학생' : '⚠️ 리포트 필요 학생'}
-              </p>
-              <p className={`text-sm ${specialFilter === 'pending' ? 'text-rose-600' : 'text-orange-600'}`}>
-                {specialFilter === 'pending' 
-                  ? '이번 달에 아직 리포트가 작성되지 않은 학생입니다.' 
-                  : '마지막 리포트 후 2개월 이상 경과했거나 리포트가 없는 학생입니다.'}
-              </p>
-            </div>
-            <button 
-              onClick={clearSpecialFilter}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
-                specialFilter === 'pending' 
-                  ? 'bg-rose-200 text-rose-700 hover:bg-rose-300' 
-                  : 'bg-orange-200 text-orange-700 hover:bg-orange-300'
-              }`}
-            >
-              필터 해제
-            </button>
-          </div>
-        )}
-
-        {bulkMode && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <p className="font-medium text-amber-800">대량 수정 모드</p>
-                <p className="text-sm text-amber-600">{selectedIds.size}명 선택됨</p>
-              </div>
-              {!bulkAction ? (
-                <div className="flex gap-2">
-                  <button onClick={() => setBulkAction('status')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
-                    상태 변경
-                  </button>
-                  <button onClick={() => setBulkAction('class')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
-                    반 이동
-                  </button>
-                </div>
-              ) : bulkAction === 'status' ? (
-                <div className="flex items-center gap-2">
-                  <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="px-3 py-2 border border-amber-300 rounded-xl text-sm bg-white">
-                    <option value="active">재원</option>
-                    <option value="paused">휴원</option>
-                    <option value="inactive">퇴원</option>
-                  </select>
-                  <button onClick={handleBulkStatusChange} disabled={processing} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
-                    {processing ? '처리 중...' : '적용'}
-                  </button>
-                  <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
-                    뒤로
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {selectedBranchIds.size > 1 ? (
-                    <p className="text-sm text-red-500">같은 지점 학생만 반 이동 가능합니다</p>
-                  ) : (
-                    <>
-                      <select value={bulkClassId} onChange={(e) => setBulkClassId(e.target.value)} className="px-3 py-2 border border-purple-300 rounded-xl text-sm bg-white">
-                        <option value="">반 선택</option>
-                        {availableClasses.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                      <button onClick={handleBulkClassChange} disabled={processing || !bulkClassId} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
-                        {processing ? '처리 중...' : '이동'}
-                      </button>
-                    </>
-                  )}
-                  <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
-                    뒤로
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
-          <div className="flex flex-col gap-4">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="이름, 학생ID, 지점명으로 검색"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-4 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'all', label: '전체' },
-                { key: 'active', label: '재원' },
-                { key: 'paused', label: '휴원' },
-                { key: 'inactive', label: '퇴원' }
-              ].map((status) => (
-                <button
-                  key={status.key}
-                  onClick={() => setStatusFilter(status.key)}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
-                    statusFilter === status.key
-                      ? 'bg-teal-500 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {status.label}
-                </button>
-              ))}
-
-              {userRole === 'teacher' && teacherClassIds.length > 0 && (
-                <button
-                  onClick={() => setShowMyClassOnly(!showMyClassOnly)}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
-                    showMyClassOnly
-                      ? 'bg-purple-500 text-white shadow-sm'
-                      : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
-                  }`}
-                >
-                  내 담당반만
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
-            {showMyClassOnly && <span className="ml-2 text-purple-500">(내 담당반)</span>}
-            {specialFilter && <span className="ml-2 text-orange-500">({specialFilter === 'pending' ? '미작성' : '리포트 필요'})</span>}
-          </p>
-          {bulkMode && (
-            <button onClick={handleSelectAll} className="text-sm text-teal-600 hover:text-teal-700 font-medium">
-              {selectedIds.size === filteredStudents.length ? '전체 해제' : '전체 선택'}
-            </button>
-          )}
-        </div>
-
-        <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <table className="w-full">
-            <thead className="border-b border-gray-200">
-              <tr>
-                {bulkMode && (
-                  <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '5%'}}>
-                    <input type="checkbox" checked={selectedIds.size === filteredStudents.length && filteredStudents.length > 0} onChange={handleSelectAll} className="w-4 h-4 text-teal-500 rounded" />
-                  </th>
-                )}
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">지점</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">학생ID</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">이름</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">나이</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">반</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">상태</th>
-                <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50">관리</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredStudents.map((student) => (
-                <tr
-                  key={student.id}
-                  onClick={() => bulkMode ? handleSelectOne(student.id) : router.push(`/students/${student.id}`)}
-                  className={`hover:bg-teal-50/50 cursor-pointer transition ${selectedIds.has(student.id) ? 'bg-teal-50' : ''}`}
-                >
-                  {bulkMode && (
-                    <td className="px-4 py-4 text-center">
-                      <input type="checkbox" checked={selectedIds.has(student.id)} onChange={() => handleSelectOne(student.id)} onClick={(e) => e.stopPropagation()} className="w-4 h-4 text-teal-500 rounded" />
-                    </td>
-                  )}
-                  <td className="px-5 py-4 text-sm text-gray-600">{student.branch_name || '-'}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{student.student_code || '-'}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{student.name}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{getAge(student.birth_year)}세</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{student.class_name || '-'}</td>
-                  <td className="px-5 py-4">{getStatusBadge(student.status)}</td>
-                  <td className="px-5 py-4 text-center">
-                    {!bulkMode && (
-                      <button onClick={(e) => handleDeleteStudent(e, student.id, student.name)} className="text-gray-400 hover:text-red-500 transition text-sm">
-                        삭제
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredStudents.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              <p>검색 결과가 없습니다</p>
-            </div>
-          )}
-        </div>
-
-        <div className="md:hidden space-y-3">
-          {filteredStudents.map((student) => (
-            <div
-              key={student.id}
-              onClick={() => bulkMode ? handleSelectOne(student.id) : router.push(`/students/${student.id}`)}
-              className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md cursor-pointer transition ${selectedIds.has(student.id) ? 'ring-2 ring-teal-500 bg-teal-50' : ''}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  {bulkMode && (
-                    <input type="checkbox" checked={selectedIds.has(student.id)} onChange={() => handleSelectOne(student.id)} onClick={(e) => e.stopPropagation()} className="w-5 h-5 text-teal-500 rounded mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="font-medium text-gray-900">{student.name}</span>
-                      {getStatusBadge(student.status)}
-                    </div>
-                    <div className="text-xs text-gray-500 space-y-1">
-                      <p>{student.branch_name || '-'} / {student.class_name || '-'}</p>
-                      <p>{getAge(student.birth_year)}세 / {student.student_code}</p>
-                    </div>
-                  </div>
-                </div>
-                {!bulkMode && (
-                  <button onClick={(e) => handleDeleteStudent(e, student.id, student.name)} className="text-gray-300 hover:text-red-500 transition ml-2">
-                    삭제
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-          {filteredStudents.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              <p>검색 결과가 없습니다</p>
-            </div>
-          )}
-        </div>
+  // 기본 (로딩 중이거나 역할 미확인)
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+        <p className="text-gray-500">로딩 중...</p>
       </div>
     </div>
   )

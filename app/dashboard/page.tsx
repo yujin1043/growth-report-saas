@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import BranchLayout from '@/components/BranchLayout'
 
 interface UserProfile {
   name: string
@@ -62,13 +63,13 @@ export default function DashboardPage() {
   }, [])
 
   function getBillingInfo(activeCount: number): { tier: string, amount: number } {
-    if (activeCount <= 30) return { tier: '~30\uBA85', amount: 30000 }
-    if (activeCount <= 50) return { tier: '31~50\uBA85', amount: 40000 }
-    if (activeCount <= 80) return { tier: '51~80\uBA85', amount: 60000 }
-    if (activeCount <= 120) return { tier: '81~120\uBA85', amount: 80000 }
-    if (activeCount <= 150) return { tier: '121~150\uBA85', amount: 100000 }
+    if (activeCount <= 30) return { tier: '~30명', amount: 30000 }
+    if (activeCount <= 50) return { tier: '31~50명', amount: 40000 }
+    if (activeCount <= 80) return { tier: '51~80명', amount: 60000 }
+    if (activeCount <= 120) return { tier: '81~120명', amount: 80000 }
+    if (activeCount <= 150) return { tier: '121~150명', amount: 100000 }
     const extra = (activeCount - 150) * 500
-    return { tier: '150\uBA85+', amount: 100000 + extra }
+    return { tier: '150명+', amount: 100000 + extra }
   }
 
   function getStatus(
@@ -78,16 +79,16 @@ export default function DashboardPage() {
     if (lastMessageDays === null || lastMessageDays > 7) {
       return { 
         status: 'red', 
-        reason: lastMessageDays === null ? '\uBA54\uC2DC\uC9C0 \uC5C6\uC74C' : `\uBA54\uC2DC\uC9C0 ${lastMessageDays}\uC77C \uC804` 
+        reason: lastMessageDays === null ? '메시지 없음' : `메시지 ${lastMessageDays}일 전` 
       }
     }
     if (lastReportDays !== null && lastReportDays > 90) {
-      return { status: 'red', reason: `\uB9AC\uD3EC\uD2B8 ${lastReportDays}\uC77C \uC804` }
+      return { status: 'red', reason: `리포트 ${lastReportDays}일 전` }
     }
     if (lastMessageDays >= 4) {
-      return { status: 'yellow', reason: `\uBA54\uC2DC\uC9C0 ${lastMessageDays}\uC77C \uC804` }
+      return { status: 'yellow', reason: `메시지 ${lastMessageDays}일 전` }
     }
-    return { status: 'green', reason: '\uC815\uC0C1' }
+    return { status: 'green', reason: '정상' }
   }
 
   async function loadData() {
@@ -193,7 +194,7 @@ export default function DashboardPage() {
     })
     
     const tiers: BillingTier[] = []
-    const tierOrder = ['~30\uBA85', '31~50\uBA85', '51~80\uBA85', '81~120\uBA85', '121~150\uBA85', '150\uBA85+']
+    const tierOrder = ['~30명', '31~50명', '51~80명', '81~120명', '121~150명', '150명+']
     tierOrder.forEach(tier => {
       const data = tierMap.get(tier)
       if (data) {
@@ -287,32 +288,13 @@ export default function DashboardPage() {
   }
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ko-KR').format(amount) + '\uC6D0'
+    return new Intl.NumberFormat('ko-KR').format(amount) + '원'
   }
 
   const formatDays = (days: number | null) => {
     if (days === null) return '-'
-    if (days === 0) return '\uC624\uB298'
-    return `${days}\uC77C \uC804`
-  }
-
-  const getRoleText = (role: string) => {
-    switch (role) {
-      case 'admin': return '\uBCF8\uC0AC'
-      case 'director': return '\uC6D0\uC7A5'
-      case 'manager': return '\uC2E4\uC7A5'
-      case 'teacher': return '\uAC15\uC0AC'
-      default: return role
-    }
-  }
-
-  const getClassDisplay = () => {
-    if (!user) return ''
-    if (user.role === 'admin') return ''
-    if (user.role === 'director' || user.role === 'manager') return ''
-    if (user.class_names.length === 0) return ''
-    if (user.class_names.length <= 2) return user.class_names.join(', ')
-    return `${user.class_names.slice(0, 2).join(', ')} \uC678 ${user.class_names.length - 2}\uAC1C`
+    if (days === 0) return '오늘'
+    return `${days}일 전`
   }
 
   if (loading) {
@@ -320,12 +302,13 @@ export default function DashboardPage() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-slate-500">{'\uB85C\uB529 \uC911...'}</p>
+          <p className="text-slate-500">로딩 중...</p>
         </div>
       </div>
     )
   }
 
+  // ========== 본사 관리자 대시보드 ==========
   if (userRole === 'admin') {
     const sortedStats = [...branchStats].sort((a, b) => {
       const statusOrder = { red: 0, yellow: 1, green: 2 }
@@ -340,20 +323,20 @@ export default function DashboardPage() {
         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
           
           <p className="text-center text-sm text-slate-400">
-            {'\uBCF8\uC0AC \uB300\uC2DC\uBCF4\uB4DC - \uC9C0\uC810 \uD604\uD669\uC744 \uD55C\uB208\uC5D0'}
+            본사 대시보드 - 지점 현황을 한눈에
           </p>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">{'\uCD1D \uC9C0\uC810 \uC218'}</p>
-              <p className="text-3xl font-bold text-slate-800">{totalBranches}<span className="text-base font-normal text-slate-400 ml-1">{'\uAC1C'}</span></p>
+              <p className="text-slate-500 text-sm mb-1">총 지점 수</p>
+              <p className="text-3xl font-bold text-slate-800">{totalBranches}<span className="text-base font-normal text-slate-400 ml-1">개</span></p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">{'\uCD1D \uC6D0\uC0DD \uC218'}</p>
-              <p className="text-3xl font-bold text-slate-800">{totalActiveStudents}<span className="text-base font-normal text-slate-400 ml-1">{'\uBA85'}</span></p>
+              <p className="text-slate-500 text-sm mb-1">총 원생 수</p>
+              <p className="text-3xl font-bold text-slate-800">{totalActiveStudents}<span className="text-base font-normal text-slate-400 ml-1">명</span></p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">{'\uC774\uBC88\uB2EC \uC608\uC0C1 \uACFC\uAE08'}</p>
+              <p className="text-slate-500 text-sm mb-1">이번달 예상 과금</p>
               <p className="text-2xl font-bold text-teal-600">{formatCurrency(totalBilling)}</p>
             </div>
           </div>
@@ -361,15 +344,15 @@ export default function DashboardPage() {
           <div className="flex justify-center gap-6">
             <div className="flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-green-500"></span>
-              <span className="text-slate-600">{'\uC815\uC0C1'} <strong>{greenCount}</strong></span>
+              <span className="text-slate-600">정상 <strong>{greenCount}</strong></span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-yellow-500"></span>
-              <span className="text-slate-600">{'\uC8FC\uC758'} <strong>{yellowCount}</strong></span>
+              <span className="text-slate-600">주의 <strong>{yellowCount}</strong></span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-red-500"></span>
-              <span className="text-slate-600">{'\uC810\uAC80 \uD544\uC694'} <strong>{redCount}</strong></span>
+              <span className="text-slate-600">점검 필요 <strong>{redCount}</strong></span>
             </div>
           </div>
 
@@ -377,7 +360,7 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {redBranches.length > 0 && (
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                  <h3 className="font-bold text-red-800 mb-2">{'\uD83D\uDD34 \uC989\uC2DC \uC810\uAC80 \uD544\uC694'}</h3>
+                  <h3 className="font-bold text-red-800 mb-2">🔴 즉시 점검 필요</h3>
                   <ul className="space-y-1">
                     {redBranches.map(b => (
                       <li key={b.id} className="text-sm text-red-700">
@@ -390,7 +373,7 @@ export default function DashboardPage() {
               
               {yellowBranches.length > 0 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
-                  <h3 className="font-bold text-yellow-800 mb-2">{'\uD83D\uDFE1 \uC8FC\uC758 \uD544\uC694'}</h3>
+                  <h3 className="font-bold text-yellow-800 mb-2">🟡 주의 필요</h3>
                   <ul className="space-y-1">
                     {yellowBranches.map(b => (
                       <li key={b.id} className="text-sm text-yellow-700">
@@ -405,21 +388,21 @@ export default function DashboardPage() {
 
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100">
-              <h2 className="font-bold text-slate-800">{'\uD83D\uDCCA \uC9C0\uC810\uBCC4 \uD604\uD669'}</h2>
+              <h2 className="font-bold text-slate-800">📊 지점별 현황</h2>
             </div>
 
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50 border-b border-slate-100">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">{'\uC0C1\uD0DC'}</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">{'\uC9C0\uC810\uBA85'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uC6D0\uC0DD \uC218'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uC99D\uAC10'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uACFC\uAE08\uAD6C\uAC04'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uC608\uC0C1\uC694\uAE08'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uCD5C\uADFC \uBA54\uC2DC\uC9C0'}</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">{'\uCD5C\uADFC \uB9AC\uD3EC\uD2B8'}</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">상태</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">지점명</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">원생 수</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">증감</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">과금구간</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">예상요금</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">최근 메시지</th>
+                    <th className="px-4 py-3 text-center text-sm font-semibold text-slate-700">최근 리포트</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -486,11 +469,11 @@ export default function DashboardPage() {
                       }`}></span>
                       <span className="font-medium text-slate-800">{branch.name}</span>
                     </div>
-                    <span className="font-bold text-slate-800">{branch.active_count}{'\uBA85'}</span>
+                    <span className="font-bold text-slate-800">{branch.active_count}명</span>
                   </div>
                   <div className="flex gap-3 text-xs text-slate-500">
-                    <span>{'\uBA54\uC2DC\uC9C0'} {formatDays(branch.last_message_days)}</span>
-                    <span>{'\uB9AC\uD3EC\uD2B8'} {formatDays(branch.last_report_days)}</span>
+                    <span>메시지 {formatDays(branch.last_message_days)}</span>
+                    <span>리포트 {formatDays(branch.last_report_days)}</span>
                     <span>{formatCurrency(branch.billing_amount)}</span>
                   </div>
                 </div>
@@ -499,19 +482,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h2 className="font-bold text-slate-800 mb-4">{'\uD83D\uDCB0 \uACFC\uAE08 \uC694\uC57D'}</h2>
+            <h2 className="font-bold text-slate-800 mb-4">💰 과금 요약</h2>
             
             <div className="space-y-2 mb-4">
               {billingByTier.map(tier => (
                 <div key={tier.tier} className="flex justify-between text-sm">
-                  <span className="text-slate-600">[{tier.tier}] {tier.count}{'\uAC1C \uC9C0\uC810'}</span>
+                  <span className="text-slate-600">[{tier.tier}] {tier.count}개 지점</span>
                   <span className="text-slate-800">{formatCurrency(tier.amount)}</span>
                 </div>
               ))}
             </div>
             
             <div className="border-t border-slate-200 pt-3 flex justify-between font-bold">
-              <span className="text-slate-800">{'\uCD1D \uC608\uC0C1 SaaS \uC774\uC6A9\uB8CC'}</span>
+              <span className="text-slate-800">총 예상 SaaS 이용료</span>
               <span className="text-teal-600">{formatCurrency(totalBilling)}</span>
             </div>
           </div>
@@ -521,139 +504,134 @@ export default function DashboardPage() {
     )
   }
 
+  // ========== 지점 계정 대시보드 (새 디자인) ==========
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <header className="bg-white shadow-sm border-b border-slate-200">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <span>🎨</span>
-              <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
-                {'\uADF8\uB9AC\uB9C8\uB178\uD2B8'}
-              </span>
-            </h1>
-            
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => router.push('/settings')}
-                className="text-slate-500 hover:text-slate-700 text-sm transition"
-              >
-                {'\uC124\uC815'}
-              </button>
-              <button 
-                onClick={async () => {
-                  await supabase.auth.signOut()
-                  router.push('/login')
-                }}
-                className="text-slate-500 hover:text-red-500 text-sm transition"
-              >
-                {'\uB85C\uADF8\uC544\uC6C3'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+    <BranchLayout userName={user?.name || '선생님'} branchName={user?.branch_name || ''}>
+      <div className="p-8 max-w-4xl">
+        {/* Header */}
+        <header className="mb-7">
+          <h1 className="text-2xl font-bold text-slate-800 mb-1">
+            👋 {user?.name || '선생님'}님, 안녕하세요!
+          </h1>
+          <p className="text-slate-500">{user?.branch_name || ''}</p>
+        </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6">
-          {/* 월별 운영 콘텐츠 배너 */}
-          <div 
-            onClick={() => router.push('/curriculum')}
-            className="mb-6 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-2xl p-4 cursor-pointer hover:shadow-lg transition"
-          >
-            <div className="flex items-center justify-between text-white">
-              <div>
-                <p className="text-sm opacity-90">📚 이번 달 운영 기준</p>
-                <p className="font-bold text-lg">월별 운영 콘텐츠 보기</p>
-              </div>
-              <div className="text-2xl">→</div>
-            </div>
-          </div>
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">
-            👋 {user?.name || '\uC0AC\uC6A9\uC790'}{'\uB2D8'}
-            <span className="text-sm font-normal text-slate-500 ml-2">
-              {getRoleText(user?.role || '')}
-            </span>
-          </h2>
-          <p className="text-sm text-slate-500">
-            {user?.branch_name || '\uC804\uCCB4 \uC9C0\uC810'}
-            {getClassDisplay() && ` / ${getClassDisplay()}`}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <p className="text-xs text-slate-400 mb-1">{'\uC7AC\uC6D0\uC0DD'}</p>
-            <p className="text-2xl font-bold text-slate-800">{activeStudents}<span className="text-sm font-normal text-slate-400 ml-1">{'\uBA85'}</span></p>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <p className="text-xs text-slate-400 mb-1">{'\uC774\uBC88\uB2EC \uB9AC\uD3EC\uD2B8'}</p>
-            <p className="text-2xl font-bold text-slate-800">{monthlyReports}<span className="text-sm font-normal text-slate-400 ml-1">{'\uAC74'}</span></p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => router.push('/daily-message')}
-          className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-5 rounded-2xl font-semibold text-lg hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/25 mb-3 flex items-center justify-center gap-3"
+        {/* Today's Curriculum */}
+        <div 
+          onClick={() => router.push('/curriculum')}
+          className="bg-gradient-to-r from-teal-500 to-cyan-500 rounded-2xl p-6 mb-6 cursor-pointer hover:shadow-lg transition relative overflow-hidden"
         >
-          <span className="text-2xl">💬</span>
-          {'\uC77C\uC77C \uBA54\uC2DC\uC9C0 \uBC1C\uC1A1'}
-        </button>
-
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <button
-            onClick={() => router.push('/students')}
-            className="bg-white text-slate-700 py-4 rounded-2xl font-medium hover:bg-slate-50 transition border border-slate-200 flex items-center justify-center gap-2"
-          >
-            <span className="text-xl">📝</span>
-            {'\uB9AC\uD3EC\uD2B8 \uC791\uC131'}
-          </button>
-          <button
-            onClick={() => router.push('/students')}
-            className="bg-white text-slate-700 py-4 rounded-2xl font-medium hover:bg-slate-50 transition border border-slate-200 flex items-center justify-center gap-2"
-          >
-            <span className="text-xl">👨‍🎓</span>
-            {'\uD559\uC0DD \uAD00\uB9AC'}
-          </button>
+          <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full" />
+          <div className="absolute -bottom-10 right-16 w-24 h-24 bg-white/5 rounded-full" />
+          
+          <div className="relative z-10">
+            <div className="inline-flex items-center bg-white/20 rounded-full px-3 py-1 mb-3">
+              <span className="text-sm text-white font-medium">📚 오늘의 커리큘럼</span>
+            </div>
+            <h2 className="text-xl font-bold text-white mb-1">
+              1월 유치부 - 겨울 풍경화
+            </h2>
+            <p className="text-white/80 text-sm">
+              터치하면 지도 포인트 확인 →
+            </p>
+          </div>
         </div>
 
-        {needReportStudents.length > 0 && (
-          <div className="bg-white rounded-2xl border border-orange-200 overflow-hidden">
-            <div className="px-4 py-3 bg-orange-50 border-b border-orange-200">
-              <h3 className="font-semibold text-orange-800 flex items-center gap-2">
-                <span>⚠️</span>
-                {'\uB9AC\uD3EC\uD2B8 \uD544\uC694 (2\uAC1C\uC6D4 \uACBD\uACFC)'}
-              </h3>
+        {/* Today's Tasks */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+          <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <span className="w-1 h-4 bg-gradient-to-b from-amber-400 to-pink-400 rounded-full" />
+            오늘 할 일
+          </h3>
+          
+          {/* Daily Message - Main Button */}
+          <button
+            onClick={() => router.push('/daily-message')}
+            className="w-full bg-gradient-to-r from-amber-400 to-yellow-400 rounded-2xl p-5 mb-4 flex items-center gap-4 hover:shadow-md transition text-left"
+          >
+            <div className="w-14 h-14 bg-white/40 rounded-xl flex items-center justify-center text-2xl">
+              💬
             </div>
-            <div className="divide-y divide-slate-100">
-              {needReportStudents.map(student => (
+            <div className="flex-1">
+              <p className="font-bold text-amber-900 mb-0.5">일일 메시지 발송</p>
+              <p className="text-sm text-amber-700">수업 후 학부모 알림</p>
+            </div>
+            <span className="text-amber-900 text-xl">→</span>
+          </button>
+
+          {/* Secondary Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => router.push('/reports/select')}
+            className="bg-slate-50 rounded-xl p-4 flex items-center gap-3 hover:bg-slate-100 transition"
+          >
+              <div className="w-11 h-11 bg-teal-50 rounded-xl flex items-center justify-center text-xl">
+                📝
+              </div>
+              <span className="font-semibold text-slate-700">리포트 작성</span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/students')}
+              className="bg-slate-50 rounded-xl p-4 flex items-center gap-3 hover:bg-slate-100 transition"
+            >
+              <div className="w-11 h-11 bg-pink-50 rounded-xl flex items-center justify-center text-xl">
+                👨‍🎓
+              </div>
+              <span className="font-semibold text-slate-700">학생 관리</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Report Alert */}
+        {needReportStudents.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 border-red-100 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+                ⚠️ 리포트 필요
+              </span>
+              <span className="bg-red-50 text-red-500 text-sm font-bold px-3 py-1 rounded-full">
+                {needReportStudents.length}명
+              </span>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              {needReportStudents.map((student) => (
                 <div 
                   key={student.id}
-                  onClick={() => router.push(`/students/${student.id}`)}
-                  className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 cursor-pointer transition"
+                  className="flex items-center p-3 bg-slate-50 rounded-xl"
                 >
-                  <div>
-                    <p className="font-medium text-slate-800">{student.name}</p>
-                    <p className="text-xs text-slate-400">{student.branch_name}</p>
+                  <div className="w-10 h-10 bg-gradient-to-br from-pink-100 to-teal-100 rounded-lg flex items-center justify-center text-lg mr-3">
+                    🎨
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-orange-500 font-medium">
-                      {student.days_since_report === 999 ? '\uB9AC\uD3EC\uD2B8 \uC5C6\uC74C' : `${student.days_since_report}\uC77C \uACBD\uACFC`}
-                    </span>
-                    <span className="text-slate-300">{'\u2192'}</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-800">{student.name}</p>
+                    <p className="text-sm text-red-500">
+                      {student.days_since_report === 999 ? '리포트 없음' : `${Math.floor(student.days_since_report / 30)}개월 경과`}
+                    </p>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      router.push(`/reports/new?studentId=${student.id}`)
+                    }}
+                    className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:shadow-md transition"
+                  >
+                    작성하기
+                  </button>
                 </div>
               ))}
             </div>
-            <div 
-              onClick={() => router.push('/students?filter=needReport')}
-              className="px-4 py-3 bg-slate-50 text-center cursor-pointer hover:bg-slate-100 transition"
-            >
-              <span className="text-sm text-slate-500">{'\uC804\uCCB4\uBCF4\uAE30 \u2192'}</span>
+
+            <div className="pt-4 border-t border-dashed border-slate-200 flex items-center gap-2">
+              <span className="text-lg">📊</span>
+              <span className="text-sm text-slate-500">이번달 리포트</span>
+              <span className="text-sm font-bold text-teal-500">{monthlyReports}건</span>
+              <span className="text-sm text-slate-500">작성</span>
             </div>
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </BranchLayout>
   )
 }
