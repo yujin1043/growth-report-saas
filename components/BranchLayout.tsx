@@ -6,24 +6,23 @@ import { supabase } from '@/lib/supabase'
 interface BranchLayoutProps {
   children: React.ReactNode
   userName?: string
+  className?: string
   branchName?: string
 }
 
 const menuItems = [
   { icon: '📚', label: '커리큘럼', id: 'curriculum', path: '/curriculum' },
   { icon: '💬', label: '일일 메시지', id: 'message', path: '/daily-message' },
-  { icon: '📝', label: '리포트 작성', id: 'report', path: '/reports/select' },
+  { icon: '📝', label: '리포트', id: 'report', path: '/reports' },
   { icon: '👨‍🎓', label: '학생관리', id: 'students', path: '/students' },
   { icon: '⚙️', label: '설정', id: 'settings', path: '/settings' },
 ]
 
-export default function BranchLayout({ children, userName = '선생님', branchName = '' }: BranchLayoutProps) {
+export default function BranchLayout({ children, userName = '선생님', className = '', branchName = '' }: BranchLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
 
   const getActiveMenu = () => {
-    if (pathname === '/dashboard') return 'curriculum'
-    if (pathname.startsWith('/reports/select') || pathname.startsWith('/reports/new')) return 'report'
     const found = menuItems.find(item => pathname.startsWith(item.path))
     return found?.id || 'curriculum'
   }
@@ -41,10 +40,7 @@ export default function BranchLayout({ children, userName = '선생님', branchN
       <aside className="w-60 bg-white border-r border-slate-200 py-6 flex flex-col fixed h-screen">
         {/* Logo */}
         <div className="px-6 pb-6 border-b border-slate-100">
-          <h1 
-            onClick={() => router.push('/dashboard')}
-            className="text-xl font-bold flex items-center gap-2 cursor-pointer"
-          >
+          <h1 className="text-xl font-bold flex items-center gap-2">
             <span>🎨</span>
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
               그리마노트
@@ -78,7 +74,7 @@ export default function BranchLayout({ children, userName = '선생님', branchN
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-800 truncate">{userName}</p>
-              <p className="text-xs text-slate-400">{branchName}</p>
+              <p className="text-xs text-slate-400">{className}</p>
             </div>
           </div>
           <button

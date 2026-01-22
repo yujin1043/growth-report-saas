@@ -40,6 +40,27 @@ interface Consultation {
   created_at: string
 }
 
+interface Sketchbook {
+  id: string
+  book_number: number
+  started_at: string
+  completed_at: string | null
+  status: string
+}
+
+interface SketchbookWork {
+  id: string
+  work_date: string
+  curriculum_id: string | null
+  is_custom: boolean
+  custom_title: string | null
+  custom_description: string | null
+  curriculum?: {
+    title: string
+    parent_message_template: string | null
+  }
+}
+
 const CONSULTATION_TYPES = [
   { value: 'first_visit', label: '첫 등원' },
   { value: 'regular', label: '정기 상담' },
@@ -57,6 +78,26 @@ export default function StudentDetailPage() {
   const [reports, setReports] = useState<Report[]>([])
   const [consultations, setConsultations] = useState<Consultation[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // 탭 상태
+  const [activeTab, setActiveTab] = useState<'info' | 'sketchbook' | 'reports'>('info')
+  
+  // 스케치북 관련 상태
+  const [activeSketchbook, setActiveSketchbook] = useState<Sketchbook | null>(null)
+  const [sketchbookWorks, setSketchbookWorks] = useState<SketchbookWork[]>([])
+  const [completedSketchbooks, setCompletedSketchbooks] = useState<Sketchbook[]>([])
+  
+  // 진도 수정/추가 모달
+  const [showWorkModal, setShowWorkModal] = useState(false)
+  const [editingWork, setEditingWork] = useState<SketchbookWork | null>(null)
+  const [workForm, setWorkForm] = useState({
+    work_date: new Date().toISOString().split('T')[0],
+    is_custom: false,
+    curriculum_id: '',
+    custom_title: '',
+    custom_description: ''
+  })
+  const [curriculumOptions, setCurriculumOptions] = useState<{id: string, title: string, parent_message_template: string | null}[]>([])
   
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [currentUserName, setCurrentUserName] = useState<string>('')
@@ -108,6 +149,7 @@ export default function StudentDetailPage() {
       })
     }
 
+    // 기존 데이터 로드
     const [reportsResult, consultationsResult] = await Promise.all([
       supabase
         .from('reports')
@@ -124,7 +166,236 @@ export default function StudentDetailPage() {
     if (reportsResult.data) setReports(reportsResult.data)
     if (consultationsResult.data) setConsultations(consultationsResult.data)
 
+    // 스케치북 데이터 로드
+    await loadSketchbookData()
+
     setLoading(false)
+  }
+
+  async function loadSketchbookData() {
+    // 커리큘럼 옵션 로드 (진도 추가 시 사용)
+    const { data: curriculumData } = await supabase
+      .from('monthly_curriculum')
+      .select('id, title, parent_message_template')
+      .eq('status', 'active')
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
+    
+    if (curriculumData) setCurriculumOptions(curriculumData)
+
+    // 활성 스케치북
+    const { data: activeData } = await supabase
+      .from('sketchbooks')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('status', 'active')
+      .single()
+
+    if (activeData) {
+      setActiveSketchbook(activeData)
+      
+      // 진도 목록 로드
+      const { data: worksData } = await supabase
+        .from('sketchbook_works')
+        .select(`
+          id,
+          work_date,
+          curriculum_id,
+          is_custom,
+          custom_title,
+          custom_description
+        `)
+        .eq('sketchbook_id', activeData.id)
+        .order('work_date', { ascending: false })
+
+      if (worksData) {
+        // 커리큘럼 정보 가져오기
+        const curriculumIds = worksData
+          .filter(w => w.curriculum_id)
+          .map(w => w.curriculum_id)
+
+        let curriculumMap = new Map()
+        if (curriculumIds.length > 0) {
+          const { data: curriculumData } = await supabase
+            .from('monthly_curriculum')
+            .select('id, title, parent_message_template')
+            .in('id', curriculumIds)
+
+          if (curriculumData) {
+            curriculumMap = new Map(curriculumData.map(c => [c.id, c]))
+          }
+        }
+
+        const worksWithCurriculum = worksData.map(work => ({
+          ...work,
+          curriculum: work.curriculum_id ? curriculumMap.get(work.curriculum_id) : null
+        }))
+
+        setSketchbookWorks(worksWithCurriculum)
+      }
+    }
+
+    // 완료된 스케치북 목록
+    const { data: completedData } = await supabase
+      .from('sketchbooks')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('status', 'completed')
+      .order('completed_at', { ascending: false })
+
+    if (completedData) setCompletedSketchbooks(completedData)
+  }
+
+  // 새 스케치북 시작
+  async function handleStartNewSketchbook() {
+    const lastNumber = activeSketchbook?.book_number || 
+      (completedSketchbooks.length > 0 ? Math.max(...completedSketchbooks.map(s => s.book_number)) : 0)
+
+    const { data, error } = await supabase
+      .from('sketchbooks')
+      .insert({
+        student_id: studentId,
+        book_number: lastNumber + 1,
+        started_at: new Date().toISOString().split('T')[0],
+        status: 'active'
+      })
+      .select()
+      .single()
+
+    if (error) {
+      alert('스케치북 생성 실패: ' + error.message)
+      return
+    }
+
+    setActiveSketchbook(data)
+    setSketchbookWorks([])
+  }
+
+  // 스케치북 완료 처리
+  async function handleCompleteSketchbook() {
+    if (!activeSketchbook) return
+    
+    if (sketchbookWorks.length === 0) {
+      alert('진도가 없는 스케치북은 완료할 수 없습니다.')
+      return
+    }
+
+    if (!confirm(`스케치북 #${activeSketchbook.book_number}을 완료 처리하시겠습니까?\n\n완료 후에는 작품 설명 출력과 성장 리포트 작성이 가능합니다.`)) {
+      return
+    }
+
+    const { error } = await supabase
+      .from('sketchbooks')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString().split('T')[0]
+      })
+      .eq('id', activeSketchbook.id)
+
+    if (error) {
+      alert('완료 처리 실패: ' + error.message)
+      return
+    }
+
+    alert('스케치북이 완료되었습니다!')
+    loadSketchbookData()
+  }
+
+  // 진도 추가 모달 열기
+  const openAddWorkModal = () => {
+    setEditingWork(null)
+    setWorkForm({
+      work_date: new Date().toISOString().split('T')[0],
+      is_custom: false,
+      curriculum_id: '',
+      custom_title: '',
+      custom_description: ''
+    })
+    setShowWorkModal(true)
+  }
+
+  // 진도 수정 모달 열기
+  const openEditWorkModal = (work: SketchbookWork) => {
+    setEditingWork(work)
+    setWorkForm({
+      work_date: work.work_date,
+      is_custom: work.is_custom,
+      curriculum_id: work.curriculum_id || '',
+      custom_title: work.custom_title || '',
+      custom_description: work.custom_description || ''
+    })
+    setShowWorkModal(true)
+  }
+
+  // 진도 저장
+  const handleSaveWork = async () => {
+    if (!activeSketchbook) return
+    
+    if (!workForm.is_custom && !workForm.curriculum_id) {
+      alert('커리큘럼을 선택해주세요')
+      return
+    }
+    if (workForm.is_custom && !workForm.custom_title.trim()) {
+      alert('주제를 입력해주세요')
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const workData: any = {
+        work_date: workForm.work_date,
+        is_custom: workForm.is_custom,
+        curriculum_id: workForm.is_custom ? null : workForm.curriculum_id,
+        custom_title: workForm.is_custom ? workForm.custom_title : null,
+        custom_description: workForm.is_custom ? workForm.custom_description : null
+      }
+
+      if (editingWork) {
+        // 수정
+        const { error } = await supabase
+          .from('sketchbook_works')
+          .update(workData)
+          .eq('id', editingWork.id)
+
+        if (error) throw error
+      } else {
+        // 추가
+        workData.sketchbook_id = activeSketchbook.id
+        const { error } = await supabase
+          .from('sketchbook_works')
+          .insert(workData)
+
+        if (error) throw error
+      }
+
+      setShowWorkModal(false)
+      await loadSketchbookData()
+    } catch (error) {
+      console.error('Save error:', error)
+      alert('저장에 실패했습니다')
+    }
+
+    setSaving(false)
+  }
+
+  // 진도 삭제
+  const handleDeleteWork = async (workId: string) => {
+    if (!confirm('이 진도를 삭제하시겠습니까?')) return
+
+    try {
+      const { error } = await supabase
+        .from('sketchbook_works')
+        .delete()
+        .eq('id', workId)
+
+      if (error) throw error
+
+      setSketchbookWorks(prev => prev.filter(w => w.id !== workId))
+    } catch (error) {
+      console.error('Delete error:', error)
+      alert('삭제에 실패했습니다')
+    }
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
@@ -298,6 +569,7 @@ export default function StudentDetailPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-4 md:py-6">
+        {/* 학생 기본 정보 카드 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 mb-4 md:mb-6">
           <div className="flex items-start gap-4 mb-5">
             <div className="w-14 h-14 md:w-16 md:h-16 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-2xl flex items-center justify-center text-white text-xl md:text-2xl font-bold shadow-lg shadow-teal-500/30">
@@ -330,178 +602,359 @@ export default function StudentDetailPage() {
               <p className="font-semibold text-gray-800">{student.enrolled_at || '-'}</p>
             </div>
           </div>
-
-          {(student.parent_name || student.parent_phone) && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-xs text-gray-400 mb-2">학부모 정보</p>
-              <div className="flex items-center gap-4">
-                <p className="text-sm text-gray-700">
-                  <span className="text-gray-400 mr-2">👤</span>
-                  {student.parent_name || '-'}
-                </p>
-                <p className="text-sm text-gray-700">
-                  <span className="text-gray-400 mr-2">📞</span>
-                  {student.parent_phone || '-'}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
 
-        <button
-          onClick={() => router.push(`/reports/new?studentId=${student.id}`)}
-          className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 mb-4 md:mb-6 text-sm md:text-base"
-        >
-          📝 새 리포트 작성
-        </button>
-
-        {/* 상담 일지 섹션 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4 md:mb-6">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-800">📋 상담 일지 ({consultations.length}건)</h3>
+        {/* 탭 메뉴 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 md:mb-6 overflow-hidden">
+          <div className="flex border-b border-gray-100">
             <button
-              onClick={openAddModal}
-              className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition"
+              onClick={() => setActiveTab('info')}
+              className={`flex-1 py-3 text-sm font-medium transition ${
+                activeTab === 'info'
+                  ? 'text-teal-600 border-b-2 border-teal-500 bg-teal-50/50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
             >
-              + 추가
+              📋 기본정보
+            </button>
+            <button
+              onClick={() => setActiveTab('sketchbook')}
+              className={`flex-1 py-3 text-sm font-medium transition ${
+                activeTab === 'sketchbook'
+                  ? 'text-teal-600 border-b-2 border-teal-500 bg-teal-50/50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              📒 스케치북
+            </button>
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`flex-1 py-3 text-sm font-medium transition ${
+                activeTab === 'reports'
+                  ? 'text-teal-600 border-b-2 border-teal-500 bg-teal-50/50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              📝 리포트
             </button>
           </div>
+        </div>
 
-          {consultations.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {consultations.map(consultation => (
-                <div key={consultation.id} className="p-4 md:p-5 hover:bg-gray-50 transition">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getTypeBadgeColor(consultation.consultation_type)}`}>
-                        {getTypeLabel(consultation.consultation_type)}
-                      </span>
-                      <span className="text-sm text-gray-500">{consultation.consultation_date}</span>
-                      <span className="text-xs text-gray-400">by {consultation.counselor_name}</span>
+        {/* 탭 컨텐츠 */}
+        {activeTab === 'info' && (
+          <>
+            {/* 학부모 정보 */}
+            {(student.parent_name || student.parent_phone) && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4 md:mb-6">
+                <h3 className="font-semibold text-gray-800 mb-3">👨‍👩‍👧 학부모 정보</h3>
+                <div className="flex items-center gap-4">
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-400 mr-2">👤</span>
+                    {student.parent_name || '-'}
+                  </p>
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-400 mr-2">📞</span>
+                    {student.parent_phone || '-'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 상담 일지 섹션 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-800">📋 상담 일지 ({consultations.length}건)</h3>
+                <button
+                  onClick={openAddModal}
+                  className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition"
+                >
+                  + 추가
+                </button>
+              </div>
+
+              {consultations.length > 0 ? (
+                <div className="divide-y divide-gray-100">
+                  {consultations.map(consultation => (
+                    <div key={consultation.id} className="p-4 md:p-5 hover:bg-gray-50 transition">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getTypeBadgeColor(consultation.consultation_type)}`}>
+                            {getTypeLabel(consultation.consultation_type)}
+                          </span>
+                          <span className="text-sm text-gray-500">{consultation.consultation_date}</span>
+                          <span className="text-xs text-gray-400">by {consultation.counselor_name}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {consultation.counselor_id === currentUserId && (
+                            <>
+                              <button
+                                onClick={() => openEditModal(consultation)}
+                                className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"
+                              >
+                                수정
+                              </button>
+                              <button
+                                onClick={() => handleDeleteConsultation(consultation.id)}
+                                className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition"
+                              >
+                                삭제
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{consultation.content}</p>
+                      {consultation.follow_up && (
+                        <div className="mt-2 pt-2 border-t border-gray-100">
+                          <p className="text-xs text-gray-400 mb-1">후속 조치</p>
+                          <p className="text-sm text-gray-600">{consultation.follow_up}</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1">
-                      {consultation.counselor_id === currentUserId && (
-                        <>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-4xl mb-3">📋</p>
+                  <p className="font-medium">상담 기록이 없습니다</p>
+                  <p className="text-sm mt-1 text-gray-400">첫 상담 내용을 기록해보세요!</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeTab === 'sketchbook' && (
+          <>
+            {/* 현재 스케치북 */}
+            {activeSketchbook ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4 md:mb-6">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">📒</span>
+                    <div>
+                      <h3 className="font-semibold text-gray-800">스케치북 #{activeSketchbook.book_number}</h3>
+                      <p className="text-xs text-gray-500">시작일: {activeSketchbook.started_at}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm font-medium">
+                      진행중 · {sketchbookWorks.length}작품
+                    </span>
+                    <button
+                      onClick={handleCompleteSketchbook}
+                      className="px-3 py-1.5 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition"
+                    >
+                      완료 처리
+                    </button>
+                  </div>
+                </div>
+
+                {/* 진도 추가 버튼 */}
+                <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                  <button
+                    onClick={openAddWorkModal}
+                    className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 hover:bg-teal-50 transition"
+                  >
+                    + 진도 수동 추가
+                  </button>
+                </div>
+
+                {/* 진도 목록 */}
+                {sketchbookWorks.length > 0 ? (
+                  <div className="divide-y divide-gray-100">
+                    {sketchbookWorks.map((work, index) => (
+                      <div key={work.id} className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition group">
+                        <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm">
+                          {sketchbookWorks.length - index}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-800">
+                              {work.is_custom ? work.custom_title : work.curriculum?.title}
+                            </p>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
+                            }`}>
+                              {work.is_custom ? '자율' : '커리큘럼'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{work.work_date}</p>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                           <button
-                            onClick={() => openEditModal(consultation)}
+                            onClick={() => openEditWorkModal(work)}
                             className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"
                           >
                             수정
                           </button>
                           <button
-                            onClick={() => handleDeleteConsultation(consultation.id)}
+                            onClick={() => handleDeleteWork(work.id)}
                             className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition"
                           >
                             삭제
                           </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{consultation.content}</p>
-                  {consultation.follow_up && (
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <p className="text-xs text-gray-400 mb-1">후속 조치</p>
-                      <p className="text-sm text-gray-600">{consultation.follow_up}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-4xl mb-3">📋</p>
-              <p className="font-medium">상담 기록이 없습니다</p>
-              <p className="text-sm mt-1 text-gray-400">첫 상담 내용을 기록해보세요!</p>
-            </div>
-          )}
-        </div>
-
-        {/* 리포트 히스토리 섹션 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">📝 리포트 히스토리 ({reports.length}건)</h3>
-          </div>
-
-          {reports.length > 0 ? (
-            <>
-              <div className="hidden md:block">
-                <table className="w-full table-fixed">
-                  <thead className="border-b border-gray-200">
-                    <tr>
-                      <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '40%'}}>지도기간</th>
-                      <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '30%'}}>작성일</th>
-                      <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '30%'}}>관리</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {reports.map((report, index) => (
-                      <tr key={report.id} className="hover:bg-teal-50/50 transition">
-                        <td className="px-5 py-4 text-sm text-gray-600">
-                          {report.period_start} ~ {report.period_end}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-gray-600">
-                          {formatDate(report.created_at)}
-                        </td>
-                        <td className="px-5 py-4 text-center">
-                          <div className="flex justify-center gap-2">
-                            <button 
-                              onClick={() => router.push(`/reports/${report.id}`)}
-                              className="px-3 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-xs font-medium hover:bg-teal-100 transition"
-                            >
-                              보기
-                            </button>
-                            {index === 0 && (
-                              <button 
-                                onClick={() => router.push(`/reports/${report.id}/edit`)}
-                                className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-medium hover:bg-amber-100 transition"
-                              >
-                                수정
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <p className="text-4xl mb-3">🎨</p>
+                    <p className="font-medium">아직 진도가 없습니다</p>
+                    <p className="text-sm mt-1 text-gray-400">일일 메시지에서 "완료" 시 자동으로 추가되거나,<br/>위 버튼으로 수동 추가할 수 있습니다</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center mb-4 md:mb-6">
+                <p className="text-5xl mb-4">📒</p>
+                <p className="font-medium text-gray-800 mb-2">활성 스케치북이 없습니다</p>
+                <p className="text-sm text-gray-500 mb-4">새 스케치북을 시작해보세요!</p>
+                <button
+                  onClick={handleStartNewSketchbook}
+                  className="px-6 py-3 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition"
+                >
+                  + 새 스케치북 시작
+                </button>
+              </div>
+            )}
+
+            {/* 완료된 스케치북 목록 */}
+            {completedSketchbooks.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-800">📚 완료된 스케치북</h3>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {completedSketchbooks.map(sketchbook => (
+                    <div key={sketchbook.id} className="px-5 py-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl">📗</span>
+                        <div>
+                          <p className="font-medium text-gray-800">스케치북 #{sketchbook.book_number}</p>
+                          <p className="text-xs text-gray-500">
+                            {sketchbook.started_at} ~ {sketchbook.completed_at}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}`)}
+                          className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition"
+                        >
+                          상세보기
+                        </button>
+                        <button
+                          onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}/print`)}
+                          className="px-3 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-sm font-medium hover:bg-teal-100 transition"
+                        >
+                          출력
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'reports' && (
+          <>
+            <button
+              onClick={() => router.push(`/reports/new?studentId=${student.id}`)}
+              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 mb-4 md:mb-6 text-sm md:text-base"
+            >
+              📝 새 리포트 작성
+            </button>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-800">📝 리포트 히스토리 ({reports.length}건)</h3>
               </div>
 
-              <div className="md:hidden divide-y divide-gray-100">
-                {reports.map((report, index) => (
-                  <div key={report.id} className="px-5 py-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-gray-800">{report.period_start} ~ {report.period_end}</p>
-                      <p className="text-xs text-gray-400">{formatDate(report.created_at)}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => router.push(`/reports/${report.id}`)}
-                        className="flex-1 py-2 bg-teal-50 text-teal-600 rounded-xl text-xs font-medium hover:bg-teal-100 transition"
-                      >
-                        보기
-                      </button>
-                      {index === 0 && (
-                        <button 
-                          onClick={() => router.push(`/reports/${report.id}/edit`)}
-                          className="flex-1 py-2 bg-amber-50 text-amber-600 rounded-xl text-xs font-medium hover:bg-amber-100 transition"
-                        >
-                          수정
-                        </button>
-                      )}
-                    </div>
+              {reports.length > 0 ? (
+                <>
+                  <div className="hidden md:block">
+                    <table className="w-full table-fixed">
+                      <thead className="border-b border-gray-200">
+                        <tr>
+                          <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '40%'}}>지도기간</th>
+                          <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '30%'}}>작성일</th>
+                          <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50" style={{width: '30%'}}>관리</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {reports.map((report, index) => (
+                          <tr key={report.id} className="hover:bg-teal-50/50 transition">
+                            <td className="px-5 py-4 text-sm text-gray-600">
+                              {report.period_start} ~ {report.period_end}
+                            </td>
+                            <td className="px-5 py-4 text-sm text-gray-600">
+                              {formatDate(report.created_at)}
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              <div className="flex justify-center gap-2">
+                                <button 
+                                  onClick={() => router.push(`/reports/${report.id}`)}
+                                  className="px-3 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-xs font-medium hover:bg-teal-100 transition"
+                                >
+                                  보기
+                                </button>
+                                {index === 0 && (
+                                  <button 
+                                    onClick={() => router.push(`/reports/${report.id}/edit`)}
+                                    className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-medium hover:bg-amber-100 transition"
+                                  >
+                                    수정
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-4xl mb-3">📝</p>
-              <p className="font-medium">작성된 리포트가 없습니다</p>
-              <p className="text-sm mt-1 text-gray-400">새 리포트를 작성해보세요!</p>
+
+                  <div className="md:hidden divide-y divide-gray-100">
+                    {reports.map((report, index) => (
+                      <div key={report.id} className="px-5 py-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium text-gray-800">{report.period_start} ~ {report.period_end}</p>
+                          <p className="text-xs text-gray-400">{formatDate(report.created_at)}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => router.push(`/reports/${report.id}`)}
+                            className="flex-1 py-2 bg-teal-50 text-teal-600 rounded-xl text-xs font-medium hover:bg-teal-100 transition"
+                          >
+                            보기
+                          </button>
+                          {index === 0 && (
+                            <button 
+                              onClick={() => router.push(`/reports/${report.id}/edit`)}
+                              className="flex-1 py-2 bg-amber-50 text-amber-600 rounded-xl text-xs font-medium hover:bg-amber-100 transition"
+                            >
+                              수정
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-4xl mb-3">📝</p>
+                  <p className="font-medium">작성된 리포트가 없습니다</p>
+                  <p className="text-sm mt-1 text-gray-400">새 리포트를 작성해보세요!</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* 상담 일지 추가/수정 모달 */}
@@ -580,6 +1033,129 @@ export default function StudentDetailPage() {
               </button>
               <button
                 onClick={handleSaveConsultation}
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-teal-500 text-white hover:bg-teal-600 transition disabled:opacity-50"
+              >
+                {saving ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 진도 추가/수정 모달 */}
+      {showWorkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-800">
+                {editingWork ? '진도 수정' : '진도 추가'}
+              </h2>
+              <button
+                onClick={() => setShowWorkModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              {/* 날짜 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">날짜 *</label>
+                <input
+                  type="date"
+                  value={workForm.work_date}
+                  onChange={(e) => setWorkForm({ ...workForm, work_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              {/* 수업 유형 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">수업 유형 *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setWorkForm({ ...workForm, is_custom: false })}
+                    className={`py-3 rounded-xl font-medium transition ${
+                      !workForm.is_custom
+                        ? 'bg-teal-500 text-white'
+                        : 'bg-gray-50 text-gray-600 border border-gray-200'
+                    }`}
+                  >
+                    커리큘럼
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkForm({ ...workForm, is_custom: true })}
+                    className={`py-3 rounded-xl font-medium transition ${
+                      workForm.is_custom
+                        ? 'bg-purple-500 text-white'
+                        : 'bg-gray-50 text-gray-600 border border-gray-200'
+                    }`}
+                  >
+                    자율
+                  </button>
+                </div>
+              </div>
+
+              {/* 커리큘럼 선택 */}
+              {!workForm.is_custom && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">커리큘럼 선택 *</label>
+                  <select
+                    value={workForm.curriculum_id}
+                    onChange={(e) => setWorkForm({ ...workForm, curriculum_id: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                  >
+                    <option value="">선택해주세요</option>
+                    {curriculumOptions.map(c => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 자율 수업 입력 */}
+              {workForm.is_custom && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">주제 *</label>
+                    <input
+                      type="text"
+                      value={workForm.custom_title}
+                      onChange={(e) => setWorkForm({ ...workForm, custom_title: e.target.value })}
+                      placeholder="예: 우리 강아지 그리기"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      작품 설명
+                      <span className="text-gray-400 font-normal ml-1">(선택)</span>
+                    </label>
+                    <textarea
+                      value={workForm.custom_description}
+                      onChange={(e) => setWorkForm({ ...workForm, custom_description: e.target.value })}
+                      placeholder="작품에 대한 설명을 입력해주세요..."
+                      rows={3}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none text-sm"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-white px-6 py-4 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={() => setShowWorkModal(false)}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSaveWork}
                 disabled={saving}
                 className="flex-1 py-3 rounded-xl text-sm font-medium bg-teal-500 text-white hover:bg-teal-600 transition disabled:opacity-50"
               >

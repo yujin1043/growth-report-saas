@@ -1,9 +1,8 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import BranchLayout from '@/components/BranchLayout'
 
 interface Student {
   id: string
@@ -39,9 +38,6 @@ export default function DailyMessagePage() {
   
   const [userId, setUserId] = useState<string>('')
   const [userBranchId, setUserBranchId] = useState<string>('')
-  const [userRole, setUserRole] = useState<string>('')
-  const [userName, setUserName] = useState<string>('')
-  const [userBranchName, setUserBranchName] = useState<string>('')
   
   const [classes, setClasses] = useState<ClassOption[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -89,19 +85,14 @@ export default function DailyMessagePage() {
 
     setUserId(user.id)
 
-    const [profileResult, branchesResult] = await Promise.all([
-      supabase.from('user_profiles').select('name, role, branch_id').eq('id', user.id).single(),
-      supabase.from('branches').select('id, name')
-    ])
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role, branch_id')
+      .eq('id', user.id)
+      .single()
 
-    if (profileResult.data) {
-      setUserRole(profileResult.data.role)
-      setUserName(profileResult.data.name || '')
-      if (profileResult.data.branch_id) {
-        setUserBranchId(profileResult.data.branch_id)
-        const branchName = branchesResult.data?.find(b => b.id === profileResult.data.branch_id)?.name || ''
-        setUserBranchName(branchName)
-      }
+    if (profile?.branch_id) {
+      setUserBranchId(profile.branch_id)
     }
 
     const { data: teacherClasses } = await supabase
@@ -113,10 +104,10 @@ export default function DailyMessagePage() {
 
     let classQuery = supabase.from('classes').select('id, name, branch_id, branches(name)')
     
-    if (profileResult.data?.role === 'teacher' && classIds.length > 0) {
+    if (profile?.role === 'teacher' && classIds.length > 0) {
       classQuery = classQuery.in('id', classIds)
-    } else if (profileResult.data?.branch_id) {
-      classQuery = classQuery.eq('branch_id', profileResult.data.branch_id)
+    } else if (profile?.branch_id) {
+      classQuery = classQuery.eq('branch_id', profile.branch_id)
     }
 
     const { data: classesData } = await classQuery.order('name')
@@ -133,7 +124,7 @@ export default function DailyMessagePage() {
 
     let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
 
-    if (profileResult.data?.role !== 'admin') {
+    if (profile?.role !== 'admin') {
       const now = new Date()
       const currentYear = now.getFullYear()
       const currentMonth = now.getMonth() + 1
@@ -259,6 +250,82 @@ export default function DailyMessagePage() {
     )
   }
 
+  // 스케치북 진도 추가 함수
+  const addToSketchbook = async (studentId: string, curriculumId: string | null, customTitle: string | null, customDescription: string | null) => {
+    try {
+      // 1. 학생의 활성 스케치북 확인
+      let { data: activeSketchbook } = await supabase
+        .from('sketchbooks')
+        .select('id, book_number')
+        .eq('student_id', studentId)
+        .eq('status', 'active')
+        .single()
+
+      // 2. 활성 스케치북이 없으면 새로 생성
+      if (!activeSketchbook) {
+        // 이전 스케치북 번호 확인
+        const { data: lastSketchbook } = await supabase
+          .from('sketchbooks')
+          .select('book_number')
+          .eq('student_id', studentId)
+          .order('book_number', { ascending: false })
+          .limit(1)
+          .single()
+
+        const newBookNumber = (lastSketchbook?.book_number || 0) + 1
+
+        const { data: newSketchbook, error: createError } = await supabase
+          .from('sketchbooks')
+          .insert({
+            student_id: studentId,
+            book_number: newBookNumber,
+            started_at: new Date().toISOString().split('T')[0],
+            status: 'active'
+          })
+          .select()
+          .single()
+
+        if (createError) {
+          console.error('스케치북 생성 오류:', createError)
+          return
+        }
+
+        activeSketchbook = newSketchbook
+      }
+
+      // 3. 진도 추가
+      if (!activeSketchbook) {
+        console.error('스케치북을 찾을 수 없습니다')
+        return
+      }
+
+      const workData: any = {
+        sketchbook_id: activeSketchbook.id,
+        work_date: new Date().toISOString().split('T')[0],
+        is_custom: !curriculumId
+      }
+
+      if (curriculumId) {
+        workData.curriculum_id = curriculumId
+      } else {
+        workData.custom_title = customTitle
+        workData.custom_description = customDescription
+      }
+
+      const { error: workError } = await supabase
+        .from('sketchbook_works')
+        .insert(workData)
+
+      if (workError) {
+        console.error('진도 추가 오류:', workError)
+      } else {
+        console.log('스케치북 진도 추가 완료')
+      }
+    } catch (error) {
+      console.error('스케치북 처리 오류:', error)
+    }
+  }
+
   const uploadImages = async (messageId: string): Promise<string[]> => {
     const uploadedUrls: string[] = []
     
@@ -330,7 +397,6 @@ export default function DailyMessagePage() {
     const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)]
 
     if (lessonType === 'curriculum' && selectedTopic) {
-      // 커리큘럼: 기존 템플릿 방식
       topicTitle = selectedTopic.title
       const template = selectedTopic.parent_message_template || ''
       const materials = selectedTopic.main_materials || '다양한 재료'
@@ -374,58 +440,41 @@ export default function DailyMessagePage() {
       message = `${sentence1} ${sentence2to4}. ${sentence5}`
 
     } else {
-      // 자율: GPT API 호출
       topicTitle = freeSubject
       const materials = selectedMaterials.join(', ') || '다양한 재료'
 
-      try {
-        const response = await fetch('/api/generate-daily-message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            studentName: student.name,
-            studentAge: studentAge,
-            subject: freeSubject,
-            materials: materials,
-            progressStatus: progressStatus,
-            teacherMemo: teacherMemo
-          })
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          message = data.message
-        } else {
-          // API 실패 시 기본 템플릿 사용
-          console.error('API 호출 실패, 기본 템플릿 사용')
-          const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 작품을 ${endingStyle.doing}.`
-          const sentence2 = `${materials}를 사용하여 표현${endingStyle.did}.`
-          let progressText = ''
-          if (progressStatus === 'started') {
-            progressText = '오늘 처음 시작한 작품이에요.'
-          } else if (progressStatus === 'none') {
-            progressText = '작품을 열심히 진행하고 있어요.'
-          } else if (progressStatus === 'completed') {
-            progressText = '오늘 작품을 멋지게 완성했어요!'
-          }
-          const memoText = teacherMemo ? teacherMemo : `집중하는 모습이 ${endingStyle.great}`
-          message = `${sentence1} ${sentence2} ${memoText}. ${progressText} ${nameMan} 멋진 작품이에요! ${randomEmoji}`
-        }
-      } catch (error) {
-        console.error('API 호출 에러:', error)
-        // 에러 시 기본 템플릿 사용
-        const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 작품을 ${endingStyle.doing}.`
-        let progressText = ''
-        if (progressStatus === 'started') {
-          progressText = '오늘 처음 시작한 작품이에요.'
-        } else if (progressStatus === 'none') {
-          progressText = '작품을 열심히 진행하고 있어요.'
-        } else if (progressStatus === 'completed') {
-          progressText = '오늘 작품을 멋지게 완성했어요!'
-        }
-        const memoText = teacherMemo ? teacherMemo : `집중하는 모습이 ${endingStyle.great}`
-        message = `${sentence1} ${memoText}. ${progressText} ${nameMan} 멋진 작품이에요! ${randomEmoji}`
+      const materialTechniques: { [key: string]: string } = {
+        '연필': '선의 강약을 조절하며 형태를 잡아',
+        '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
+        '매직': '선명한 색감으로 또렷하게 표현하며',
+        '사인펜': '깔끔한 선으로 윤곽을 잡고',
+        '수채화': '물의 양을 조절하며 부드러운 색감을 만들어',
+        '아크릴': '선명하고 강렬한 색감으로',
+        '파스텔': '부드러운 색감과 그라데이션을 활용하여',
+        '점토': '손으로 형태를 만들며 입체감을 살려',
+        '스티커': '다양한 스티커로 작품을 꾸며',
+        '기타': '다양한 재료를 활용하여'
       }
+
+      const mainMaterial = selectedMaterials[0] || '기타'
+      const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
+
+      let progressText = ''
+      if (progressStatus === 'started') {
+        progressText = '오늘 처음 시작한 작품이에요.'
+      } else if (progressStatus === 'none') {
+        progressText = '작품을 열심히 진행하고 있어요.'
+      } else if (progressStatus === 'completed') {
+        progressText = '오늘 작품을 멋지게 완성했어요!'
+      }
+
+      const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 자유화를 ${endingStyle.doing}.`
+      const sentence2 = `${materials}를 사용하여 ${technique} ${endingStyle.did}.`
+      const sentence3 = `자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}.`
+      const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
+      const sentence5 = `${nameMan} 멋진 작품이에요! ${randomEmoji}`
+
+      message = `${sentence1} ${sentence2} ${sentence3} ${memoText}. ${progressText} ${sentence5}`
     }
 
     try {
@@ -476,6 +525,17 @@ export default function DailyMessagePage() {
         }
       }
 
+      // 완료 상태일 때 스케치북 진도에 자동 추가
+      if (progressStatus === 'completed') {
+        if (lessonType === 'curriculum' && selectedTopicId) {
+          // 커리큘럼 수업: curriculum_id만 저장
+          await addToSketchbook(student.id, selectedTopicId, null, null)
+        } else if (lessonType === 'free' && freeSubject) {
+          // 자율 수업: 제목 + 메시지 저장
+          await addToSketchbook(student.id, null, freeSubject, message)
+        }
+      }
+
       router.push(`/daily-message/result/${student.id}`)
     } catch (error) {
       console.error('Error:', error)
@@ -508,228 +568,245 @@ export default function DailyMessagePage() {
     )
   }
 
-  // 공통 콘텐츠 렌더링
-  const renderContent = () => (
-    <div className="space-y-4">
-      {allResultsCount > 0 && (
-        <button
-          onClick={() => router.push('/daily-message/results')}
-          className="w-full bg-white rounded-2xl shadow-sm border border-teal-200 p-4 flex items-center justify-between hover:bg-teal-50 transition"
-        >
-          <span className="font-medium text-teal-700">📋 전체 결과 보기</span>
-          <span className="bg-teal-500 text-white text-sm px-3 py-1 rounded-full">
-            {allResultsCount}명
-          </span>
-        </button>
-      )}
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-        <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
-        <select
-          value={selectedClassId}
-          onChange={(e) => setSelectedClassId(e.target.value)}
-          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-        >
-          {classes.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-        <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
-        <select
-          value={selectedStudentId}
-          onChange={(e) => setSelectedStudentId(e.target.value)}
-          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-        >
-          <option value="">학생을 선택해주세요</option>
-          {students.map(student => {
-            const isGenerated = generatedStudentIds.includes(student.id)
-            const age = new Date().getFullYear() - student.birth_year + 1
-            return (
-              <option key={student.id} value={student.id}>
-                {isGenerated ? '✓ ' : ''}{student.name} ({age}세)
-              </option>
-            )
-          })}
-        </select>
-        {students.length === 0 && (
-          <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
-        )}
-      </div>
-
-      {selectedStudent && (
-        <>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <h2 className="font-semibold text-gray-800 mb-3">
-              📷 {selectedStudent.name} 작품 사진
-              <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
-            </h2>
-            <div className="grid grid-cols-4 gap-2">
-              {imageUrls.map((url, index) => (
-                <div key={index} className="relative aspect-square">
-                  <img src={url} alt="" className="w-full h-full object-cover rounded-xl" />
-                  <button
-                    onClick={() => removeImage(index)}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              
-              {images.length < 4 && (
-                <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                  <span className="text-2xl text-gray-300">+</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => e.target.files && handleImageUpload(e.target.files)}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <h2 className="font-semibold text-gray-800 mb-3">📚 수업 유형</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setLessonType('curriculum')}
-                className={`py-3 rounded-xl font-medium transition ${
-                  lessonType === 'curriculum'
-                    ? 'bg-teal-500 text-white'
-                    : 'bg-gray-50 text-gray-600 border border-gray-200'
-                }`}
-              >
-                커리큘럼
-              </button>
-              <button
-                onClick={() => setLessonType('free')}
-                className={`py-3 rounded-xl font-medium transition ${
-                  lessonType === 'free'
-                    ? 'bg-teal-500 text-white'
-                    : 'bg-gray-50 text-gray-600 border border-gray-200'
-                }`}
-              >
-                자율
-              </button>
-            </div>
-          </div>
-
-          {lessonType === 'curriculum' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
-              <button
-                onClick={() => setShowCurriculumModal(true)}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
-              >
-                <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
-                  {selectedTopicData 
-                    ? `${selectedTopicData.title} [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
-                    : '선택해주세요'
-                  }
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">
+              ← 뒤로
+            </button>
+            <h1 className="text-lg font-bold text-gray-800">일일 수업 메시지</h1>
+            <button 
+              onClick={() => router.push('/daily-message/results')}
+              className="relative"
+            >
+              {allResultsCount > 0 && (
+                <span className="bg-teal-500 text-white text-xs px-2 py-1 rounded-full">
+                  {allResultsCount}
                 </span>
-                <span className="text-gray-400">▼</span>
-              </button>
-            </div>
+              )}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
+        {allResultsCount > 0 && (
+          <button
+            onClick={() => router.push('/daily-message/results')}
+            className="w-full bg-white rounded-2xl shadow-sm border border-teal-200 p-4 flex items-center justify-between hover:bg-teal-50 transition"
+          >
+            <span className="font-medium text-teal-700">📋 전체 결과 보기</span>
+            <span className="bg-teal-500 text-white text-sm px-3 py-1 rounded-full">
+              {allResultsCount}명
+            </span>
+          </button>
+        )}
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
+          <select
+            value={selectedClassId}
+            onChange={(e) => setSelectedClassId(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+          >
+            {classes.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
+          <select
+            value={selectedStudentId}
+            onChange={(e) => setSelectedStudentId(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+          >
+            <option value="">학생을 선택해주세요</option>
+            {students.map(student => {
+              const isGenerated = generatedStudentIds.includes(student.id)
+              const age = new Date().getFullYear() - student.birth_year + 1
+              return (
+                <option key={student.id} value={student.id}>
+                  {isGenerated ? '✓ ' : ''}{student.name} ({age}세)
+                </option>
+              )
+            })}
+          </select>
+          {students.length === 0 && (
+            <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
           )}
+        </div>
 
-          {lessonType === 'free' && (
-            <>
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                <h2 className="font-semibold text-gray-800 mb-3">📝 주제</h2>
-                <input
-                  type="text"
-                  value={freeSubject}
-                  onChange={(e) => setFreeSubject(e.target.value)}
-                  placeholder="예: 우리 강아지"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                <h2 className="font-semibold text-gray-800 mb-3">🎨 재료 (복수 선택)</h2>
-                <div className="grid grid-cols-5 gap-2">
-                  {MATERIAL_OPTIONS.map(material => (
+        {selectedStudent && (
+          <>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">
+                📷 {selectedStudent.name} 작품 사진
+                <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
+              </h2>
+              <div className="grid grid-cols-4 gap-2">
+                {imageUrls.map((url, index) => (
+                  <div key={index} className="relative aspect-square">
+                    <img src={url} alt="" className="w-full h-full object-cover rounded-xl" />
                     <button
-                      key={material}
-                      onClick={() => toggleMaterial(material)}
-                      className={`py-2 px-2 rounded-xl text-xs font-medium transition ${
-                        selectedMaterials.includes(material)
-                          ? 'bg-teal-500 text-white'
-                          : 'bg-gray-50 text-gray-600 border border-gray-200'
-                      }`}
+                      onClick={() => removeImage(index)}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs"
                     >
-                      {material}
+                      ✕
                     </button>
-                  ))}
-                </div>
+                  </div>
+                ))}
+                
+                {images.length < 4 && (
+                  <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center cursor-pointer hover:bg-gray-50">
+                    <span className="text-2xl text-gray-300">+</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => e.target.files && handleImageUpload(e.target.files)}
+                      className="hidden"
+                    />
+                  </label>
+                )}
               </div>
-            </>
-          )}
+            </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <h2 className="font-semibold text-gray-800 mb-3">📊 진행 상태</h2>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { key: 'started', label: '시작' },
-                { key: 'none', label: '진행중' },
-                { key: 'completed', label: '완성' }
-              ].map(status => (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">📚 수업 유형</h2>
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  key={status.key}
-                  onClick={() => setProgressStatus(status.key as 'none' | 'started' | 'completed')}
-                  className={`py-2.5 rounded-xl text-sm font-medium transition ${
-                    progressStatus === status.key
+                  onClick={() => setLessonType('curriculum')}
+                  className={`py-3 rounded-xl font-medium transition ${
+                    lessonType === 'curriculum'
                       ? 'bg-teal-500 text-white'
                       : 'bg-gray-50 text-gray-600 border border-gray-200'
                   }`}
                 >
-                  {status.label}
+                  커리큘럼
                 </button>
-              ))}
+                <button
+                  onClick={() => setLessonType('free')}
+                  className={`py-3 rounded-xl font-medium transition ${
+                    lessonType === 'free'
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-gray-50 text-gray-600 border border-gray-200'
+                  }`}
+                >
+                  자율
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <h2 className="font-semibold text-gray-800 mb-3">
-              📝 선생님 메모
-              <span className="text-gray-400 font-normal text-sm ml-1">
-                {lessonType === 'free' ? '(작품 특징, 기법, 표현 등)' : '(선택)'}
-              </span>
-            </h2>
-            <textarea
-              value={teacherMemo}
-              onChange={(e) => setTeacherMemo(e.target.value)}
-              placeholder={lessonType === 'free' 
-                ? "예: 밤하늘 배경, 웻온드라이 기법으로 인물 표현, 색의 깊이감 있게 완성"
-                : "예: 색 조합이 예뻤어요"
-              }
-              rows={lessonType === 'free' ? 3 : 1}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
-            />
-          </div>
-
-          <button
-            onClick={generateMessage}
-            disabled={generating || (lessonType === 'curriculum' && !selectedTopicId) || (lessonType === 'free' && !freeSubject)}
-            className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {generating ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                {lessonType === 'free' ? 'AI 생성 중...' : '생성 중...'}
-              </>
-            ) : (
-              `✨ ${selectedStudent.name} 문구 생성`
+            {lessonType === 'curriculum' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
+                <button
+                  onClick={() => setShowCurriculumModal(true)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
+                >
+                  <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
+                    {selectedTopicData 
+                      ? `${selectedTopicData.title} [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
+                      : '선택해주세요'
+                    }
+                  </span>
+                  <span className="text-gray-400">▼</span>
+                </button>
+              </div>
             )}
-          </button>
-        </>
-      )}
+
+            {lessonType === 'free' && (
+              <>
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                  <h2 className="font-semibold text-gray-800 mb-3">📝 주제</h2>
+                  <input
+                    type="text"
+                    value={freeSubject}
+                    onChange={(e) => setFreeSubject(e.target.value)}
+                    placeholder="예: 우리 강아지"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                  <h2 className="font-semibold text-gray-800 mb-3">🎨 재료 (복수 선택)</h2>
+                  <div className="grid grid-cols-5 gap-2">
+                    {MATERIAL_OPTIONS.map(material => (
+                      <button
+                        key={material}
+                        onClick={() => toggleMaterial(material)}
+                        className={`py-2 px-2 rounded-xl text-xs font-medium transition ${
+                          selectedMaterials.includes(material)
+                            ? 'bg-teal-500 text-white'
+                            : 'bg-gray-50 text-gray-600 border border-gray-200'
+                        }`}
+                      >
+                        {material}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">📊 진행 상태</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { key: 'started', label: '시작' },
+                  { key: 'none', label: '진행중' },
+                  { key: 'completed', label: '완성' }
+                ].map(status => (
+                  <button
+                    key={status.key}
+                    onClick={() => setProgressStatus(status.key as 'none' | 'started' | 'completed')}
+                    className={`py-2.5 rounded-xl text-sm font-medium transition ${
+                      progressStatus === status.key
+                        ? 'bg-teal-500 text-white'
+                        : 'bg-gray-50 text-gray-600 border border-gray-200'
+                    }`}
+                  >
+                    {status.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">
+                📝 한줄 메모
+                <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
+              </h2>
+              <input
+                type="text"
+                value={teacherMemo}
+                onChange={(e) => setTeacherMemo(e.target.value)}
+                placeholder="예: 색 조합이 예뻤어요"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+              />
+            </div>
+
+            <button
+              onClick={generateMessage}
+              disabled={generating || (lessonType === 'curriculum' && !selectedTopicId) || (lessonType === 'free' && !freeSubject)}
+              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {generating ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  생성 중...
+                </>
+              ) : (
+                `✨ ${selectedStudent.name} 문구 생성`
+              )}
+            </button>
+          </>
+        )}
+      </div>
 
       {showCurriculumModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
@@ -790,47 +867,6 @@ export default function DailyMessagePage() {
           </div>
         </div>
       )}
-    </div>
-  )
-
-  // 지점 계정이면 BranchLayout 적용
-  if (userRole && userRole !== 'admin') {
-    return (
-      <BranchLayout userName={userName} branchName={userBranchName}>
-        <div className="p-6 max-w-2xl">
-          {renderContent()}
-        </div>
-      </BranchLayout>
-    )
-  }
-
-  // 본사 계정이면 기존 UI
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
-      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">
-              ← 뒤로
-            </button>
-            <h1 className="text-lg font-bold text-gray-800">일일 수업 메시지</h1>
-            <button 
-              onClick={() => router.push('/daily-message/results')}
-              className="relative"
-            >
-              {allResultsCount > 0 && (
-                <span className="bg-teal-500 text-white text-xs px-2 py-1 rounded-full">
-                  {allResultsCount}
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-2xl mx-auto px-4 py-4">
-        {renderContent()}
-      </div>
     </div>
   )
 }
