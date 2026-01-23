@@ -14,7 +14,6 @@ interface Student {
   class_name: string | null
   branch_name: string | null
   last_report_at: string | null
-  // 스케치북 정보
   sketchbook_id: string | null
   sketchbook_number: number | null
   sketchbook_status: string | null
@@ -53,6 +52,8 @@ function StudentsPage() {
   const [bulkStatus, setBulkStatus] = useState('active')
   const [bulkClassId, setBulkClassId] = useState('')
   const [processing, setProcessing] = useState(false)
+  
+  const [showRegisterDropdown, setShowRegisterDropdown] = useState(false)
 
   const currentYear = new Date().getFullYear()
 
@@ -72,7 +73,6 @@ function StudentsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     let branchId: string | null = null
 
-    // 모든 기본 데이터를 병렬로 가져오기 (성능 최적화)
     const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult, sketchbooksResult] = await Promise.all([
       user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
       user ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id) : Promise.resolve({ data: null }),
@@ -100,17 +100,14 @@ function StudentsPage() {
       return
     }
 
-    // Map 생성으로 O(1) 조회 (성능 최적화)
     setClasses(classesResult.data || [])
     const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
     const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
     
-    // 스케치북 Map 생성
     const sketchbookMap = new Map(
       sketchbooksResult.data?.map(s => [s.student_id, { id: s.id, book_number: s.book_number, status: s.status }]) || []
     )
 
-    // 스케치북별 진도 수 가져오기
     const sketchbookIds = sketchbooksResult.data?.map(s => s.id) || []
     let workCountMap = new Map<string, number>()
     
@@ -342,7 +339,6 @@ function StudentsPage() {
     return true
   })
 
-
   const branchFilteredStudents = specialFilteredStudents.filter(student => {
     if (!branchFilter) return true
     return student.branch_id === branchFilter
@@ -375,12 +371,6 @@ function StudentsPage() {
     }
   })()
 
-  const getFilterTitle = () => {
-    if (specialFilter === 'pending') return '이번 달 미작성 학생'
-    if (specialFilter === 'needReport') return '리포트 필요 학생 (2개월 이상 경과)'
-    return '학생 관리'
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -394,13 +384,97 @@ function StudentsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* 데스크톱 헤더 */}
       <div className="hidden md:block bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 py-4">
-        <h1 className="text-xl font-bold text-gray-800 mb-1">👨‍🎓 학생 관리</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold text-gray-800">👨‍🎓 학생 관리</h1>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (bulkMode) {
+                    cancelBulkMode()
+                  } else {
+                    setBulkMode(true)
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl font-medium transition ${
+                  bulkMode 
+                    ? 'bg-amber-500 text-white' 
+                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                }`}
+              >
+                {bulkMode ? '✕ 대량 수정 종료' : '✏️ 대량 수정'}
+              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowRegisterDropdown(!showRegisterDropdown)}
+                  className="px-4 py-2 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition flex items-center gap-1"
+                >
+                  ➕ 학생 등록
+                  <span className="text-xs">▼</span>
+                </button>
+                {showRegisterDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowRegisterDropdown(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 min-w-[160px]">
+                      <button
+                        onClick={() => {
+                          router.push('/students/new')
+                          setShowRegisterDropdown(false)
+                        }}
+                        className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 rounded-t-xl flex items-center gap-2"
+                      >
+                        👤 개별 등록
+                      </button>
+                      <button
+                        onClick={() => {
+                          router.push('/students/import')
+                          setShowRegisterDropdown(false)
+                        }}
+                        className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 rounded-b-xl border-t border-gray-100 flex items-center gap-2"
+                      >
+                        📥 대량 등록
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-4 md:py-6">
+        {/* 모바일 버튼 */}
+        <div className="md:hidden flex gap-2 mb-4">
+          <button
+            onClick={() => {
+              if (bulkMode) {
+                cancelBulkMode()
+              } else {
+                setBulkMode(true)
+              }
+            }}
+            className={`flex-1 py-3 rounded-xl font-medium ${
+              bulkMode 
+                ? 'bg-amber-500 text-white' 
+                : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            {bulkMode ? '✕ 수정 종료' : '✏️ 대량 수정'}
+          </button>
+          <button
+            onClick={() => router.push('/students/new')}
+            className="flex-1 py-3 bg-teal-500 text-white rounded-xl font-medium"
+          >
+            ➕ 학생 등록
+          </button>
+        </div>
+
         {specialFilter && (
           <div className={`rounded-2xl p-4 mb-4 flex items-center justify-between ${
             specialFilter === 'pending' ? 'bg-rose-50 border border-rose-200' : 'bg-orange-50 border border-orange-200'
@@ -544,6 +618,7 @@ function StudentsPage() {
           )}
         </div>
 
+        {/* 데스크톱 테이블 */}
         <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full">
             <thead className="border-b border-gray-200">
@@ -600,6 +675,7 @@ function StudentsPage() {
           )}
         </div>
 
+        {/* 모바일 카드 */}
         <div className="md:hidden space-y-3">
           {filteredStudents.map((student) => (
             <div
@@ -644,7 +720,6 @@ function StudentsPage() {
     </div>
   )
 }
-
 
 export default function StudentsPageWrapper() {
   return (

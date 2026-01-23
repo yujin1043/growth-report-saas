@@ -1,7 +1,7 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 interface TeachingPoint {
@@ -15,21 +15,21 @@ interface VariationReference {
   image_url: string
 }
 
-export default function NewCurriculumPage() {
+export default function EditCurriculumPage() {
   const router = useRouter()
+  const params = useParams()
+  const curriculumId = params.id as string
+
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
 
-  const currentYear = new Date().getFullYear()
-  const currentMonth = new Date().getMonth() + 1
-
   const [formData, setFormData] = useState({
-    year: currentYear,
-    month: currentMonth,
-    week: 1,
+    year: 2025,
+    month: 1,
+    week: 1,  // 주차 필드 추가
     target_group: '유치부',
     title: '',
-    parent_message_template: '',
     main_images: [] as string[],
     main_materials: '',
     teaching_points: [] as TeachingPoint[],
@@ -37,14 +37,15 @@ export default function NewCurriculumPage() {
     material_sources: '',
     variation_description: '',
     variation_references: [] as VariationReference[],
-    status: 'draft'
+    status: 'draft',
+    parent_message_template: ''
   })
 
   useEffect(() => {
-    checkAuth()
-  }, [])
+    checkAuthAndLoad()
+  }, [curriculumId])
 
-  async function checkAuth() {
+  async function checkAuthAndLoad() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       router.push('/login')
@@ -60,9 +61,41 @@ export default function NewCurriculumPage() {
     if (!profile || profile.role !== 'admin') {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
+      return
     }
-  }
 
+    // 기존 데이터 로드
+    const { data, error } = await supabase
+      .from('monthly_curriculum')
+      .select('*')
+      .eq('id', curriculumId)
+      .single()
+
+    if (error || !data) {
+      alert('콘텐츠를 찾을 수 없습니다.')
+      router.push('/admin/curriculum')
+      return
+    }
+
+    setFormData({
+      year: data.year,
+      month: data.month,
+      week: data.week || 1,  // 주차 데이터 로드
+      target_group: data.target_group,
+      title: data.title,
+      main_images: data.main_images || [],
+      main_materials: data.main_materials || '',
+      teaching_points: data.teaching_points || [],
+      cautions: data.cautions || '',
+      material_sources: data.material_sources || '',
+      variation_description: data.variation_guide?.description || '',
+      variation_references: data.variation_guide?.references || [],
+      status: data.status,
+      parent_message_template: data.parent_message_template || ''
+    })
+
+    setLoading(false)
+  }
 
   const compressImage = async (file: File): Promise<Blob> => {
     return new Promise((resolve) => {
@@ -87,7 +120,7 @@ export default function NewCurriculumPage() {
         const ctx = canvas.getContext('2d')
         ctx?.drawImage(img, 0, 0, width, height)
         
-        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.8)
+        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.7)
       }
       img.src = URL.createObjectURL(file)
     })
@@ -220,12 +253,10 @@ export default function NewCurriculumPage() {
     setSaving(true)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-
-      const insertData = {
+      const updateData = {
         year: formData.year,
         month: formData.month,
-        week: formData.week,
+        week: formData.week,  // 주차 저장
         target_group: formData.target_group,
         title: formData.title,
         thumbnail_url: formData.main_images[0] || null,
@@ -239,25 +270,22 @@ export default function NewCurriculumPage() {
           references: formData.variation_references.filter(r => r.title.trim() && r.image_url)
         },
         status: status,
-        created_by: user?.id,
+        updated_at: new Date().toISOString(),
         parent_message_template: formData.parent_message_template || null,
         age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary'
       }
 
       const { error } = await supabase
         .from('monthly_curriculum')
-        .insert(insertData)
+        .update(updateData)
+        .eq('id', curriculumId)
 
       if (error) {
-        if (error.code === '23505') {
-          alert('이미 해당 연도/월/주차/대상의 콘텐츠가 존재합니다.')
-        } else {
-          alert('저장에 실패했습니다: ' + error.message)
-        }
+        alert('저장에 실패했습니다: ' + error.message)
         return
       }
 
-      alert(status === 'active' ? '콘텐츠가 등록되었습니다!' : '임시저장 되었습니다.')
+      alert('수정되었습니다!')
       router.push('/admin/curriculum')
 
     } catch (error) {
@@ -268,6 +296,17 @@ export default function NewCurriculumPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
@@ -276,7 +315,7 @@ export default function NewCurriculumPage() {
             <button onClick={() => router.back()} className="text-gray-600">
               ← 뒤로
             </button>
-            <h1 className="text-lg font-bold text-gray-800">콘텐츠 등록</h1>
+            <h1 className="text-lg font-bold text-gray-800">콘텐츠 수정</h1>
             <div className="w-12"></div>
           </div>
         </div>
@@ -558,7 +597,7 @@ export default function NewCurriculumPage() {
               disabled={saving}
               className="flex-1 py-3 bg-teal-500 text-white rounded-xl font-medium"
             >
-              {saving ? '저장 중...' : '등록하기'}
+              {saving ? '저장 중...' : '저장하기'}
             </button>
           </div>
         </div>

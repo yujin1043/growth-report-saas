@@ -126,8 +126,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* 데스크톱 사이드바 */}
       <aside className="hidden md:flex md:flex-col md:w-56 md:fixed md:inset-y-0 bg-white border-r border-slate-200">
-        <div className="px-4 py-5 border-b border-slate-100">
+        <div 
+          className="px-4 py-5 border-b border-slate-100 cursor-pointer" 
+          onClick={() => router.push('/dashboard')}
+        >
           <h1 className="text-lg font-bold flex items-center gap-2">
             <span>🎨</span>
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
@@ -169,9 +173,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
+      {/* 모바일 헤더 */}
       <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="flex items-center justify-between px-4 py-3">
-          <h1 className="text-lg font-bold flex items-center gap-2">
+          <h1 
+            className="text-lg font-bold flex items-center gap-2 cursor-pointer"
+            onClick={() => router.push('/dashboard')}
+          >
             <span>🎨</span>
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
               그리마노트
@@ -179,12 +187,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </h1>
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="text-2xl text-slate-600"
+            className="w-10 h-10 flex items-center justify-center text-2xl text-slate-600 rounded-lg hover:bg-slate-100 transition"
           >
             {mobileMenuOpen ? '✕' : '☰'}
           </button>
         </div>
 
+        {/* 모바일 메뉴 드롭다운 */}
         {mobileMenuOpen && (
           <div className="absolute top-full left-0 right-0 bg-white border-b border-slate-200 shadow-lg z-50">
             <nav className="px-4 py-3 space-y-1">
@@ -223,6 +232,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         )}
       </header>
 
+      {/* 메인 콘텐츠 */}
       <main className="md:ml-56">
         {children}
       </main>

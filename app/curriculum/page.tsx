@@ -4,55 +4,47 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-interface TeachingPoint {
-  title: string
-  description: string
-  image_url?: string
-}
-
-interface VariationGuide {
-  description?: string
-  references?: { title: string; image_url: string }[]
-}
-
 interface Curriculum {
   id: string
   year: number
   month: number
+  week: number
   target_group: string
   title: string
-  thumbnail_url: string | null
-  main_images: string[]
-  main_materials: string | null
-  teaching_points: TeachingPoint[]
-  cautions: string | null
-  material_sources: string | null
-  variation_guide: VariationGuide | null
+  thumbnail_url: string
   status: string
-  created_at: string
-  parent_message_template: string | null
-  age_group: string | null
 }
 
-export default function CurriculumPage() {
+interface GroupedCurriculum {
+  label: string
+  year: number
+  month: number
+  week: number
+  items: Curriculum[]
+}
+
+export default function AdminCurriculumPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<'유치부' | '초등부'>('유치부')
-  const [selectedCurriculum, setSelectedCurriculum] = useState<Curriculum | null>(null)
-  const [userRole, setUserRole] = useState('')
-  const [userName, setUserName] = useState('')
-  const [userBranchName, setUserBranchName] = useState('')
+  const [groupedData, setGroupedData] = useState<GroupedCurriculum[]>([])
+  const [selectedYear, setSelectedYear] = useState<number>(2026)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
-  const now = new Date()
-  const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth() + 1
-  const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1
-  const nextYear = currentMonth === 12 ? currentYear + 1 : currentYear
+  // 연도 목록 (동적으로 생성)
+  const years = [2024, 2025, 2026]
 
   useEffect(() => {
     checkAuthAndLoad()
   }, [])
+
+  useEffect(() => {
+    if (curriculums.length > 0) {
+      groupByWeek()
+    } else {
+      setGroupedData([])
+    }
+  }, [curriculums, selectedYear])
 
   async function checkAuthAndLoad() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -61,46 +53,117 @@ export default function CurriculumPage() {
       return
     }
 
-    const [profileResult, branchesResult] = await Promise.all([
-      supabase.from('user_profiles').select('name, role, branch_id').eq('id', user.id).single(),
-      supabase.from('branches').select('id, name')
-    ])
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
 
-    if (profileResult.data) {
-      setUserRole(profileResult.data.role)
-      setUserName(profileResult.data.name || '')
-      const branchName = branchesResult.data?.find(b => b.id === profileResult.data.branch_id)?.name || ''
-      setUserBranchName(branchName)
+    if (!profile || profile.role !== 'admin') {
+      alert('관리자 권한이 필요합니다.')
+      router.push('/dashboard')
+      return
     }
+
+    await loadCurriculums()
+  }
+
+  async function loadCurriculums() {
+    setLoading(true)
 
     const { data, error } = await supabase
       .from('monthly_curriculum')
-      .select('*')
-      .in('status', ['active'])
-      .or(
-        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${nextYear},month.eq.${nextMonth})`
-      )
-      .order('year', { ascending: true })
-      .order('month', { ascending: true })
+      .select('id, year, month, week, target_group, title, thumbnail_url, status')
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
+      .order('week', { ascending: true })
+      .order('target_group', { ascending: true })
 
-    if (!error && data) {
-      setCurriculums(data)
+    if (error) {
+      console.error('Load error:', error)
+      setLoading(false)
+      return
     }
 
+    setCurriculums(data || [])
     setLoading(false)
   }
 
-  const filteredCurriculums = curriculums.filter(c => c.target_group === selectedGroup)
+  function groupByWeek() {
+    // 선택된 연도로 필터
+    const filtered = curriculums.filter(c => c.year === selectedYear)
 
-  const getMonthLabel = (year: number, month: number) => {
-    if (year === currentYear && month === currentMonth) {
-      return `${month}월 (이번 달)`
-    }
-    return `${month}월 (다음 달)`
+    // 그룹핑
+    const groups: { [key: string]: GroupedCurriculum } = {}
+
+    filtered.forEach(item => {
+      const key = `${item.year}-${item.month}-${item.week}`
+      if (!groups[key]) {
+        groups[key] = {
+          label: `${item.month}월 ${item.week}주차`,
+          year: item.year,
+          month: item.month,
+          week: item.week,
+          items: []
+        }
+      }
+      groups[key].items.push(item)
+    })
+
+    // 정렬: 월 내림차순 → 주차 오름차순
+    const sorted = Object.values(groups).sort((a, b) => {
+      if (a.month !== b.month) return b.month - a.month
+      return a.week - b.week
+    })
+
+    setGroupedData(sorted)
   }
 
-  const handlePrint = () => {
-    window.print()
+  async function handleStatusChange(id: string, newStatus: string) {
+    const { error } = await supabase
+      .from('monthly_curriculum')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    if (error) {
+      alert('상태 변경에 실패했습니다.')
+      return
+    }
+
+    // 로컬 상태 업데이트
+    setCurriculums(prev => prev.map(c => 
+      c.id === id ? { ...c, status: newStatus } : c
+    ))
+  }
+
+  async function handleDelete(id: string, title: string) {
+    if (!confirm(`"${title}"을(를) 삭제하시겠습니까?`)) {
+      return
+    }
+
+    setDeleting(id)
+
+    try {
+      const { error } = await supabase
+        .from('monthly_curriculum')
+        .delete()
+        .eq('id', id)
+
+      if (error) {
+        console.error('Delete error:', error)
+        alert('삭제에 실패했습니다: ' + error.message)
+        return
+      }
+
+      setCurriculums(prev => prev.filter(c => c.id !== id))
+      alert('삭제되었습니다.')
+
+    } catch (err) {
+      console.error('Delete error:', err)
+      alert('삭제에 실패했습니다.')
+    } finally {
+      setDeleting(null)
+    }
   }
 
   if (loading) {
@@ -114,263 +177,121 @@ export default function CurriculumPage() {
     )
   }
 
-  const renderContent = () => (
-    <>
-      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 mb-6 no-print">
-        <p className="text-teal-800 text-sm">
-          ⭐ <strong>이 기준으로 리포트/메시지가 생성됩니다.</strong>
-        </p>
-      </div>
-
-      <div className="flex gap-2 mb-6 no-print">
-        {['유치부', '초등부'].map((group) => (
-          <button
-            key={group}
-            onClick={() => {
-              setSelectedGroup(group as '유치부' | '초등부')
-              setSelectedCurriculum(null)
-            }}
-            className={`flex-1 py-3 rounded-xl font-medium transition ${
-              selectedGroup === group
-                ? 'bg-teal-500 text-white'
-                : 'bg-white text-gray-600 border border-gray-200'
-            }`}
-          >
-            {group}
-          </button>
-        ))}
-      </div>
-
-      {!selectedCurriculum ? (
-        <div className="space-y-4">
-          {filteredCurriculums.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
-              <p className="text-4xl mb-3">📚</p>
-              <p>{selectedGroup} 콘텐츠가 없습니다</p>
-            </div>
-          ) : (
-            filteredCurriculums.map((curriculum) => (
-              <div
-                key={curriculum.id}
-                onClick={() => setSelectedCurriculum(curriculum)}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 cursor-pointer hover:shadow-md transition"
-              >
-                <div className="flex gap-4">
-                  {curriculum.thumbnail_url || curriculum.main_images?.[0] ? (
-                    <img
-                      src={curriculum.thumbnail_url || curriculum.main_images[0]}
-                      alt={curriculum.title}
-                      className="w-24 h-24 object-cover rounded-xl"
-                    />
-                  ) : (
-                    <div className="w-24 h-24 bg-gray-100 rounded-xl flex items-center justify-center">
-                      <span className="text-3xl">🎨</span>
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs font-medium">
-                        {getMonthLabel(curriculum.year, curriculum.month)}
-                      </span>
-                    </div>
-                    <h3 className="font-bold text-gray-900 mb-1">{curriculum.title}</h3>
-                    <p className="text-sm text-gray-500">{curriculum.target_group}</p>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden" id="print-area">
-          <div className="p-6 bg-gradient-to-r from-teal-50 to-cyan-50">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2 py-0.5 bg-teal-500 text-white rounded text-xs font-medium">
-                {selectedCurriculum.year}년 {selectedCurriculum.month}월
-              </span>
-              <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
-                {selectedCurriculum.target_group}
-              </span>
-            </div>
-            <h2 className="text-xl font-bold text-gray-900">{selectedCurriculum.title}</h2>
-          </div>
-
-          {selectedCurriculum.main_images && selectedCurriculum.main_images.length > 0 && (
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                  🖼️ 완성작품
-                </h3>
-                <button
-                  onClick={() => {
-                    const printWindow = window.open('', '_blank')
-                    if (printWindow) {
-                      printWindow.document.write(`
-                        <html>
-                          <head>
-                            <title>완성작품 - ${selectedCurriculum.title}</title>
-                            <style>
-                              * { margin: 0; padding: 0; box-sizing: border-box; }
-                              @page { size: A4; margin: 0; }
-                              html, body { width: 210mm; height: 297mm; }
-                              .page { width: 210mm; height: 297mm; display: flex; align-items: center; justify-content: center; page-break-after: always; overflow: hidden; }
-                              .page:last-child { page-break-after: auto; }
-                              .page img { width: 210mm; height: 297mm; object-fit: contain; }
-                            </style>
-                          </head>
-                          <body>
-                            ${selectedCurriculum.main_images.map(url => `<div class="page"><img src="${url}" /></div>`).join('')}
-                            <script>window.onload = function() { setTimeout(() => window.print(), 500); }</script>
-                          </body>
-                        </html>
-                      `)
-                      printWindow.document.close()
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 no-print"
-                >
-                  🖨️ 사진만 인쇄
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {selectedCurriculum.main_images.map((url, idx) => (
-                  <img key={idx} src={url} alt={`완성작품 ${idx + 1}`} className="w-full rounded-xl object-cover" />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedCurriculum.main_materials && (
-            <div className="p-6 pt-0">
-              <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">🎨 주재료</h3>
-              <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.main_materials}</p>
-            </div>
-          )}
-
-          {selectedCurriculum.teaching_points && selectedCurriculum.teaching_points.length > 0 && (
-            <div className="p-6 pt-0">
-              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">⭐ 지도 포인트</h3>
-              <div className="space-y-4">
-                {selectedCurriculum.teaching_points.map((point, idx) => (
-                  <div key={idx} className="bg-gray-50 rounded-xl p-4">
-                    <h4 className="font-medium text-gray-900 mb-2">{point.title}</h4>
-                    {point.image_url && <img src={point.image_url} alt={point.title} className="w-full max-w-md rounded-lg mb-3" />}
-                    <p className="text-gray-600 text-sm whitespace-pre-wrap">{point.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedCurriculum.cautions && (
-            <div className="p-6 pt-0">
-              <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">⚠️ 유의사항</h3>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-                <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.cautions}</p>
-              </div>
-            </div>
-          )}
-
-          {selectedCurriculum.parent_message_template && (
-            <div className="p-6 pt-0">
-              <div className="bg-blue-50 rounded-2xl p-4">
-                <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2">💬 학부모 안내메시지</h3>
-                <p className="text-blue-700 whitespace-pre-wrap text-sm leading-relaxed">{selectedCurriculum.parent_message_template}</p>
-              </div>
-            </div>
-          )}
-
-          {selectedCurriculum.material_sources && (
-            <div className="p-6 pt-0">
-              <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">🛒 재료 구입처</h3>
-              <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.material_sources}</p>
-            </div>
-          )}
-
-          {selectedCurriculum.variation_guide && 
-           (selectedCurriculum.variation_guide.description || 
-            (selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.length > 0)) && (
-            <div className="p-6 pt-0">
-              <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">💡 Variation Guide</h3>
-              {selectedCurriculum.variation_guide.description && (
-                <p className="text-gray-700 mb-4 whitespace-pre-wrap">{selectedCurriculum.variation_guide.description}</p>
-              )}
-              {selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-gray-600">참고 자료</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {selectedCurriculum.variation_guide.references.map((ref, idx) => (
-                      <div key={idx} className="bg-gray-50 rounded-xl p-3">
-                        <img src={ref.image_url} alt={ref.title} className="w-full rounded-lg mb-2" />
-                        <p className="text-sm text-gray-600 text-center">{ref.title}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="p-6 pt-0 text-center">
-            <p className="text-xs text-gray-400">© {currentYear} 그리마미술. All rights reserved.</p>
-          </div>
-
-          <div className="p-4 no-print">
-            <button onClick={handlePrint} className="w-full py-3 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition">
-              🖨️ 인쇄하기
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-4xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <button onClick={() => router.back()} className="text-gray-600">
+              ← 뒤로
+            </button>
+            <h1 className="text-lg font-bold text-gray-800">콘텐츠 관리</h1>
+            <button
+              onClick={() => router.push('/admin/curriculum/new')}
+              className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium"
+            >
+              + 등록
             </button>
           </div>
         </div>
-      )}
-
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white !important; }
-          #print-area { box-shadow: none !important; border: none !important; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        }
-      `}</style>
-    </>
-  )
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* 헤더 */}
-      <div className="hidden md:block bg-white border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          {selectedCurriculum ? (
-            <div className="flex items-center justify-between relative">
-              <button
-                onClick={() => setSelectedCurriculum(null)}
-                className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1 no-print absolute left-0"
-              >
-                ← 목록
-              </button>
-              <h1 className="text-xl font-bold text-gray-800 w-full text-center">커리큘럼</h1>
-            </div>
-          ) : (
-            <h1 className="text-xl font-bold text-gray-800">📚 커리큘럼</h1>
-          )}
-        </div>
-      </div>
-
-      {/* 모바일 목록 버튼 */}
-      {selectedCurriculum && (
-        <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 no-print">
-          <button
-            onClick={() => setSelectedCurriculum(null)}
-            className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1"
-          >
-            ← 목록
-          </button>
-        </div>
-      )}
+      </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {renderContent()}
+        {/* 연도 탭 */}
+        <div className="flex justify-center gap-2 mb-6">
+          {years.map(year => (
+            <button
+              key={year}
+              onClick={() => setSelectedYear(year)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                selectedYear === year
+                  ? 'bg-teal-500 text-white'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {year}년
+            </button>
+          ))}
+        </div>
+
+        {/* 콘텐츠 목록 */}
+        {groupedData.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+            <p className="text-gray-400">{selectedYear}년 등록된 커리큘럼이 없습니다.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {groupedData.map(group => (
+              <div key={`${group.year}-${group.month}-${group.week}`} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                {/* 주차 헤더 */}
+                <div className="bg-teal-50 px-4 py-3 border-b border-teal-100">
+                  <span className="text-sm font-bold text-teal-700">
+                    📅 {group.month}월 {group.week}주차
+                  </span>
+                  <span className="text-xs text-teal-500 ml-2">
+                    ({group.items.length}개)
+                  </span>
+                </div>
+
+                {/* 해당 주차 콘텐츠 */}
+                <div className="divide-y divide-gray-100">
+                  {group.items.map(item => (
+                    <div key={item.id} className="px-4 py-3 flex items-center gap-4">
+                      {/* 대상 배지 */}
+                      <span className={`px-2 py-1 text-xs font-medium rounded-lg shrink-0 ${
+                        item.target_group === '유치부' 
+                          ? 'bg-pink-100 text-pink-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {item.target_group}
+                      </span>
+
+                      {/* 제목 */}
+                      <div 
+                        className="flex-1 cursor-pointer hover:text-teal-600"
+                        onClick={() => router.push(`/curriculum/${item.id}`)}
+                      >
+                        <span className="font-medium text-gray-800">{item.title}</span>
+                      </div>
+
+                      {/* 상태 드롭다운 */}
+                      <select
+                        value={item.status}
+                        onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                        className={`px-2 py-1 text-xs rounded-lg border ${
+                          item.status === 'active' 
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                        }`}
+                      >
+                        <option value="active">활성</option>
+                        <option value="draft">임시저장</option>
+                      </select>
+
+                      {/* 수정 버튼 */}
+                      <button
+                        onClick={() => router.push(`/admin/curriculum/${item.id}/edit`)}
+                        className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200"
+                      >
+                        수정
+                      </button>
+
+                      {/* 삭제 버튼 */}
+                      <button
+                        onClick={() => handleDelete(item.id, item.title)}
+                        disabled={deleting === item.id}
+                        className="px-3 py-1.5 bg-red-50 text-red-500 rounded-lg text-xs hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {deleting === item.id ? '...' : '삭제'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

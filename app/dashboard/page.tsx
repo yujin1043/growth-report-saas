@@ -38,6 +38,13 @@ interface BillingTier {
   amount: number
 }
 
+interface CurrentCurriculum {
+  id: string
+  title: string
+  target_group: string
+  age_group: string
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -47,6 +54,7 @@ export default function DashboardPage() {
   const [activeStudents, setActiveStudents] = useState(0)
   const [monthlyReports, setMonthlyReports] = useState(0)
   const [needReportStudents, setNeedReportStudents] = useState<NeedReportStudent[]>([])
+  const [currentCurriculums, setCurrentCurriculums] = useState<CurrentCurriculum[]>([])
 
   const [totalBranches, setTotalBranches] = useState(0)
   const [totalActiveStudents, setTotalActiveStudents] = useState(0)
@@ -204,13 +212,28 @@ export default function DashboardPage() {
   }
 
   async function loadNormalData(authUserId: string, profile: any) {
-    const [branchesResult, classesResult] = await Promise.all([
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+
+    const [branchesResult, classesResult, curriculumResult] = await Promise.all([
       supabase.from('branches').select('id, name'),
-      supabase.from('classes').select('id, name')
+      supabase.from('classes').select('id, name'),
+      supabase.from('monthly_curriculum')
+        .select('id, title, target_group, age_group')
+        .eq('year', currentYear)
+        .eq('month', currentMonth)
+        .eq('status', 'active')
+        .order('created_at')
     ])
 
     const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
     const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
+
+    // 당월 커리큘럼 설정
+    if (curriculumResult.data && curriculumResult.data.length > 0) {
+      setCurrentCurriculums(curriculumResult.data)
+    }
 
     let branchName = null
     let classNames: string[] = []
@@ -240,7 +263,6 @@ export default function DashboardPage() {
       class_names: classNames
     })
 
-    const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
     // 활성 학생 조회
@@ -260,7 +282,7 @@ export default function DashboardPage() {
     setActiveStudents(activeResult.data?.length || 0)
     setMonthlyReports(reportsCountResult.count || 0)
 
-    // 리포트 필요 학생 조회 - reports 테이블에서 직접 계산
+    // 리포트 필요 학생 조회
     let studentsQuery = supabase
       .from('students')
       .select('id, name, branch_id')
@@ -272,11 +294,17 @@ export default function DashboardPage() {
 
     const { data: studentsData } = await studentsQuery
 
-    // 모든 리포트에서 학생별 마지막 리포트 날짜 가져오기
-    const { data: allReports } = await supabase
+    // 해당 지점의 리포트만 가져오기
+    let reportsDataQuery = supabase
       .from('reports')
       .select('student_id, created_at')
       .order('created_at', { ascending: false })
+
+    if (profile.role !== 'admin' && profile.branch_id) {
+      reportsDataQuery = reportsDataQuery.eq('branch_id', profile.branch_id)
+    }
+
+    const { data: allReports } = await reportsDataQuery
 
     // 학생별 마지막 리포트 날짜 맵 생성
     const lastReportMap = new Map<string, string>()
@@ -531,7 +559,10 @@ export default function DashboardPage() {
     )
   }
 
-  // ========== 지점 계정 대시보드 (새 디자인) ==========
+  // ========== 지점 계정 대시보드 ==========
+  const now = new Date()
+  const currentMonth = now.getMonth() + 1
+
   return (
     <>
       <div className="max-w-4xl mx-auto px-4 py-6">
@@ -543,7 +574,7 @@ export default function DashboardPage() {
           <p className="text-slate-500">{user?.branch_name || ''}</p>
         </header>
 
-        {/* Today's Curriculum */}
+        {/* 당월 커리큘럼 */}
         <div 
           onClick={() => router.push('/curriculum')}
           className="bg-gradient-to-r from-teal-500 to-cyan-500 rounded-2xl p-6 mb-6 cursor-pointer hover:shadow-lg transition relative overflow-hidden"
@@ -553,13 +584,28 @@ export default function DashboardPage() {
           
           <div className="relative z-10">
             <div className="inline-flex items-center bg-white/20 rounded-full px-3 py-1 mb-3">
-              <span className="text-sm text-white font-medium">📚 정규 커리큘럼</span>
+              <span className="text-sm text-white font-medium">📚 당월 커리큘럼</span>
             </div>
-            <h2 className="text-xl font-bold text-white mb-1">
-              1월 유치부 - 겨울 풍경화
-            </h2>
-            <p className="text-white/80 text-sm">
-              지도 포인트 확인 →
+            
+            {currentCurriculums.length > 0 ? (
+              <div className="space-y-1">
+                {currentCurriculums.slice(0, 2).map((curr, idx) => (
+                  <h2 key={curr.id} className={`font-bold text-white ${idx === 0 ? 'text-xl' : 'text-base opacity-80'}`}>
+                    {currentMonth}월 {curr.age_group === 'kindergarten' ? '유치부' : '초등부'} - {curr.title}
+                  </h2>
+                ))}
+                {currentCurriculums.length > 2 && (
+                  <p className="text-white/70 text-sm">외 {currentCurriculums.length - 2}개 더보기</p>
+                )}
+              </div>
+            ) : (
+              <h2 className="text-xl font-bold text-white mb-1">
+                {currentMonth}월 커리큘럼
+              </h2>
+            )}
+            
+            <p className="text-white/80 text-sm mt-2">
+              {/* 지도 포인트 확인 → */}
             </p>
           </div>
         </div>
