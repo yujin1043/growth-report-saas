@@ -573,10 +573,7 @@ export default function DailyMessagePage() {
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">
-              ← 뒤로
-            </button>
-            <h1 className="text-lg font-bold text-gray-800">일일 수업 메시지</h1>
+            <h1 className="text-xl font-bold text-gray-800 mb-1">💬 일일 메시지</h1>
             <button 
               onClick={() => router.push('/daily-message/results')}
               className="relative"
@@ -626,11 +623,10 @@ export default function DailyMessagePage() {
           >
             <option value="">학생을 선택해주세요</option>
             {students.map(student => {
-              const isGenerated = generatedStudentIds.includes(student.id)
               const age = new Date().getFullYear() - student.birth_year + 1
               return (
                 <option key={student.id} value={student.id}>
-                  {isGenerated ? '✓ ' : ''}{student.name} ({age}세)
+                  {student.name} ({age}세)
                 </option>
               )
             })}

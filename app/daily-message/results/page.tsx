@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
@@ -119,10 +119,8 @@ export default function AllResultsPage() {
   const shareAll = async (result: Result) => {
     setSharingId(result.id)
     try {
-      // 1. 먼저 문구 복사
       await copyToClipboard(result.message, result.id)
       
-      // 2. 이미지 파일 병렬 생성 (압축 포함)
       const files: File[] = []
       if (result.imageUrls.length > 0) {
         const filePromises = result.imageUrls.map(async (url, i) => {
@@ -169,7 +167,6 @@ export default function AllResultsPage() {
         files.push(...results.filter((f): f is File => f !== null))
       }
 
-      // 3. 파일 공유
       if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
         await navigator.share({ files: files })
         setCopiedId(`shared-${result.id}`)
@@ -178,7 +175,6 @@ export default function AllResultsPage() {
         return
       }
 
-      // 텍스트만 공유
       if (navigator.share) {
         await navigator.share({ text: result.message })
         setCopiedId(`shared-${result.id}`)
@@ -266,32 +262,28 @@ export default function AllResultsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
-      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/daily-message')} className="text-gray-500 hover:text-gray-700">
-              ← 뒤로
-            </button>
-            <h1 className="text-lg font-bold text-gray-800">전체 결과</h1>
-            {results.length > 0 && (
-              <button 
-                onClick={clearAllResults}
-                className="text-red-500 text-sm hover:text-red-700"
-              >
-                전체 삭제
-              </button>
-            )}
-          </div>
+      <div className="hidden md:block bg-white border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-4 py-4">
+          <h1 className="text-lg font-bold text-gray-800">📋 메시지 결과</h1>
         </div>
-      </header>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-4">
+      <div className="max-w-6xl mx-auto px-4 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-gray-500">총 <span className="font-bold text-teal-600">{results.length}</span>건</p>
+          {results.length > 0 && (
+            <button onClick={clearAllResults} className="text-red-500 text-sm hover:text-red-700">
+              전체 삭제
+            </button>
+          )}
+        </div>
+
         <div className="mb-4">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 학생 이름으로 검색..."
+            placeholder="학생 이름으로 검색..."
             className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           />
         </div>
@@ -299,7 +291,7 @@ export default function AllResultsPage() {
         {results.length === 0 ? (
           <div className="text-center py-12">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">📋</span>
+              <span className="text-2xl">📭</span>
             </div>
             <p className="text-gray-500 mb-4">생성된 메시지가 없습니다</p>
             <button
@@ -320,7 +312,7 @@ export default function AllResultsPage() {
                 <div className="px-4 py-3 bg-orange-50 border-b border-orange-200">
                   <h2 className="font-semibold text-orange-800 flex items-center gap-2">
                     <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
-                    미발송 ({unsentResults.length}명)
+                    미전송 ({unsentResults.length}명)
                   </h2>
                 </div>
                 
@@ -328,7 +320,7 @@ export default function AllResultsPage() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
-                        <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">날짜</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">시간</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">이름</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">사진</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">문구</th>
@@ -382,7 +374,7 @@ export default function AllResultsPage() {
                                     ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
                                 }`}
                               >
-                                {copiedId === result.id ? '✓' : '📋'}
+                                {copiedId === result.id ? '✓' : '복사'}
                               </button>
                               <button
                                 onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
@@ -479,7 +471,7 @@ export default function AllResultsPage() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
-                        <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">날짜</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">시간</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">이름</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-gray-600">문구</th>
                         <th className="px-5 py-3 text-center text-sm font-medium text-gray-600">액션</th>
@@ -526,7 +518,7 @@ export default function AllResultsPage() {
               onClick={() => router.push('/daily-message')}
               className="w-full py-4 rounded-2xl text-base font-medium bg-gradient-to-r from-teal-500 to-cyan-500 text-white"
             >
-              ➕ 학생 추가하기
+              + 학생 추가하기
             </button>
           </div>
         )}

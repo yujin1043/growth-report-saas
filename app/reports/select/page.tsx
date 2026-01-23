@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import BranchLayout from '@/components/BranchLayout'
 
 interface Student {
   id: string
@@ -160,8 +159,8 @@ export default function ReportSelectPage() {
   }
 
   return (
-    <BranchLayout userName={user?.name || '선생님'} branchName={user?.branch_name || ''}>
-      <div className="p-8 max-w-5xl">
+    <div className="min-h-screen bg-gray-50">
+      <div className="p-8 max-w-5xl mx-auto">
         {/* Header */}
         <header className="mb-6">
           <h1 className="text-2xl font-bold text-slate-800 mb-1">📝 리포트 작성</h1>
@@ -292,6 +291,6 @@ export default function ReportSelectPage() {
           )}
         </div>
       </div>
-    </BranchLayout>
+    </div>
   )
 }

@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import BranchLayout from '@/components/BranchLayout'
 
 interface UserProfile {
   name: string
@@ -243,47 +242,75 @@ export default function DashboardPage() {
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
+    // 활성 학생 조회
     let activeQuery = supabase.from('students').select('id').eq('status', 'active')
     let reportsQuery = supabase.from('reports').select('*', { count: 'exact', head: true }).gte('created_at', startOfMonth.toISOString())
-    let needReportQuery = supabase
-      .from('students')
-      .select('id, name, branch_id, last_report_at')
-      .eq('status', 'active')
-      .or(`last_report_at.is.null,last_report_at.lt.${twoMonthsAgo.toISOString()}`)
-      .order('last_report_at', { ascending: true, nullsFirst: true })
-      .limit(5)
 
     if (profile.role !== 'admin' && profile.branch_id) {
       activeQuery = activeQuery.eq('branch_id', profile.branch_id)
       reportsQuery = reportsQuery.eq('branch_id', profile.branch_id)
-      needReportQuery = needReportQuery.eq('branch_id', profile.branch_id)
     }
 
-    const [activeResult, reportsResult, needReportResult] = await Promise.all([
+    const [activeResult, reportsCountResult] = await Promise.all([
       activeQuery,
-      reportsQuery,
-      needReportQuery
+      reportsQuery
     ])
 
     setActiveStudents(activeResult.data?.length || 0)
-    setMonthlyReports(reportsResult.count || 0)
+    setMonthlyReports(reportsCountResult.count || 0)
 
-    if (needReportResult.data) {
-      const list: NeedReportStudent[] = needReportResult.data.map(student => {
-        const daysSince = student.last_report_at
-          ? Math.floor((now.getTime() - new Date(student.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
-          : 999
+    // 리포트 필요 학생 조회 - reports 테이블에서 직접 계산
+    let studentsQuery = supabase
+      .from('students')
+      .select('id, name, branch_id')
+      .eq('status', 'active')
 
-        return {
-          id: student.id,
-          name: student.name,
-          branch_name: branchMap.get(student.branch_id) || '-',
-          days_since_report: daysSince
+    if (profile.role !== 'admin' && profile.branch_id) {
+      studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
+    }
+
+    const { data: studentsData } = await studentsQuery
+
+    // 모든 리포트에서 학생별 마지막 리포트 날짜 가져오기
+    const { data: allReports } = await supabase
+      .from('reports')
+      .select('student_id, created_at')
+      .order('created_at', { ascending: false })
+
+    // 학생별 마지막 리포트 날짜 맵 생성
+    const lastReportMap = new Map<string, string>()
+    if (allReports) {
+      allReports.forEach(r => {
+        if (!lastReportMap.has(r.student_id)) {
+          lastReportMap.set(r.student_id, r.created_at)
         }
       })
-      setNeedReportStudents(list)
+    }
+
+    // 리포트 필요한 학생 필터링
+    const needReportList: NeedReportStudent[] = []
+    if (studentsData) {
+      studentsData.forEach(student => {
+        const lastReport = lastReportMap.get(student.id)
+        const daysSince = lastReport
+          ? Math.floor((now.getTime() - new Date(lastReport).getTime()) / (1000 * 60 * 60 * 24))
+          : 999
+
+        // 2개월(60일) 이상 경과 또는 리포트 없음
+        if (daysSince >= 60) {
+          needReportList.push({
+            id: student.id,
+            name: student.name,
+            branch_name: branchMap.get(student.branch_id) || '-',
+            days_since_report: daysSince
+          })
+        }
+      })
+
+      // 오래된 순 정렬, 최대 5명
+      needReportList.sort((a, b) => b.days_since_report - a.days_since_report)
+      setNeedReportStudents(needReportList.slice(0, 5))
     }
   }
 
@@ -506,8 +533,8 @@ export default function DashboardPage() {
 
   // ========== 지점 계정 대시보드 (새 디자인) ==========
   return (
-    <BranchLayout userName={user?.name || '선생님'} branchName={user?.branch_name || ''}>
-      <div className="p-8 max-w-4xl">
+    <>
+      <div className="max-w-4xl mx-auto px-4 py-6">
         {/* Header */}
         <header className="mb-7">
           <h1 className="text-2xl font-bold text-slate-800 mb-1">
@@ -526,13 +553,13 @@ export default function DashboardPage() {
           
           <div className="relative z-10">
             <div className="inline-flex items-center bg-white/20 rounded-full px-3 py-1 mb-3">
-              <span className="text-sm text-white font-medium">📚 오늘의 커리큘럼</span>
+              <span className="text-sm text-white font-medium">📚 정규 커리큘럼</span>
             </div>
             <h2 className="text-xl font-bold text-white mb-1">
               1월 유치부 - 겨울 풍경화
             </h2>
             <p className="text-white/80 text-sm">
-              터치하면 지도 포인트 확인 →
+              지도 포인트 확인 →
             </p>
           </div>
         </div>
@@ -632,6 +659,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-    </BranchLayout>
+    </>
   )
 }

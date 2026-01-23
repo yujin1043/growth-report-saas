@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+// 본사(admin) 전용 메뉴
 const adminMenuItems = [
   { id: 'dashboard', label: '대시보드', icon: '📊', path: '/dashboard' },
   { id: 'students', label: '학생 관리', icon: '👨‍🎓', path: '/students' },
@@ -14,12 +15,23 @@ const adminMenuItems = [
   { id: 'branches', label: '지점 관리', icon: '🏢', path: '/branches' },
 ]
 
+// 지점(teacher, manager, director) 전용 메뉴
+const branchMenuItems = [
+  { id: 'dashboard', label: '대시보드', icon: '🏠', path: '/dashboard' },
+  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/curriculum' },
+  { id: 'messages', label: '일일 메시지', icon: '💬', path: '/daily-message' },
+  { id: 'reports', label: '리포트', icon: '📝', path: '/reports' },
+  { id: 'students', label: '학생관리', icon: '👨‍🎓', path: '/students' },
+  { id: 'settings', label: '설정', icon: '⚙️', path: '/settings' },
+]
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userName, setUserName] = useState('')
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [branchName, setBranchName] = useState('')
 
   useEffect(() => {
     let mounted = true
@@ -36,7 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('name, role')
+        .select('name, role, branch_id')
         .eq('id', user.id)
         .single()
 
@@ -45,6 +57,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (profile) {
         setUserName(profile.name)
         setUserRole(profile.role)
+        
+        if (profile.branch_id) {
+          const { data: branch } = await supabase
+            .from('branches')
+            .select('name')
+            .eq('id', profile.branch_id)
+            .single()
+          
+          if (branch && mounted) {
+            setBranchName(branch.name)
+          }
+        }
       } else {
         setUserRole('none')
       }
@@ -53,6 +77,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     loadUser()
 
     return () => { mounted = false }
+  }, [pathname])
+
+  useEffect(() => {
+    setMobileMenuOpen(false)
   }, [pathname])
 
   async function handleLogout() {
@@ -64,26 +92,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (path === '/dashboard') {
       return pathname === '/dashboard'
     }
+    if (path === '/curriculum') {
+      return pathname === '/curriculum' || pathname.startsWith('/curriculum/')
+    }
+    if (path === '/admin/curriculum') {
+      return pathname.startsWith('/admin/curriculum')
+    }
     return pathname.startsWith(path)
   }
 
   const isPublicPage = pathname === '/login' || pathname === '/'
 
-  // 로딩 중
   if (userRole === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-slate-500">로딩 중...</p>
         </div>
       </div>
     )
   }
 
-  // 공개 페이지이거나 admin이 아니면 사이드바 없이 렌더링
-  if (isPublicPage || userRole !== 'admin') {
+  if (isPublicPage || userRole === 'none') {
     return <>{children}</>
   }
+
+  const menuItems = userRole === 'admin' ? adminMenuItems : branchMenuItems
+  const roleLabel = userRole === 'admin' ? '본사 관리' : branchName || '지점'
+  const roleText = userRole === 'admin' ? '본사 관리자' : 
+                   userRole === 'director' ? '원장' :
+                   userRole === 'manager' ? '실장' : '강사'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -95,11 +134,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               그리마노트
             </span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">본사 관리</p>
+          <p className="text-xs text-slate-400 mt-1">{roleLabel}</p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {adminMenuItems.map(item => (
+          {menuItems.map(item => (
             <button
               key={item.id}
               onClick={() => router.push(item.path)}
@@ -118,7 +157,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="px-3 py-4 border-t border-slate-100">
           <div className="px-3 py-2 mb-2">
             <p className="text-sm font-medium text-slate-700">{userName}</p>
-            <p className="text-xs text-slate-400">본사 관리자</p>
+            <p className="text-xs text-slate-400">{roleText}</p>
           </div>
           <button
             onClick={handleLogout}
@@ -149,7 +188,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {mobileMenuOpen && (
           <div className="absolute top-full left-0 right-0 bg-white border-b border-slate-200 shadow-lg z-50">
             <nav className="px-4 py-3 space-y-1">
-              {adminMenuItems.map(item => (
+              {menuItems.map(item => (
                 <button
                   key={item.id}
                   onClick={() => {
@@ -169,7 +208,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <div className="border-t border-slate-100 pt-2 mt-2">
                 <div className="px-3 py-2">
                   <p className="text-sm font-medium text-slate-700">{userName}</p>
-                  <p className="text-xs text-slate-400">본사 관리자</p>
+                  <p className="text-xs text-slate-400">{roleText}</p>
                 </div>
                 <button
                   onClick={handleLogout}
