@@ -10,7 +10,7 @@ const adminMenuItems = [
   { id: 'students', label: '학생 관리', icon: '👨‍🎓', path: '/students' },
   { id: 'reports', label: '리포트', icon: '📝', path: '/reports' },
   { id: 'messages', label: '일일 메시지', icon: '💬', path: '/daily-message' },
-  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/admin/curriculum' },
+  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/curriculum' },  // 변경: /admin/curriculum → /curriculum
   { id: 'users', label: '사용자 관리', icon: '👥', path: '/users' },
   { id: 'branches', label: '지점 관리', icon: '🏢', path: '/branches' },
 ]
@@ -93,7 +93,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       return pathname === '/dashboard'
     }
     if (path === '/curriculum') {
-      return pathname === '/curriculum' || pathname.startsWith('/curriculum/')
+      return pathname === '/curriculum' || pathname.startsWith('/curriculum/') || pathname.startsWith('/admin/curriculum')
     }
     if (path === '/admin/curriculum') {
       return pathname.startsWith('/admin/curriculum')

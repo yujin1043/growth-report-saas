@@ -80,71 +80,65 @@ export default function LoginPage() {
       </div>
 
       {/* 오른쪽: 로그인 폼 */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50">
+      <div className="flex-1 flex items-center justify-center p-8 bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="w-full max-w-md">
           {/* 모바일 로고 */}
           <div className="lg:hidden text-center mb-8">
-            <h1 className="text-3xl font-bold flex items-center justify-center gap-2 mb-1">
+            <h1 className="text-3xl font-bold text-teal-600 flex items-center justify-center gap-2">
               <span>🎨</span>
-              <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
-                그리마노트
-              </span>
+              그리마노트
             </h1>
-            <p className="text-slate-500">그리마미술 학생 관리 시스템</p>
+            <p className="text-gray-500 mt-1">그리마미술 학생 관리 시스템</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-slate-800">로그인</h2>
-              <p className="text-slate-500 mt-2">계정 정보를 입력해주세요</p>
+              <h2 className="text-2xl font-bold text-gray-800">로그인</h2>
+              <p className="text-gray-500 mt-1">계정에 로그인하세요</p>
             </div>
 
             {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl mb-6 text-sm">
                 ⚠️ {error}
               </div>
             )}
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   이메일
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    ✉️
-                  </span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">📧</span>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="example@grimaart.com"
+                    placeholder="example@email.com"
                     required
-                    className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                    className="w-full pl-12 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 transition"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   비밀번호
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    🔒
-                  </span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔒</span>
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    className="w-full pl-12 pr-12 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition"
+                    className="w-full pl-12 pr-12 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 transition"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
                   >
                     {showPassword ? '🙈' : '👁️'}
                   </button>
@@ -167,9 +161,19 @@ export default function LoginPage() {
                 ) : '로그인'}
               </button>
             </form>
+
+            {/* 비밀번호 찾기 링크 추가 */}
+            <div className="mt-6 text-center">
+              <button 
+                onClick={() => router.push('/forgot-password')}
+                className="text-sm text-gray-500 hover:text-teal-600 transition"
+              >
+                비밀번호를 잊으셨나요?
+              </button>
+            </div>
           </div>
 
-          <p className="text-center text-slate-400 text-sm mt-8">
+          <p className="text-center text-gray-400 text-sm mt-8">
             문의: contact@grimaart.com
           </p>
         </div>

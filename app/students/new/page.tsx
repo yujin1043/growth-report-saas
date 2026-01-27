@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 interface ClassOption {
   id: string
   name: string
+  branch_id: string
 }
 
 interface Branch {
@@ -15,28 +16,58 @@ interface Branch {
   code: string
 }
 
+// 나이/학년 옵션 생성
+const AGE_OPTIONS = [
+  { value: 5, label: '5세 (유치부)' },
+  { value: 6, label: '6세 (유치부)' },
+  { value: 7, label: '7세 (유치부)' },
+  { value: 8, label: '초등 1학년 (8세)' },
+  { value: 9, label: '초등 2학년 (9세)' },
+  { value: 10, label: '초등 3학년 (10세)' },
+  { value: 11, label: '초등 4학년 (11세)' },
+  { value: 12, label: '초등 5학년 (12세)' },
+  { value: 13, label: '초등 6학년 (13세)' },
+  { value: 14, label: '중등 1학년 (14세)' },
+  { value: 15, label: '중등 2학년 (15세)' },
+  { value: 16, label: '중등 3학년 (16세)' },
+]
+
 export default function NewStudentPage() {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [classes, setClasses] = useState<ClassOption[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
   const [userBranch, setUserBranch] = useState<Branch | null>(null)
   const [userRole, setUserRole] = useState('')
 
   const [formData, setFormData] = useState({
     name: '',
-    birth_year: '',
+    age: '', // 나이로 변경
     class_id: '',
+    branch_id: '', // 본사용 지점 선택
     parent_name: '',
     parent_phone: '',
     status: 'active',
     enrolled_at: new Date().toISOString().split('T')[0]
   })
 
+  const currentYear = new Date().getFullYear()
+
+  // 나이를 출생년도로 변환
+  const ageToBirthYear = (age: number) => currentYear - age + 1
+
   useEffect(() => {
     loadData()
   }, [])
+
+  // 본사 계정: 지점 선택 시 해당 지점의 반 목록 로드
+  useEffect(() => {
+    if (userRole === 'admin' && formData.branch_id) {
+      loadClassesByBranch(formData.branch_id)
+    }
+  }, [formData.branch_id, userRole])
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -56,7 +87,17 @@ export default function NewStudentPage() {
       setUserBranchId(profile.branch_id)
       setUserRole(profile.role)
 
-      if (profile.branch_id) {
+      // 본사 계정인 경우: 모든 지점 목록 로드
+      if (profile.role === 'admin') {
+        const { data: branchData } = await supabase
+          .from('branches')
+          .select('id, name, code')
+          .order('name')
+
+        if (branchData) setBranches(branchData)
+      } 
+      // 일반 사용자: 소속 지점의 반만 로드
+      else if (profile.branch_id) {
         const { data: branchData } = await supabase
           .from('branches')
           .select('id, name, code')
@@ -67,7 +108,7 @@ export default function NewStudentPage() {
 
         const { data: classData } = await supabase
           .from('classes')
-          .select('id, name')
+          .select('id, name, branch_id')
           .eq('branch_id', profile.branch_id)
           .order('name')
 
@@ -78,11 +119,27 @@ export default function NewStudentPage() {
     setLoading(false)
   }
 
+  // 특정 지점의 반 목록 로드 (본사용)
+  async function loadClassesByBranch(branchId: string) {
+    const { data: classData } = await supabase
+      .from('classes')
+      .select('id, name, branch_id')
+      .eq('branch_id', branchId)
+      .order('name')
+
+    if (classData) setClasses(classData)
+
+    // 선택된 지점 정보 설정
+    const selectedBranch = branches.find(b => b.id === branchId)
+    if (selectedBranch) setUserBranch(selectedBranch)
+
+    // 반 선택 초기화
+    setFormData(prev => ({ ...prev, class_id: '' }))
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    })
+    const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -92,8 +149,8 @@ export default function NewStudentPage() {
       alert('학생 이름을 입력해주세요.')
       return
     }
-    if (!formData.birth_year) {
-      alert('출생년도를 입력해주세요.')
+    if (!formData.age) {
+      alert('나이를 선택해주세요.')
       return
     }
     if (!formData.class_id) {
@@ -101,44 +158,49 @@ export default function NewStudentPage() {
       return
     }
 
+    // 본사 계정인데 지점을 선택하지 않은 경우
+    if (userRole === 'admin' && !formData.branch_id) {
+      alert('지점을 선택해주세요.')
+      return
+    }
+
     setSaving(true)
 
     try {
-      const branchCode = userBranch?.code || '00'
-
+      // 학생 코드 생성
       const { data: lastStudent } = await supabase
         .from('students')
         .select('student_code')
-        .eq('branch_id', userBranchId)
-        .like('student_code', `${branchCode}%`)
         .order('student_code', { ascending: false })
         .limit(1)
         .single()
 
-      let nextSeq = 1
+      let nextNum = 10001
       if (lastStudent?.student_code) {
-        const lastSeq = parseInt(lastStudent.student_code.substring(2))
-        nextSeq = lastSeq + 1
+        nextNum = parseInt(lastStudent.student_code) + 1
       }
 
-      const studentCode = branchCode + String(nextSeq).padStart(4, '0')
+      // 나이를 출생년도로 변환
+      const birthYear = ageToBirthYear(parseInt(formData.age))
+
+      // 지점 ID 결정 (본사는 선택한 지점, 일반 사용자는 소속 지점)
+      const targetBranchId = userRole === 'admin' ? formData.branch_id : userBranchId
 
       const { error } = await supabase
         .from('students')
         .insert({
-          name: formData.name,
-          birth_year: parseInt(formData.birth_year),
+          name: formData.name.trim(),
+          birth_year: birthYear,
           class_id: formData.class_id,
-          branch_id: userBranchId,
-          parent_name: formData.parent_name || null,
-          parent_phone: formData.parent_phone || null,
+          branch_id: targetBranchId,
+          parent_name: formData.parent_name.trim() || null,
+          parent_phone: formData.parent_phone.trim() || null,
           status: formData.status,
-          student_code: studentCode,
+          student_code: String(nextNum).padStart(6, '0'),
           enrolled_at: formData.enrolled_at
         })
 
       if (error) {
-        console.error('Error:', error)
         alert('등록 실패: ' + error.message)
         return
       }
@@ -154,9 +216,6 @@ export default function NewStudentPage() {
     }
   }
 
-  const currentYear = new Date().getFullYear()
-  const yearOptions = Array.from({ length: 12 }, (_, i) => currentYear - 4 - i)
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -168,7 +227,8 @@ export default function NewStudentPage() {
     )
   }
 
-  if (!userBranchId) {
+  // 본사가 아닌데 지점이 없는 경우
+  if (userRole !== 'admin' && !userBranchId) {
     return (
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white shadow-sm">
@@ -205,12 +265,36 @@ export default function NewStudentPage() {
 
       <div className="max-w-2xl mx-auto px-4 py-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="bg-teal-50 rounded-2xl p-4">
-            <p className="text-sm text-teal-700">
-              📍 등록 지점: <span className="font-bold">{userBranch?.name}</span>
-              <span className="text-teal-500 ml-2">(코드: {userBranch?.code})</span>
-            </p>
-          </div>
+          
+          {/* 본사 계정: 지점 선택 UI */}
+          {userRole === 'admin' ? (
+            <div className="bg-purple-50 rounded-2xl p-4">
+              <p className="text-sm text-purple-700 mb-3">
+                🏢 <span className="font-bold">본사 계정</span> - 학생을 등록할 지점을 선택하세요
+              </p>
+              <select
+                name="branch_id"
+                value={formData.branch_id}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-white border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-gray-800"
+              >
+                <option value="">지점을 선택하세요</option>
+                {branches.map(branch => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} ({branch.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            // 일반 사용자: 소속 지점 표시
+            <div className="bg-teal-50 rounded-2xl p-4">
+              <p className="text-sm text-teal-700">
+                📍 등록 지점: <span className="font-bold">{userBranch?.name}</span>
+                <span className="text-teal-500 ml-2">(코드: {userBranch?.code})</span>
+              </p>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
             <h2 className="font-bold text-gray-800">기본 정보</h2>
@@ -231,45 +315,53 @@ export default function NewStudentPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                출생년도 <span className="text-red-500">*</span>
+                나이 <span className="text-red-500">*</span>
               </label>
               <select
-                name="birth_year"
-                value={formData.birth_year}
+                name="age"
+                value={formData.age}
                 onChange={handleChange}
                 className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
               >
                 <option value="">선택하세요</option>
-                {yearOptions.map(year => (
-                  <option key={year} value={year}>{year}년 ({currentYear - year + 1}세)</option>
+                {AGE_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
+              {formData.age && (
+                <p className="text-xs text-gray-500 mt-1">
+                  → 출생년도: {ageToBirthYear(parseInt(formData.age))}년
+                </p>
+              )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 반 <span className="text-red-500">*</span>
               </label>
-              <select
-                name="class_id"
-                value={formData.class_id}
-                onChange={handleChange}
-                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="">선택하세요</option>
-                {classes.map(cls => (
-                  <option key={cls.id} value={cls.id}>{cls.name}</option>
-                ))}
-              </select>
-              {classes.length === 0 && (
-                <p className="text-xs text-red-500 mt-1">이 지점에 등록된 반이 없습니다.</p>
+              {(userRole === 'admin' && !formData.branch_id) ? (
+                <p className="text-sm text-gray-400 py-3">먼저 지점을 선택해주세요</p>
+              ) : classes.length > 0 ? (
+                <select
+                  name="class_id"
+                  value={formData.class_id}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="">반을 선택하세요</option>
+                  {classes.map(cls => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-400 py-3">등록된 반이 없습니다</p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                등록일 <span className="text-red-500">*</span>
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">등록일</label>
               <input
                 type="date"
                 name="enrolled_at"
@@ -324,7 +416,7 @@ export default function NewStudentPage() {
 
           <button
             type="submit"
-            disabled={saving || classes.length === 0}
+            disabled={saving || (userRole === 'admin' ? !formData.branch_id : classes.length === 0)}
             className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 disabled:opacity-50"
           >
             {saving ? '등록 중...' : '학생 등록'}
