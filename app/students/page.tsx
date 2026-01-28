@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface Student {
   id: string
@@ -32,6 +33,9 @@ function StudentsPage() {
   const filterParam = searchParams.get('filter')
   const branchParam = searchParams.get('branch')
 
+  // Context에서 사용자 정보 가져오기
+  const { userId, userRole: contextUserRole, branchId: contextBranchId, isLoading: userLoading } = useUserContext()
+
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<ClassOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,7 +45,6 @@ function StudentsPage() {
   const [branchFilter, setBranchFilter] = useState<string | null>(branchParam)
   const [userRole, setUserRole] = useState('')
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
@@ -58,8 +61,13 @@ function StudentsPage() {
   const currentYear = new Date().getFullYear()
 
   useEffect(() => {
-    loadData()
-  }, [])
+    if (!userLoading && contextUserRole) {
+      // Context에서 가져온 사용자 정보 설정
+      setUserRole(contextUserRole)
+      setUserBranchId(contextBranchId)
+      loadData()
+    }
+  }, [userLoading, contextUserRole])
 
   useEffect(() => {
     setSpecialFilter(filterParam)
@@ -70,28 +78,17 @@ function StudentsPage() {
   }, [branchParam])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    let branchId: string | null = null
+    let branchId = contextBranchId
 
-    const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult, sketchbooksResult] = await Promise.all([
-      user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
-      user ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id) : Promise.resolve({ data: null }),
-      supabase.from('students').select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at').order('name'),
-      supabase.from('classes').select('id, name, branch_id'),
-      supabase.from('branches').select('id, name'),
-      supabase.from('sketchbooks').select('id, student_id, book_number, status').eq('status', 'active')
+    // Context에서 이미 사용자 정보를 가져왔으므로 user_profiles 조회 생략
+    const [teacherClassesResult, studentsResult, classesResult] = await Promise.all([
+      userId ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', userId) : Promise.resolve({ data: null }),
+      supabase.from('students_with_details').select('*').order('name'),
+      supabase.from('classes').select('id, name, branch_id')
     ])
 
-    if (user) {
-      setUserId(user.id)
-      if (profileResult.data) {
-        setUserRole(profileResult.data.role)
-        setUserBranchId(profileResult.data.branch_id)
-        branchId = profileResult.data.branch_id
-      }
-      if (teacherClassesResult.data) {
-        setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
-      }
+    if (teacherClassesResult.data) {
+      setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
     }
 
     if (studentsResult.error) {
@@ -101,45 +98,10 @@ function StudentsPage() {
     }
 
     setClasses(classesResult.data || [])
-    const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
-    const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
     
-    const sketchbookMap = new Map(
-      sketchbooksResult.data?.map(s => [s.student_id, { id: s.id, book_number: s.book_number, status: s.status }]) || []
-    )
-
-    const sketchbookIds = sketchbooksResult.data?.map(s => s.id) || []
-    let workCountMap = new Map<string, number>()
-    
-    if (sketchbookIds.length > 0) {
-      const { data: worksData } = await supabase
-        .from('sketchbook_works')
-        .select('sketchbook_id')
-        .in('sketchbook_id', sketchbookIds)
-      
-      if (worksData) {
-        const counts = worksData.reduce((acc, w) => {
-          acc[w.sketchbook_id] = (acc[w.sketchbook_id] || 0) + 1
-          return acc
-        }, {} as Record<string, number>)
-        workCountMap = new Map(Object.entries(counts))
-      }
-    }
-
+    // View에서 이미 JOIN된 데이터 사용
     if (studentsResult.data) {
-      const studentsWithDetails = studentsResult.data.map(student => {
-        const sketchbook = sketchbookMap.get(student.id)
-        return {
-          ...student,
-          class_name: student.class_id ? classMap.get(student.class_id) || null : null,
-          branch_name: student.branch_id ? branchMap.get(student.branch_id) || null : null,
-          sketchbook_id: sketchbook?.id || null,
-          sketchbook_number: sketchbook?.book_number || null,
-          sketchbook_status: sketchbook?.status || null,
-          sketchbook_work_count: sketchbook?.id ? (workCountMap.get(sketchbook.id) || 0) : 0
-        }
-      })
-      setStudents(studentsWithDetails)
+      setStudents(studentsResult.data)
     }
 
     const now = new Date()

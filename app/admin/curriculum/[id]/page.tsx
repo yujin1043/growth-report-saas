@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface Curriculum {
   id: string
@@ -25,6 +26,8 @@ interface GroupedCurriculum {
 
 export default function AdminCurriculumPage() {
   const router = useRouter()
+  const { userRole, isLoading: userLoading } = useUserContext()
+  
   const [loading, setLoading] = useState(true)
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [groupedData, setGroupedData] = useState<GroupedCurriculum[]>([])
@@ -34,9 +37,19 @@ export default function AdminCurriculumPage() {
   // 연도 목록 (동적으로 생성)
   const years = [2024, 2025, 2026]
 
+  // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    checkAuthAndLoad()
-  }, [])
+    if (!userLoading && userRole !== 'admin') {
+      alert('관리자 권한이 필요합니다.')
+      router.push('/dashboard')
+    }
+  }, [userLoading, userRole, router])
+
+  useEffect(() => {
+    if (!userLoading && userRole === 'admin') {
+      loadCurriculums()
+    }
+  }, [userLoading, userRole])
 
   useEffect(() => {
     if (curriculums.length > 0) {
@@ -45,28 +58,6 @@ export default function AdminCurriculumPage() {
       setGroupedData([])
     }
   }, [curriculums, selectedYear])
-
-  async function checkAuthAndLoad() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.role !== 'admin') {
-      alert('관리자 권한이 필요합니다.')
-      router.push('/dashboard')
-      return
-    }
-
-    await loadCurriculums()
-  }
 
   async function loadCurriculums() {
     setLoading(true)
@@ -164,6 +155,18 @@ export default function AdminCurriculumPage() {
     } finally {
       setDeleting(null)
     }
+  }
+
+  // admin 아니면 로딩 표시 (리다이렉트 전)
+  if (userLoading || userRole !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
   if (loading) {

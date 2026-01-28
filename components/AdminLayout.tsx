@@ -1,8 +1,9 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 // 본사(admin) 전용 메뉴
 const adminMenuItems = [
@@ -10,7 +11,7 @@ const adminMenuItems = [
   { id: 'students', label: '학생 관리', icon: '👨‍🎓', path: '/students' },
   { id: 'reports', label: '리포트', icon: '📝', path: '/reports' },
   { id: 'messages', label: '일일 메시지', icon: '💬', path: '/daily-message' },
-  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/curriculum' },  // 변경: /admin/curriculum → /curriculum
+  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/curriculum' },
   { id: 'users', label: '사용자 관리', icon: '👥', path: '/users' },
   { id: 'branches', label: '지점 관리', icon: '🏢', path: '/branches' },
 ]
@@ -29,55 +30,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userName, setUserName] = useState('')
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [branchName, setBranchName] = useState('')
-
-  useEffect(() => {
-    let mounted = true
-
-    async function loadUser() {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!mounted) return
-      
-      if (!user) {
-        setUserRole('none')
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('name, role, branch_id')
-        .eq('id', user.id)
-        .single()
-
-      if (!mounted) return
-
-      if (profile) {
-        setUserName(profile.name)
-        setUserRole(profile.role)
-        
-        if (profile.branch_id) {
-          const { data: branch } = await supabase
-            .from('branches')
-            .select('name')
-            .eq('id', profile.branch_id)
-            .single()
-          
-          if (branch && mounted) {
-            setBranchName(branch.name)
-          }
-        }
-      } else {
-        setUserRole('none')
-      }
-    }
-
-    loadUser()
-
-    return () => { mounted = false }
-  }, [pathname])
+  
+  // Context에서 사용자 정보 가져오기 (한 번만 로드됨)
+  const { userName, userRole, branchName, isLoading } = useUserContext()
 
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -103,7 +58,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const isPublicPage = pathname === '/login' || pathname === '/'
 
-  if (userRole === null) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -114,7 +69,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  if (isPublicPage || userRole === 'none') {
+  if (isPublicPage || userRole === 'none' || !userRole) {
     return <>{children}</>
   }
 

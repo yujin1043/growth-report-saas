@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface Curriculum {
   id: string
@@ -27,6 +28,8 @@ interface MonthGroup {
 
 export default function AdminCurriculumPage() {
   const router = useRouter()
+  const { userRole, isLoading: userLoading } = useUserContext()
+  
   const [loading, setLoading] = useState(true)
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [groupedData, setGroupedData] = useState<MonthGroup[]>([])
@@ -38,9 +41,19 @@ export default function AdminCurriculumPage() {
   const years = [2024, 2025, 2026]
   const months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
+  // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    checkAuthAndLoad()
-  }, [])
+    if (!userLoading && userRole !== 'admin') {
+      alert('관리자 권한이 필요합니다.')
+      router.push('/dashboard')
+    }
+  }, [userLoading, userRole, router])
+
+  useEffect(() => {
+    if (!userLoading && userRole === 'admin') {
+      loadCurriculums()
+    }
+  }, [userLoading, userRole])
 
   useEffect(() => {
     if (curriculums.length > 0) {
@@ -60,28 +73,6 @@ export default function AdminCurriculumPage() {
       setExpandedMonths([selectedMonth as number])
     }
   }, [groupedData, selectedMonth])
-
-  async function checkAuthAndLoad() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.role !== 'admin') {
-      alert('관리자 권한이 필요합니다.')
-      router.push('/dashboard')
-      return
-    }
-
-    await loadCurriculums()
-  }
 
   async function loadCurriculums() {
     setLoading(true)
@@ -205,6 +196,18 @@ export default function AdminCurriculumPage() {
     return groupedData.reduce((total, month) => 
       total + month.weeks.reduce((weekTotal, week) => weekTotal + week.items.length, 0)
     , 0)
+  }
+
+  // admin 아니면 로딩 표시 (리다이렉트 전)
+  if (userLoading || userRole !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-gray-500">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
   if (loading) {

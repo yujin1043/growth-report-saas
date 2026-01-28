@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface Report {
   id: string
@@ -31,32 +32,23 @@ export default function ReportsPage() {
   const [selectedBranch, setSelectedBranch] = useState('all')
   const [selectedMonth, setSelectedMonth] = useState('all')
   
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [userBranchId, setUserBranchId] = useState<string | null>(null)
+  // Context에서 사용자 정보 가져오기
+  const { userRole, branchId: userBranchId, isLoading: userLoading } = useUserContext()
 
   useEffect(() => {
-    loadData()
-  }, [])
+    if (!userLoading && userRole) {
+      loadData()
+    }
+  }, [userLoading, userRole])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
+    if (!userRole || userRole === 'none') {
       router.push('/login')
       return
     }
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role, branch_id')
-      .eq('id', user.id)
-      .single()
-
-    const role = profile?.role || 'teacher'
-    const branchId = profile?.branch_id || null
-    
-    setUserRole(role)
-    setUserBranchId(branchId)
+    const role = userRole
+    const branchId = userBranchId
 
     let branchQuery = supabase.from('branches').select('id, name').order('name')
     
@@ -67,42 +59,19 @@ export default function ReportsPage() {
     const { data: branchData } = await branchQuery
     if (branchData) setBranches(branchData)
 
+    // View 사용으로 쿼리 최적화
     let reportsQuery = supabase
-      .from('reports')
-      .select('id, period_start, period_end, created_at, student_id, branch_id')
-      .order('created_at', { ascending: false })
+      .from('reports_with_details')
+      .select('*')
 
     if (role !== 'admin' && branchId) {
       reportsQuery = reportsQuery.eq('branch_id', branchId)
     }
 
-    const [reportsResult, studentsResult] = await Promise.all([
-      reportsQuery,
-      supabase.from('students').select('id, name, student_code, branch_id')
-    ])
+    const { data: reportsData } = await reportsQuery
 
-    const branchMap = new Map(branchData?.map(b => [b.id, b.name]) || [])
-    const studentMap = new Map(studentsResult.data?.map(s => [s.id, s]) || [])
-
-    if (reportsResult.data) {
-      const reportsWithDetails: Report[] = reportsResult.data.map(report => {
-        const student = studentMap.get(report.student_id)
-        const branchName = student?.branch_id ? branchMap.get(student.branch_id) || '-' : '-'
-
-        return {
-          id: report.id,
-          period_start: report.period_start,
-          period_end: report.period_end,
-          created_at: report.created_at,
-          student_name: student?.name || '-',
-          student_code: student?.student_code || '-',
-          branch_name: branchName,
-          student_id: report.student_id,
-          branch_id: report.branch_id
-        }
-      })
-
-      setReports(reportsWithDetails)
+    if (reportsData) {
+      setReports(reportsData)
     }
 
     setLoading(false)

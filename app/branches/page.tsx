@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface Branch {
   id: string
@@ -21,6 +22,8 @@ interface ClassItem {
 
 export default function BranchesPage() {
   const router = useRouter()
+  const { userRole, isLoading: userLoading } = useUserContext()
+  
   const [branches, setBranches] = useState<Branch[]>([])
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,9 +41,18 @@ export default function BranchesPage() {
 
   const [saving, setSaving] = useState(false)
 
+  // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    loadData()
-  }, [])
+    if (!userLoading && userRole !== 'admin') {
+      router.push('/dashboard')
+    }
+  }, [userLoading, userRole, router])
+
+  useEffect(() => {
+    if (!userLoading && userRole === 'admin') {
+      loadData()
+    }
+  }, [userLoading, userRole])
 
   async function loadData() {
     // 모든 데이터를 병렬로 가져오기 (성능 최적화)
@@ -53,6 +65,18 @@ export default function BranchesPage() {
     if (classResult.data) setClasses(classResult.data)
 
     setLoading(false)
+  }
+
+  // admin 아니면 로딩 표시 (리다이렉트 전)
+  if (userLoading || userRole !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-slate-500">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
   function openBranchModal(branch?: Branch) {

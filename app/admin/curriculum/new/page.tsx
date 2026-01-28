@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface TeachingPoint {
   title: string
@@ -17,6 +18,8 @@ interface VariationReference {
 
 export default function NewCurriculumPage() {
   const router = useRouter()
+  const { userRole, isLoading: userLoading } = useUserContext()
+  
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
 
@@ -40,27 +43,24 @@ export default function NewCurriculumPage() {
     status: 'draft'
   })
 
+  // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    checkAuth()
-  }, [])
-
-  async function checkAuth() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.role !== 'admin') {
+    if (!userLoading && userRole !== 'admin') {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
     }
+  }, [userLoading, userRole, router])
+
+  // admin 아니면 로딩 표시 (리다이렉트 전)
+  if (userLoading || userRole !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+          <p className="text-slate-500">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
 
