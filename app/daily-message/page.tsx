@@ -20,6 +20,7 @@ interface CurriculumTopic {
   id: string
   year: number
   month: number
+  week: number
   target_group: string
   title: string
   main_materials: string | null
@@ -63,6 +64,7 @@ export default function DailyMessagePage() {
   const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
 
   const [showCurriculumModal, setShowCurriculumModal] = useState(false)
+  const [showStudentModal, setShowStudentModal] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -122,7 +124,7 @@ export default function DailyMessagePage() {
       }
     }
 
-    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
+    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
 
     if (profile?.role !== 'admin') {
       const now = new Date()
@@ -490,6 +492,10 @@ export default function DailyMessagePage() {
         .eq('id', student.id)
         .single()
 
+      // 만료 시간: 48시간 후
+      const expiresAt = new Date()
+      expiresAt.setHours(expiresAt.getHours() + 48)
+
       const { data: newMessage, error: insertError } = await supabase
         .from('daily_messages')
         .insert({
@@ -499,7 +505,8 @@ export default function DailyMessagePage() {
           message: message,
           lesson_type: lessonType,
           topic_title: topicTitle,
-          progress_status: progressStatus
+          progress_status: progressStatus,
+          expires_at: expiresAt.toISOString()
         })
         .select()
         .single()
@@ -545,14 +552,23 @@ export default function DailyMessagePage() {
     setGenerating(false)
   }
 
+  // 월별 -> 주차별 -> 유치부/초등부 그루핑
   const groupedTopics = curriculumTopics.reduce((acc, topic) => {
-    const key = `${topic.year}-${topic.month}`
-    if (!acc[key]) {
-      acc[key] = { year: topic.year, month: topic.month, topics: [] }
+    const monthKey = `${topic.year}-${topic.month}`
+    if (!acc[monthKey]) {
+      acc[monthKey] = { year: topic.year, month: topic.month, weeks: {} as {[week: number]: { kindergarten: CurriculumTopic[], elementary: CurriculumTopic[] }} }
     }
-    acc[key].topics.push(topic)
+    const week = topic.week || 1
+    if (!acc[monthKey].weeks[week]) {
+      acc[monthKey].weeks[week] = { kindergarten: [], elementary: [] }
+    }
+    if (topic.age_group === 'kindergarten') {
+      acc[monthKey].weeks[week].kindergarten.push(topic)
+    } else {
+      acc[monthKey].weeks[week].elementary.push(topic)
+    }
     return acc
-  }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
+  }, {} as {[key: string]: { year: number, month: number, weeks: {[week: number]: { kindergarten: CurriculumTopic[], elementary: CurriculumTopic[] }} }})
 
   const selectedStudent = students.find(s => s.id === selectedStudentId)
   const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
@@ -616,21 +632,18 @@ export default function DailyMessagePage() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
-          <select
-            value={selectedStudentId}
-            onChange={(e) => setSelectedStudentId(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+          <button
+            onClick={() => setShowStudentModal(true)}
+            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
           >
-            <option value="">학생을 선택해주세요</option>
-            {students.map(student => {
-              const age = new Date().getFullYear() - student.birth_year + 1
-              return (
-                <option key={student.id} value={student.id}>
-                  {student.name} ({age}세)
-                </option>
-              )
-            })}
-          </select>
+            <span className={selectedStudentId ? 'text-gray-800' : 'text-gray-400'}>
+              {selectedStudent 
+                ? `${selectedStudent.name} (${new Date().getFullYear() - selectedStudent.birth_year + 1}세)`
+                : '학생을 선택해주세요'
+              }
+            </span>
+            <span className="text-gray-400">▼</span>
+          </button>
           {students.length === 0 && (
             <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
           )}
@@ -823,40 +836,127 @@ export default function DailyMessagePage() {
                   <div className="sticky top-0 bg-gray-50 px-4 py-2 border-b border-gray-100">
                     <span className="font-semibold text-gray-700">{group.year}년 {group.month}월</span>
                   </div>
-                  <div className="divide-y divide-gray-100">
-                    {group.topics.map(topic => (
-                      <button
-                        key={topic.id}
-                        onClick={() => {
-                          setSelectedTopicId(topic.id)
-                          setShowCurriculumModal(false)
-                        }}
-                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
-                          selectedTopicId === topic.id ? 'bg-teal-50' : ''
-                        }`}
-                      >
-                        <div className="flex-1 flex items-center gap-3">
-                          <p className="font-medium text-gray-800">{topic.title}</p>
-                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                            topic.age_group === 'kindergarten' 
-                              ? 'bg-pink-100 text-pink-600' 
-                              : 'bg-blue-100 text-blue-600'
-                          }`}>
-                            {topic.age_group === 'kindergarten' ? '유치' : '초등'}
-                          </span>
+                  
+                  {Object.entries(group.weeks).sort(([a], [b]) => Number(a) - Number(b)).map(([week, ageGroups]) => (
+                    <div key={week} className="border-b border-gray-100">
+                      <div className="bg-gray-100/50 px-4 py-2">
+                        <span className="font-medium text-gray-600 text-sm">{week}주차</span>
+                      </div>
+                      
+                      {/* 유치부 */}
+                      {ageGroups.kindergarten.length > 0 && (
+                        <div className="px-4 py-2">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="px-2 py-0.5 bg-pink-100 text-pink-600 text-xs font-bold rounded-lg">유치부</span>
+                          </div>
+                          <div className="space-y-1">
+                            {ageGroups.kindergarten.map(topic => (
+                              <button
+                                key={topic.id}
+                                onClick={() => {
+                                  setSelectedTopicId(topic.id)
+                                  setShowCurriculumModal(false)
+                                }}
+                                className={`w-full px-3 py-2.5 text-left rounded-xl transition flex items-center justify-between ${
+                                  selectedTopicId === topic.id ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50 hover:bg-teal-50'
+                                }`}
+                              >
+                                <span className="font-medium text-gray-800">{topic.title}</span>
+                                {selectedTopicId === topic.id && (
+                                  <span className="text-teal-500">✓</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        {selectedTopicId === topic.id && (
-                          <span className="text-teal-500 text-xl">✓</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                      )}
+                      
+                      {/* 초등부 */}
+                      {ageGroups.elementary.length > 0 && (
+                        <div className="px-4 py-2">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-xs font-bold rounded-lg">초등부</span>
+                          </div>
+                          <div className="space-y-1">
+                            {ageGroups.elementary.map(topic => (
+                              <button
+                                key={topic.id}
+                                onClick={() => {
+                                  setSelectedTopicId(topic.id)
+                                  setShowCurriculumModal(false)
+                                }}
+                                className={`w-full px-3 py-2.5 text-left rounded-xl transition flex items-center justify-between ${
+                                  selectedTopicId === topic.id ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50 hover:bg-teal-50'
+                                }`}
+                              >
+                                <span className="font-medium text-gray-800">{topic.title}</span>
+                                {selectedTopicId === topic.id && (
+                                  <span className="text-teal-500">✓</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))}
               
               {curriculumTopics.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <p>등록된 커리큘럼이 없습니다</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 학생 선택 모달 */}
+      {showStudentModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
+          <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-t-3xl md:rounded-2xl overflow-hidden">
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between z-10">
+              <h3 className="font-bold text-gray-800 text-lg">학생 선택</h3>
+              <button 
+                onClick={() => setShowStudentModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto max-h-[calc(80vh-60px)]">
+              {students.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p>해당 반에 학생이 없습니다</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {students.map(student => {
+                    const age = new Date().getFullYear() - student.birth_year + 1
+                    return (
+                      <button
+                        key={student.id}
+                        onClick={() => {
+                          setSelectedStudentId(student.id)
+                          setShowStudentModal(false)
+                        }}
+                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
+                          selectedStudentId === student.id ? 'bg-teal-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium text-gray-800">{student.name}</span>
+                          <span className="text-gray-400 text-sm">({age}세)</span>
+                        </div>
+                        {selectedStudentId === student.id && (
+                          <span className="text-teal-500 text-xl">✓</span>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>

@@ -49,26 +49,30 @@ export default function LoginPage() {
             <span>🎨</span>
             그리마노트
           </h1>
-          <p className="text-teal-100 text-lg">그리마미술 학생 관리 시스템</p>
+          <p className="text-teal-100 text-lg">그리마미술 수업·원생 관리 시스템</p>
         </div>
         
         <div className="space-y-8">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
             <h3 className="text-white font-bold text-xl mb-4">
-              ✨ 아이들의 성장을 기록하세요
+              ✨ 월별 커리큘럼 제공 · 원생 관리 자동화
             </h3>
             <ul className="space-y-3 text-teal-50">
+              <li className="flex items-center gap-3">
+                <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
+                월별 교육 계획안 열람 및 출력
+              </li>
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
                 일일 수업 메시지 발송
               </li>
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
-                AI 기반 성장 리포트 생성
+                학생별 진도·성장 기록 관리
               </li>
               <li className="flex items-center gap-3">
                 <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-sm">✓</span>
-                학생별 상담 일지 관리
+                학생별 상담 기록 관리
               </li>
             </ul>
           </div>
@@ -88,7 +92,7 @@ export default function LoginPage() {
               <span>🎨</span>
               그리마노트
             </h1>
-            <p className="text-gray-500 mt-1">그리마미술 학생 관리 시스템</p>
+            <p className="text-gray-500 mt-1">그리마미술 수업·원생 관리 시스템</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">

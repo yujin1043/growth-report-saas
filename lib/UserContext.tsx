@@ -32,10 +32,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   async function loadUser() {
+    setIsLoading(true)
+    
     const { data: { user } } = await supabase.auth.getUser()
     
     if (!user) {
+      setUserId(null)
+      setUserName('')
       setUserRole('none')
+      setBranchId(null)
+      setBranchName('')
       setIsLoading(false)
       return
     }
@@ -63,6 +69,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         if (branch) {
           setBranchName(branch.name)
         }
+      } else {
+        setBranchName('')
       }
     } else {
       setUserRole('none')
@@ -72,7 +80,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    // 초기 로드
     loadUser()
+
+    // Auth 상태 변화 감지 (로그인/로그아웃)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        loadUser()
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   return (

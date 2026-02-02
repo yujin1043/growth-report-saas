@@ -117,20 +117,15 @@ export default function ReportDetailPage() {
   const getAge = (birthYear: number) => currentYear - birthYear + 1
 
   const handlePrint = async () => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    // 파일명 설정 (리포트 생성일 기준)
+    const reportDate = new Date(report?.created_at || new Date())
+    const dateStr = `${reportDate.getFullYear()}${String(reportDate.getMonth() + 1).padStart(2, '0')}${String(reportDate.getDate()).padStart(2, '0')}`
+    const fileName = `${student?.name || '학생'}_${dateStr}`
     
-    if (isMobile) {
-      // 모바일: 브라우저 인쇄 기능 사용 (PDF로 저장 가능)
-      window.print()
-    } else {
-      // PC: 기존 인쇄 기능
-      const today = new Date()
-      const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
-      const fileName = `성장리포트_${student?.name || '학생'}_${dateStr}`
-      document.title = fileName
-      window.print()
-      document.title = '성장 리포트'
-    }
+    // 모바일/PC 모두 동일하게 처리
+    document.title = fileName
+    window.print()
+    document.title = '그리마노트'
   }
 
   if (loading) {

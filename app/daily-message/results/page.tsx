@@ -23,6 +23,10 @@ export default function AllResultsPage() {
   const [sharingId, setSharingId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
+  
+  // 문구 복사/이미지 다운로드 완료 추적
+  const [copiedMessageIds, setCopiedMessageIds] = useState<Set<string>>(new Set())
+  const [downloadedImageIds, setDownloadedImageIds] = useState<Set<string>>(new Set())
 
   const filteredResults = useMemo(() => {
     if (searchQuery.trim() === '') {
@@ -110,6 +114,22 @@ export default function AllResultsPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedId(id)
+      
+      // 해당 result 찾기
+      const result = results.find(r => r.id === id)
+      
+      if (result && result.imageUrls.length > 0) {
+        // 이미지가 있는 경우: 문구 복사 완료 표시
+        setCopiedMessageIds(prev => new Set(prev).add(id))
+        // 이미지 다운로드도 완료됐으면 발송완료
+        if (downloadedImageIds.has(id)) {
+          await markAsSent(id)
+        }
+      } else {
+        // 이미지가 없는 경우: 바로 발송완료
+        await markAsSent(id)
+      }
+      
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
@@ -207,6 +227,14 @@ export default function AllResultsPage() {
         URL.revokeObjectURL(url)
       }
       setCopiedId(`download-${result.id}`)
+      
+      // 이미지 다운로드 완료 표시
+      setDownloadedImageIds(prev => new Set(prev).add(result.id))
+      // 문구 복사도 완료됐으면 발송완료
+      if (copiedMessageIds.has(result.id)) {
+        await markAsSent(result.id)
+      }
+      
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Download failed:', error)

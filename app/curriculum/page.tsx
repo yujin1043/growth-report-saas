@@ -48,9 +48,9 @@ export default function CurriculumPage() {
   const [loading, setLoading] = useState(true)
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [groupedData, setGroupedData] = useState<GroupedCurriculum[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<'유치부' | '초등부'>('유치부')
   const [selectedCurriculum, setSelectedCurriculum] = useState<Curriculum | null>(null)
   const [userRole, setUserRole] = useState('')
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   // 현재 월과 다음 월 계산
   const now = new Date()
@@ -69,7 +69,7 @@ export default function CurriculumPage() {
     } else {
       setGroupedData([])
     }
-  }, [curriculums, selectedGroup])
+  }, [curriculums])
 
   async function checkAuthAndLoad() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -108,13 +108,10 @@ export default function CurriculumPage() {
   }
 
   function groupByWeek() {
-    // 선택된 대상 그룹으로 필터
-    const filtered = curriculums.filter(c => c.target_group === selectedGroup)
-
-    // 그룹핑
+    // 주차별 그루핑 (유치부+초등부 함께)
     const groups: { [key: string]: GroupedCurriculum } = {}
 
-    filtered.forEach(item => {
+    curriculums.forEach(item => {
       const week = item.week || 1
       const key = `${item.year}-${item.month}-${week}`
       if (!groups[key]) {
@@ -146,8 +143,118 @@ export default function CurriculumPage() {
     return '다음 달'
   }
 
-  const handlePrint = () => {
-    window.print()
+  // 숨겨진 iframe으로 출력 (현재 페이지 유지)
+  const printViaIframe = (html: string) => {
+    const existingFrame = document.getElementById('print-frame') as HTMLIFrameElement
+    if (existingFrame) existingFrame.remove()
+
+    const iframe = document.createElement('iframe')
+    iframe.id = 'print-frame'
+    iframe.style.position = 'fixed'
+    iframe.style.top = '-10000px'
+    iframe.style.left = '-10000px'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = 'none'
+    document.body.appendChild(iframe)
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document
+    if (!doc) return
+
+    doc.open()
+    doc.write(html)
+    doc.close()
+
+    // 이미지 로딩 대기 후 출력
+    const images = doc.querySelectorAll('img')
+    if (images.length === 0) {
+      iframe.contentWindow?.print()
+      setTimeout(() => iframe.remove(), 1000)
+    } else {
+      let loaded = 0
+      const total = images.length
+      images.forEach(img => {
+        if (img.complete) {
+          loaded++
+          if (loaded === total) {
+            iframe.contentWindow?.print()
+            setTimeout(() => iframe.remove(), 1000)
+          }
+        } else {
+          img.onload = img.onerror = () => {
+            loaded++
+            if (loaded === total) {
+              iframe.contentWindow?.print()
+              setTimeout(() => iframe.remove(), 1000)
+            }
+          }
+        }
+      })
+    }
+  }
+
+  // 이미지 출력 (A4 꽉 차게, 가로/세로 자동 감지)
+  const printImage = (imageUrl: string, title: string) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const isLandscape = img.width > img.height
+      printViaIframe(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>
+          @page { size: ${isLandscape ? 'A4 landscape' : 'A4 portrait'}; margin: 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: white; }
+          img { width: 100%; height: 100%; object-fit: contain; }
+        </style></head><body><img src="${imageUrl}" alt="${title}" /></body></html>`)
+    }
+    img.src = imageUrl
+  }
+
+  // 전체 콘텐츠 출력
+  const printAll = (c: Curriculum) => {
+    const teachingHtml = c.teaching_points?.map(p => `
+      <div style="margin-bottom:16px;padding:12px;background:#f9fafb;border-radius:8px;">
+        <h4 style="font-size:14px;font-weight:600;margin-bottom:6px;">${p.title}</h4>
+        ${p.description ? `<p style="font-size:13px;color:#4b5563;">${p.description}</p>` : ''}
+        ${p.image_url ? `<img src="${p.image_url}" style="max-width:200px;border-radius:8px;margin-top:8px;" />` : ''}
+      </div>`).join('') || ''
+
+    const variationHtml = c.variation_guide?.references?.map(r => `
+      <div style="text-align:center;">
+        ${r.image_url ? `<img src="${r.image_url}" style="width:140px;height:140px;object-fit:cover;border-radius:8px;margin-bottom:6px;" />` : ''}
+        <p style="font-size:12px;">${r.title}</p>
+      </div>`).join('') || ''
+
+    printViaIframe(`<!DOCTYPE html><html><head><title>${c.title}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        * { margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
+        body { padding:20px;color:#1f2937; }
+        .header { text-align:center;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #0d9488; }
+        .badge { display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-right:8px; }
+        .badge-pink { background:#fce7f3;color:#be185d; }
+        .badge-blue { background:#dbeafe;color:#1d4ed8; }
+        .title { font-size:22px;font-weight:700;margin-top:12px; }
+        .section { margin-bottom:22px; }
+        .section-title { font-size:15px;font-weight:700;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #e5e7eb; }
+        .content { font-size:13px;line-height:1.6;color:#374151;white-space:pre-line; }
+        .images { display:flex;gap:10px;flex-wrap:wrap; }
+        .images img { width:140px;height:140px;object-fit:cover;border-radius:8px; }
+        .var-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:12px; }
+      </style></head><body>
+      <div class="header">
+        <span class="badge ${c.target_group === '유치부' ? 'badge-pink' : 'badge-blue'}">${c.target_group}</span>
+        <span class="badge" style="background:#f3f4f6;color:#374151;">${c.year}년 ${c.month}월 ${c.week || 1}주차</span>
+        <h1 class="title">${c.title}</h1>
+      </div>
+      ${c.main_images?.length > 0 ? `<div class="section"><h3 class="section-title">🖼️ 완성작품</h3><div class="images">${c.main_images.map(u => `<img src="${u}" />`).join('')}</div></div>` : ''}
+      ${c.main_materials ? `<div class="section"><h3 class="section-title">🎨 주재료</h3><p class="content">${c.main_materials}</p></div>` : ''}
+      ${c.parent_message_template ? `<div class="section"><h3 class="section-title">💬 학부모 안내멘트</h3><div style="background:#f9fafb;padding:12px;border-radius:8px;"><p class="content">${c.parent_message_template}</p></div></div>` : ''}
+      ${c.teaching_points?.length > 0 ? `<div class="section"><h3 class="section-title">📌 지도 포인트</h3>${teachingHtml}</div>` : ''}
+      ${c.cautions ? `<div class="section"><h3 class="section-title">⚠️ 유의사항</h3><p class="content">${c.cautions}</p></div>` : ''}
+      ${c.material_sources ? `<div class="section"><h3 class="section-title">🛒 재료 구입처</h3><p class="content">${c.material_sources}</p></div>` : ''}
+      ${c.variation_guide?.description || c.variation_guide?.references?.length ? `<div class="section"><h3 class="section-title">💡 Variation Guide</h3>${c.variation_guide.description ? `<p class="content" style="margin-bottom:12px;">${c.variation_guide.description}</p>` : ''}${c.variation_guide.references?.length ? `<div class="var-grid">${variationHtml}</div>` : ''}</div>` : ''}
+      </body></html>`)
   }
 
   if (loading) {
@@ -167,7 +274,16 @@ export default function CurriculumPage() {
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50 no-print">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-600">
+            <button 
+              onClick={() => {
+                if (selectedCurriculum) {
+                  setSelectedCurriculum(null)
+                } else {
+                  router.back()
+                }
+              }} 
+              className="text-gray-600"
+            >
               ← 뒤로
             </button>
             <h1 className="text-lg font-bold text-gray-800">월별 운영 콘텐츠</h1>
@@ -186,33 +302,6 @@ export default function CurriculumPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* 안내 문구 */}
-        <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 mb-6 no-print">
-          <p className="text-teal-800 text-sm">
-            📌 <strong>이 기준으로 리포트/메시지가 생성됩니다.</strong>
-          </p>
-        </div>
-
-        {/* 대상 그룹 탭 */}
-        <div className="flex gap-2 mb-6 no-print">
-          {['유치부', '초등부'].map((group) => (
-            <button
-              key={group}
-              onClick={() => {
-                setSelectedGroup(group as '유치부' | '초등부')
-                setSelectedCurriculum(null)
-              }}
-              className={`flex-1 py-3 rounded-xl font-medium transition ${
-                selectedGroup === group
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-white text-gray-600 border border-gray-200'
-              }`}
-            >
-              {group}
-            </button>
-          ))}
-        </div>
-
         {/* 콘텐츠 목록 또는 상세 */}
         {!selectedCurriculum ? (
           <div className="space-y-6">
@@ -259,8 +348,17 @@ export default function CurriculumPage() {
 
                         {/* 정보 */}
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-800 truncate">{item.title}</p>
-                          <p className="text-sm text-gray-500 mt-1 truncate">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium text-gray-800 truncate">{item.title}</p>
+                            <span className={`px-2 py-0.5 text-xs font-bold rounded-lg shrink-0 ${
+                              item.target_group === '유치부' 
+                                ? 'bg-pink-100 text-pink-600' 
+                                : 'bg-blue-100 text-blue-600'
+                            }`}>
+                              {item.target_group === '유치부' ? '유치' : '초등'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-500 truncate">
                             {item.main_materials || '재료 정보 없음'}
                           </p>
                         </div>
@@ -276,43 +374,59 @@ export default function CurriculumPage() {
           </div>
         ) : (
           /* 상세 보기 */
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="space-y-6">
             {/* 상세 헤더 */}
-            <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 no-print">
-              <button 
-                onClick={() => setSelectedCurriculum(null)}
-                className="text-teal-600 text-sm mb-2"
-              >
-                ← 목록으로
-              </button>
-              <h2 className="text-xl font-bold text-gray-800">{selectedCurriculum.title}</h2>
-              <p className="text-sm text-teal-600 mt-1">
-                {selectedCurriculum.year}년 {selectedCurriculum.month}월
-                {selectedCurriculum.week && ` ${selectedCurriculum.week}주차`} · {selectedCurriculum.target_group}
-              </p>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-lg ${
+                      selectedCurriculum.target_group === '유치부' 
+                        ? 'bg-pink-100 text-pink-700' 
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {selectedCurriculum.target_group}
+                    </span>
+                    <span className="text-sm text-gray-500">
+                      {selectedCurriculum.year}년 {selectedCurriculum.month}월
+                      {selectedCurriculum.week && ` ${selectedCurriculum.week}주차`}
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-800">{selectedCurriculum.title}</h2>
+                </div>
+                <button
+                  onClick={() => printAll(selectedCurriculum)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition shrink-0 shadow-sm"
+                >
+                  🖨️ 전체 출력
+                </button>
+              </div>
             </div>
 
             {/* 완성작품 */}
             {selectedCurriculum.main_images && selectedCurriculum.main_images.length > 0 && (
-              <div className="p-6 border-b border-gray-100">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    🖼️ 완성작품
-                  </h3>
+                  <h3 className="font-bold text-gray-800">🖼️ 완성작품</h3>
                   <button
-                    onClick={handlePrint}
-                    className="text-sm text-teal-600 hover:underline no-print"
+                    onClick={() => {
+                      selectedCurriculum.main_images.forEach((url, i) => {
+                        printImage(url, `${selectedCurriculum.title}_완성작품_${i + 1}`)
+                      })
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
                   >
-                    🖨️ 인쇄
+                    🖨️ 작품 출력
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {selectedCurriculum.main_images.map((url, index) => (
                     <img 
                       key={index}
                       src={url} 
                       alt={`완성작품 ${index + 1}`}
-                      className="w-full rounded-xl object-cover"
+                      className="w-full aspect-square object-cover rounded-xl cursor-pointer hover:opacity-90"
+                      onClick={() => setSelectedImage(url)}
                     />
                   ))}
                 </div>
@@ -321,30 +435,48 @@ export default function CurriculumPage() {
 
             {/* 재료 */}
             {selectedCurriculum.main_materials && (
-              <div className="p-6 border-b border-gray-100">
-                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  🎨 재료
-                </h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="font-bold text-gray-800 mb-3">🎨 주재료</h3>
                 <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.main_materials}</p>
+              </div>
+            )}
+
+            {/* 학부모 안내멘트 */}
+            {selectedCurriculum.parent_message_template && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="font-bold text-gray-800 mb-3">💬 학부모 안내멘트</h3>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-gray-600 whitespace-pre-line">{selectedCurriculum.parent_message_template}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedCurriculum.parent_message_template || '')
+                    alert('클립보드에 복사되었습니다!')
+                  }}
+                  className="mt-3 px-4 py-2 bg-teal-50 text-teal-600 rounded-lg text-sm font-medium"
+                >
+                  📋 복사하기
+                </button>
               </div>
             )}
 
             {/* 지도 포인트 */}
             {selectedCurriculum.teaching_points && selectedCurriculum.teaching_points.length > 0 && (
-              <div className="p-6 border-b border-gray-100">
-                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  📝 지도 포인트
-                </h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="font-bold text-gray-800 mb-4">📌 지도 포인트</h3>
                 <div className="space-y-4">
                   {selectedCurriculum.teaching_points.map((point, index) => (
                     <div key={index} className="bg-gray-50 rounded-xl p-4">
-                      <p className="font-medium text-gray-800 mb-2">{point.title}</p>
-                      <p className="text-gray-600 text-sm whitespace-pre-wrap">{point.description}</p>
+                      <h4 className="font-medium text-gray-800 mb-2">{point.title}</h4>
+                      {point.description && (
+                        <p className="text-gray-600 text-sm whitespace-pre-wrap">{point.description}</p>
+                      )}
                       {point.image_url && (
                         <img 
                           src={point.image_url} 
                           alt={point.title}
-                          className="mt-3 rounded-lg max-w-full"
+                          className="mt-3 rounded-lg max-w-xs cursor-pointer"
+                          onClick={() => setSelectedImage(point.image_url!)}
                         />
                       )}
                     </div>
@@ -355,36 +487,18 @@ export default function CurriculumPage() {
 
             {/* 유의사항 */}
             {selectedCurriculum.cautions && (
-              <div className="p-6 border-b border-gray-100">
-                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  ⚠️ 유의사항
-                </h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="font-bold text-gray-800 mb-3">⚠️ 유의사항</h3>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
                   <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.cautions}</p>
                 </div>
               </div>
             )}
 
-            {/* 학부모 안내멘트 */}
-            {selectedCurriculum.parent_message_template && (
-              <div className="p-6 border-b border-gray-100">
-                <div className="bg-blue-50 rounded-2xl p-4">
-                  <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
-                    💬 학부모 안내멘트
-                  </h3>
-                  <p className="text-blue-700 whitespace-pre-wrap text-sm leading-relaxed">
-                    {selectedCurriculum.parent_message_template}
-                  </p>
-                </div>
-              </div>
-            )}
-
             {/* 재료 구입처 */}
             {selectedCurriculum.material_sources && (
-              <div className="p-6 border-b border-gray-100">
-                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  🛒 재료 구입처
-                </h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="font-bold text-gray-800 mb-3">🛒 재료 구입처</h3>
                 <p className="text-gray-700 whitespace-pre-wrap">{selectedCurriculum.material_sources}</p>
               </div>
             )}
@@ -393,10 +507,24 @@ export default function CurriculumPage() {
             {selectedCurriculum.variation_guide && 
              (selectedCurriculum.variation_guide.description || 
               (selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.length > 0)) && (
-              <div className="p-6">
-                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  💡 Variation Guide
-                </h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-800">💡 Variation Guide</h3>
+                  {selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.some(r => r.image_url) && (
+                    <button
+                      onClick={() => {
+                        selectedCurriculum.variation_guide!.references!.forEach((r, i) => {
+                          if (r.image_url) {
+                            printImage(r.image_url, `${selectedCurriculum.title}_Variation_${i + 1}`)
+                          }
+                        })
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
+                    >
+                      🖨️ 가이드 출력
+                    </button>
+                  )}
+                </div>
                 {selectedCurriculum.variation_guide.description && (
                   <p className="text-gray-700 mb-4 whitespace-pre-wrap">
                     {selectedCurriculum.variation_guide.description}
@@ -411,7 +539,8 @@ export default function CurriculumPage() {
                           <img 
                             src={ref.image_url} 
                             alt={ref.title}
-                            className="w-full rounded-lg mb-2"
+                            className="w-full aspect-square object-cover rounded-lg mb-2 cursor-pointer"
+                            onClick={() => setSelectedImage(ref.image_url)}
                           />
                         )}
                         <p className="text-sm text-gray-600">{ref.title}</p>
@@ -424,6 +553,26 @@ export default function CurriculumPage() {
           </div>
         )}
       </div>
+
+      {/* 이미지 확대 모달 */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <img
+            src={selectedImage}
+            alt="확대 이미지"
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+          <button
+            className="absolute top-4 right-4 text-white text-2xl"
+            onClick={() => setSelectedImage(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }
