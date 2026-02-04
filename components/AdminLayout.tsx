@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
@@ -14,6 +14,7 @@ const adminMenuItems = [
   { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/curriculum' },
   { id: 'users', label: '사용자 관리', icon: '👥', path: '/users' },
   { id: 'branches', label: '지점 관리', icon: '🏢', path: '/branches' },
+  { id: 'settings', label: '설정', icon: '⚙️', path: '/settings' },
 ]
 
 // 지점(teacher, manager, director) 전용 메뉴

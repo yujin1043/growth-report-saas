@@ -2,7 +2,6 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useUserContext } from '@/lib/UserContext'
 
 interface Student {
   id: string
@@ -15,10 +14,6 @@ interface Student {
   class_name: string | null
   branch_name: string | null
   last_report_at: string | null
-  sketchbook_id: string | null
-  sketchbook_number: number | null
-  sketchbook_status: string | null
-  sketchbook_work_count: number
 }
 
 interface ClassOption {
@@ -27,17 +22,20 @@ interface ClassOption {
   branch_id: string
 }
 
+interface BranchOption {
+  id: string
+  name: string
+}
+
 function StudentsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterParam = searchParams.get('filter')
   const branchParam = searchParams.get('branch')
 
-  // Context에서 사용자 정보 가져오기
-  const { userId, userRole: contextUserRole, branchId: contextBranchId, isLoading: userLoading } = useUserContext()
-
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<ClassOption[]>([])
+  const [branches, setBranches] = useState<BranchOption[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -45,6 +43,7 @@ function StudentsPage() {
   const [branchFilter, setBranchFilter] = useState<string | null>(branchParam)
   const [userRole, setUserRole] = useState('')
   const [userBranchId, setUserBranchId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
@@ -55,40 +54,43 @@ function StudentsPage() {
   const [bulkStatus, setBulkStatus] = useState('active')
   const [bulkClassId, setBulkClassId] = useState('')
   const [processing, setProcessing] = useState(false)
-  
-  const [showRegisterDropdown, setShowRegisterDropdown] = useState(false)
 
   const currentYear = new Date().getFullYear()
 
   useEffect(() => {
-    if (!userLoading && contextUserRole) {
-      // Context에서 가져온 사용자 정보 설정
-      setUserRole(contextUserRole)
-      setUserBranchId(contextBranchId)
-      loadData()
-    }
-  }, [userLoading, contextUserRole])
+    loadData()
+  }, [])
 
   useEffect(() => {
     setSpecialFilter(filterParam)
   }, [filterParam])
-  
+
   useEffect(() => {
     setBranchFilter(branchParam)
   }, [branchParam])
 
   async function loadData() {
-    let branchId = contextBranchId
+    const { data: { user } } = await supabase.auth.getUser()
+    let branchId: string | null = null
 
-    // Context에서 이미 사용자 정보를 가져왔으므로 user_profiles 조회 생략
-    const [teacherClassesResult, studentsResult, classesResult] = await Promise.all([
-      userId ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', userId) : Promise.resolve({ data: null }),
-      supabase.from('students_with_details').select('*').order('name'),
-      supabase.from('classes').select('id, name, branch_id')
+    const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
+      user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
+      user ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id) : Promise.resolve({ data: null }),
+      supabase.from('students').select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at').order('name'),
+      supabase.from('classes').select('id, name, branch_id'),
+      supabase.from('branches').select('id, name').order('name')
     ])
 
-    if (teacherClassesResult.data) {
-      setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
+    if (user) {
+      setUserId(user.id)
+      if (profileResult.data) {
+        setUserRole(profileResult.data.role)
+        setUserBranchId(profileResult.data.branch_id)
+        branchId = profileResult.data.branch_id
+      }
+      if (teacherClassesResult.data) {
+        setTeacherClassIds(teacherClassesResult.data.map((tc: any) => tc.class_id))
+      }
     }
 
     if (studentsResult.error) {
@@ -98,10 +100,17 @@ function StudentsPage() {
     }
 
     setClasses(classesResult.data || [])
-    
-    // View에서 이미 JOIN된 데이터 사용
+    setBranches(branchesResult.data || [])
+    const classMap = new Map(classesResult.data?.map((c: any) => [c.id, c.name]) || [])
+    const branchMap = new Map(branchesResult.data?.map((b: any) => [b.id, b.name]) || [])
+
     if (studentsResult.data) {
-      setStudents(studentsResult.data)
+      const studentsWithDetails = studentsResult.data.map((student: any) => ({
+        ...student,
+        class_name: student.class_id ? classMap.get(student.class_id) || null : null,
+        branch_name: student.branch_id ? branchMap.get(student.branch_id) || null : null
+      }))
+      setStudents(studentsWithDetails)
     }
 
     const now = new Date()
@@ -119,7 +128,7 @@ function StudentsPage() {
     const { data: reportsData } = await reportsQuery
 
     if (reportsData) {
-      setThisMonthReportedIds(new Set(reportsData.map(r => r.student_id)))
+      setThisMonthReportedIds(new Set(reportsData.map((r: any) => r.student_id)))
     }
 
     setLoading(false)
@@ -246,26 +255,62 @@ function StudentsPage() {
     }
   }
 
-  const getSketchbookBadge = (student: Student) => {
-    if (!student.sketchbook_id) {
-      return <span className="text-xs text-gray-400">📒 없음</span>
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'active': return '재원'
+      case 'paused': return '휴원'
+      case 'inactive': return '퇴원'
+      default: return status
     }
-    
-    const count = student.sketchbook_work_count || 0
-    
-    if (count === 0) {
-      return (
-        <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium">
-          📒 #{student.sketchbook_number} 시작
-        </span>
-      )
+  }
+
+  // ===== 엑셀 다운로드 =====
+  function handleExcelDownload() {
+    let targetStudents: Student[] = []
+    let fileName = ''
+
+    if (userRole === 'admin') {
+      if (branchFilter) {
+        const branchName = branches.find(b => b.id === branchFilter)?.name || '지점'
+        targetStudents = filteredStudents
+        fileName = `원생명단_${branchName}_${new Date().toISOString().slice(0, 10)}.csv`
+      } else {
+        targetStudents = filteredStudents
+        fileName = `원생명단_전체_${new Date().toISOString().slice(0, 10)}.csv`
+      }
     } else {
-      return (
-        <span className="px-2 py-1 bg-purple-50 text-purple-600 rounded-lg text-xs font-medium">
-          📒 #{student.sketchbook_number} · {count}작품
-        </span>
-      )
+      targetStudents = filteredStudents
+      const branchName = branches.find(b => b.id === userBranchId)?.name || '지점'
+      fileName = `원생명단_${branchName}_${new Date().toISOString().slice(0, 10)}.csv`
     }
+
+    if (targetStudents.length === 0) {
+      alert('다운로드할 학생이 없습니다.')
+      return
+    }
+
+    const headers = ['지점', '학생ID', '이름', '나이', '반', '상태', '마지막 리포트']
+    const rows = targetStudents.map(s => [
+      s.branch_name || '-',
+      s.student_code || '-',
+      s.name,
+      `${getAge(s.birth_year)}세`,
+      s.class_name || '-',
+      getStatusText(s.status),
+      s.last_report_at ? new Date(s.last_report_at).toLocaleDateString('ko-KR') : '-'
+    ])
+
+    const csvContent = '\uFEFF' + [headers, ...rows].map(row =>
+      row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+    ).join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const now = new Date()
@@ -305,7 +350,7 @@ function StudentsPage() {
     if (!branchFilter) return true
     return student.branch_id === branchFilter
   })
-  
+
   const filteredStudents = branchFilteredStudents.filter(student => {
     const matchesSearch = student.name.includes(searchTerm) ||
                           (student.student_code && student.student_code.includes(searchTerm)) ||
@@ -327,11 +372,20 @@ function StudentsPage() {
     } else if (selectedBranchIds.size > 1) {
       return []
     } else if (userRole === 'admin') {
+      if (branchFilter) {
+        return classes.filter(c => c.branch_id === branchFilter)
+      }
       return classes
     } else {
       return classes.filter(c => c.branch_id === userBranchId)
     }
   })()
+
+  const getFilterTitle = () => {
+    if (specialFilter === 'pending') return '이번 달 미작성 학생'
+    if (specialFilter === 'needReport') return '리포트 필요 학생 (2개월 이상 경과)'
+    return '학생 관리'
+  }
 
   if (loading) {
     return (
@@ -346,180 +400,110 @@ function StudentsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* 데스크톱 헤더 */}
-      <div className="hidden md:block bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-4">
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-gray-800">👨‍🎓 학생 관리</h1>
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
+              ← 대시보드
+            </button>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">{getFilterTitle()}</h1>
             <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  if (bulkMode) {
-                    cancelBulkMode()
-                  } else {
-                    setBulkMode(true)
-                  }
-                }}
-                className={`px-4 py-2 rounded-xl font-medium transition ${
-                  bulkMode 
-                    ? 'bg-amber-500 text-white' 
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                }`}
-              >
-                {bulkMode ? '✕ 대량 수정 종료' : '✏️ 대량 수정'}
-              </button>
-              <div className="relative">
-                <button
-                  onClick={() => setShowRegisterDropdown(!showRegisterDropdown)}
-                  className="px-4 py-2 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition flex items-center gap-1"
-                >
-                  ➕ 학생 등록
-                  <span className="text-xs">▼</span>
+              {!bulkMode ? (
+                <>
+                  <button onClick={handleExcelDownload} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
+                    📥 엑셀
+                  </button>
+                  <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
+                    대량수정
+                  </button>
+                  <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
+                    + 새 학생
+                  </button>
+                </>
+              ) : (
+                <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-600 transition">
+                  취소
                 </button>
-                {showRegisterDropdown && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowRegisterDropdown(false)}
-                    />
-                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 min-w-[160px]">
-                      <button
-                        onClick={() => {
-                          router.push('/students/new')
-                          setShowRegisterDropdown(false)
-                        }}
-                        className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 rounded-t-xl flex items-center gap-2"
-                      >
-                        👤 개별 등록
-                      </button>
-                      <button
-                        onClick={() => {
-                          router.push('/students/import')
-                          setShowRegisterDropdown(false)
-                        }}
-                        className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 rounded-b-xl border-t border-gray-100 flex items-center gap-2"
-                      >
-                        📥 대량 등록
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-4 md:py-6">
-        {/* 모바일 버튼 */}
-        <div className="md:hidden flex gap-2 mb-4">
-          <button
-            onClick={() => {
-              if (bulkMode) {
-                cancelBulkMode()
-              } else {
-                setBulkMode(true)
-              }
-            }}
-            className={`flex-1 py-3 rounded-xl font-medium ${
-              bulkMode 
-                ? 'bg-amber-500 text-white' 
-                : 'bg-amber-100 text-amber-700'
-            }`}
-          >
-            {bulkMode ? '✕ 수정 종료' : '✏️ 대량 수정'}
-          </button>
-          <button
-            onClick={() => router.push('/students/new')}
-            className="flex-1 py-3 bg-teal-500 text-white rounded-xl font-medium"
-          >
-            ➕ 학생 등록
-          </button>
-        </div>
-
+      <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
         {specialFilter && (
           <div className={`rounded-2xl p-4 mb-4 flex items-center justify-between ${
             specialFilter === 'pending' ? 'bg-rose-50 border border-rose-200' : 'bg-orange-50 border border-orange-200'
           }`}>
             <div>
-              <p className={`font-medium ${specialFilter === 'pending' ? 'text-rose-800' : 'text-orange-800'}`}>
-                {specialFilter === 'pending' ? '📝 이번 달 미작성 학생' : '⚠️ 리포트 필요 학생'}
+              <p className={`font-medium ${specialFilter === 'pending' ? 'text-rose-700' : 'text-orange-700'}`}>
+                {specialFilter === 'pending' ? '📋 이번 달 미작성 학생' : '⚠️ 리포트 필요 학생'}
               </p>
-              <p className={`text-sm ${specialFilter === 'pending' ? 'text-rose-600' : 'text-orange-600'}`}>
-                {specialFilter === 'pending' 
-                  ? '이번 달에 아직 리포트가 작성되지 않은 학생입니다.' 
-                  : '마지막 리포트 후 2개월 이상 경과했거나 리포트가 없는 학생입니다.'}
+              <p className={`text-sm mt-0.5 ${specialFilter === 'pending' ? 'text-rose-500' : 'text-orange-500'}`}>
+                {specialFilter === 'pending' ? '이번 달 리포트를 아직 작성하지 않은 학생입니다.' : '최근 2개월간 리포트가 없는 학생입니다.'}
               </p>
             </div>
-            <button 
-              onClick={clearSpecialFilter}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
-                specialFilter === 'pending' 
-                  ? 'bg-rose-200 text-rose-700 hover:bg-rose-300' 
-                  : 'bg-orange-200 text-orange-700 hover:bg-orange-300'
-              }`}
-            >
-              필터 해제
+            <button onClick={clearSpecialFilter} className="text-sm text-gray-500 hover:text-gray-700">
+              ✕ 필터 해제
             </button>
           </div>
         )}
 
-        {bulkMode && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <p className="font-medium text-amber-800">대량 수정 모드</p>
-                <p className="text-sm text-amber-600">{selectedIds.size}명 선택됨</p>
+        {/* 대량수정 액션바 */}
+        {bulkMode && selectedIds.size > 0 && (
+          <div className="bg-teal-50 border border-teal-200 rounded-2xl p-4 mb-4">
+            <p className="text-sm font-medium text-teal-800 mb-3">
+              {selectedIds.size}명 선택됨
+            </p>
+            {!bulkAction ? (
+              <div className="flex gap-2">
+                <button onClick={() => setBulkAction('status')} className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 transition">
+                  상태 변경
+                </button>
+                <button onClick={() => setBulkAction('class')} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition">
+                  반 이동
+                </button>
               </div>
-              {!bulkAction ? (
-                <div className="flex gap-2">
-                  <button onClick={() => setBulkAction('status')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
-                    상태 변경
-                  </button>
-                  <button onClick={() => setBulkAction('class')} disabled={selectedIds.size === 0} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
-                    반 이동
-                  </button>
-                </div>
-              ) : bulkAction === 'status' ? (
-                <div className="flex items-center gap-2">
-                  <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="px-3 py-2 border border-amber-300 rounded-xl text-sm bg-white">
-                    <option value="active">재원</option>
-                    <option value="paused">휴원</option>
-                    <option value="inactive">퇴원</option>
-                  </select>
-                  <button onClick={handleBulkStatusChange} disabled={processing} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition disabled:opacity-50">
-                    {processing ? '처리 중...' : '적용'}
-                  </button>
-                  <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
-                    뒤로
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {selectedBranchIds.size > 1 ? (
-                    <p className="text-sm text-red-500">같은 지점 학생만 반 이동 가능합니다</p>
-                  ) : (
-                    <>
-                      <select value={bulkClassId} onChange={(e) => setBulkClassId(e.target.value)} className="px-3 py-2 border border-purple-300 rounded-xl text-sm bg-white">
-                        <option value="">반 선택</option>
-                        {availableClasses.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                      <button onClick={handleBulkClassChange} disabled={processing || !bulkClassId} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
-                        {processing ? '처리 중...' : '이동'}
-                      </button>
-                    </>
-                  )}
-                  <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
-                    뒤로
-                  </button>
-                </div>
-              )}
-            </div>
+            ) : bulkAction === 'status' ? (
+              <div className="flex items-center gap-2">
+                <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="px-3 py-2 border border-teal-300 rounded-xl text-sm bg-white">
+                  <option value="active">재원</option>
+                  <option value="paused">휴원</option>
+                  <option value="inactive">퇴원</option>
+                </select>
+                <button onClick={handleBulkStatusChange} disabled={processing} className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50">
+                  {processing ? '처리 중...' : '적용'}
+                </button>
+                <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
+                  뒤로
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                {selectedBranchIds.size > 1 ? (
+                  <p className="text-sm text-red-500">같은 지점 학생만 반 이동 가능합니다</p>
+                ) : (
+                  <>
+                    <select value={bulkClassId} onChange={(e) => setBulkClassId(e.target.value)} className="px-3 py-2 border border-purple-300 rounded-xl text-sm bg-white">
+                      <option value="">반 선택</option>
+                      {availableClasses.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button onClick={handleBulkClassChange} disabled={processing || !bulkClassId} className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600 transition disabled:opacity-50">
+                      {processing ? '처리 중...' : '이동'}
+                    </button>
+                  </>
+                )}
+                <button onClick={() => setBulkAction(null)} className="px-3 py-2 bg-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-300 transition">
+                  뒤로
+                </button>
+              </div>
+            )}
           </div>
         )}
 
+        {/* 필터 영역 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
           <div className="flex flex-col gap-4">
             <div className="relative">
@@ -531,7 +515,8 @@ function StudentsPage() {
                 className="w-full pl-4 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 상태 필터 */}
               {[
                 { key: 'all', label: '전체' },
                 { key: 'active', label: '재원' },
@@ -551,6 +536,26 @@ function StudentsPage() {
                 </button>
               ))}
 
+              {/* 구분선 */}
+              {(userRole === 'admin' || (userRole === 'teacher' && teacherClassIds.length > 0)) && (
+                <div className="w-px h-6 bg-gray-200 mx-1"></div>
+              )}
+
+              {/* 본사 계정: 지점 드롭다운 */}
+              {userRole === 'admin' && (
+                <select
+                  value={branchFilter || ''}
+                  onChange={(e) => setBranchFilter(e.target.value || null)}
+                  className="px-4 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 border-0 focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                >
+                  <option value="">전체 지점</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              )}
+
+              {/* 강사 계정: 내 담당반만 토글 */}
               {userRole === 'teacher' && teacherClassIds.length > 0 && (
                 <button
                   onClick={() => setShowMyClassOnly(!showMyClassOnly)}
@@ -570,6 +575,9 @@ function StudentsPage() {
         <div className="mb-4 flex items-center justify-between">
           <p className="text-sm text-gray-500">
             총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
+            {branchFilter && userRole === 'admin' && (
+              <span className="ml-2 text-teal-500">({branches.find(b => b.id === branchFilter)?.name})</span>
+            )}
             {showMyClassOnly && <span className="ml-2 text-purple-500">(내 담당반)</span>}
             {specialFilter && <span className="ml-2 text-orange-500">({specialFilter === 'pending' ? '미작성' : '리포트 필요'})</span>}
           </p>
@@ -580,7 +588,7 @@ function StudentsPage() {
           )}
         </div>
 
-        {/* 데스크톱 테이블 */}
+        {/* PC 테이블 */}
         <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full">
             <thead className="border-b border-gray-200">
@@ -595,7 +603,6 @@ function StudentsPage() {
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">이름</th>
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">나이</th>
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">반</th>
-                <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">스케치북</th>
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900 bg-gray-50">상태</th>
                 <th className="px-5 py-3 text-center text-sm font-semibold text-gray-900 bg-gray-50">관리</th>
               </tr>
@@ -617,7 +624,6 @@ function StudentsPage() {
                   <td className="px-5 py-4 text-sm text-gray-600">{student.name}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{getAge(student.birth_year)}세</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{student.class_name || '-'}</td>
-                  <td className="px-5 py-4">{getSketchbookBadge(student)}</td>
                   <td className="px-5 py-4">{getStatusBadge(student.status)}</td>
                   <td className="px-5 py-4 text-center">
                     {!bulkMode && (
@@ -654,9 +660,6 @@ function StudentsPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <span className="font-medium text-gray-900">{student.name}</span>
                       {getStatusBadge(student.status)}
-                    </div>
-                    <div className="flex items-center gap-2 mb-1">
-                      {getSketchbookBadge(student)}
                     </div>
                     <div className="text-xs text-gray-500 space-y-1">
                       <p>{student.branch_name || '-'} / {student.class_name || '-'}</p>

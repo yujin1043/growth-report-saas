@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -279,7 +279,7 @@ export default function CurriculumPage() {
                 if (selectedCurriculum) {
                   setSelectedCurriculum(null)
                 } else {
-                  router.back()
+                  router.push('/dashboard')
                 }
               }} 
               className="text-gray-600"

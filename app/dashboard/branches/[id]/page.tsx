@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { useUserContext } from '@/lib/UserContext'
 
 interface BranchInfo {
   id: string
@@ -37,6 +38,7 @@ export default function BranchDetailPage() {
   const router = useRouter()
   const params = useParams()
   const branchId = params.id as string
+  const { userRole, isLoading: userLoading } = useUserContext()
 
   const [loading, setLoading] = useState(true)
   const [branch, setBranch] = useState<BranchInfo | null>(null)
@@ -48,11 +50,18 @@ export default function BranchDetailPage() {
   const [pausedCount, setPausedCount] = useState(0)
   const [inactiveCount, setInactiveCount] = useState(0)
 
+  // admin 권한 체크
   useEffect(() => {
-    if (branchId) {
+    if (!userLoading && userRole !== 'admin') {
+      router.push('/dashboard')
+    }
+  }, [userLoading, userRole])
+
+  useEffect(() => {
+    if (branchId && !userLoading && userRole === 'admin') {
       loadData()
     }
-  }, [branchId])
+  }, [branchId, userLoading, userRole])
 
   async function loadData() {
     const now = new Date()

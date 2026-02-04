@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -14,13 +14,18 @@ interface Student {
 interface ClassOption {
   id: string
   name: string
+  branch_id: string
+}
+
+interface Branch {
+  id: string
+  name: string
 }
 
 interface CurriculumTopic {
   id: string
   year: number
   month: number
-  week: number
   target_group: string
   title: string
   main_materials: string | null
@@ -39,8 +44,11 @@ export default function DailyMessagePage() {
   
   const [userId, setUserId] = useState<string>('')
   const [userBranchId, setUserBranchId] = useState<string>('')
+  const [userRole, setUserRole] = useState<string>('')
   
   const [classes, setClasses] = useState<ClassOption[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('')
   const [students, setStudents] = useState<Student[]>([])
   const [curriculumTopics, setCurriculumTopics] = useState<CurriculumTopic[]>([])
   
@@ -64,7 +72,6 @@ export default function DailyMessagePage() {
   const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
 
   const [showCurriculumModal, setShowCurriculumModal] = useState(false)
-  const [showStudentModal, setShowStudentModal] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -97,6 +104,8 @@ export default function DailyMessagePage() {
       setUserBranchId(profile.branch_id)
     }
 
+    setUserRole(profile?.role || '')
+
     const { data: teacherClasses } = await supabase
       .from('teacher_classes')
       .select('class_id')
@@ -104,27 +113,39 @@ export default function DailyMessagePage() {
 
     const classIds = teacherClasses?.map(tc => tc.class_id) || []
 
-    let classQuery = supabase.from('classes').select('id, name, branch_id, branches(name)')
+    // 지점 목록 가져오기
+    const { data: branchesData } = await supabase
+      .from('branches')
+      .select('id, name')
+      .order('name')
+    
+    if (branchesData) setBranches(branchesData)
+
+    // 반 목록 가져오기 (branch_id 포함)
+    let classQuery = supabase.from('classes').select('id, name, branch_id')
     
     if (profile?.role === 'teacher' && classIds.length > 0) {
       classQuery = classQuery.in('id', classIds)
-    } else if (profile?.branch_id) {
+    } else if (profile?.role !== 'admin' && profile?.branch_id) {
       classQuery = classQuery.eq('branch_id', profile.branch_id)
     }
 
     const { data: classesData } = await classQuery.order('name')
     if (classesData) {
-      const formattedClasses = classesData.map((c: any) => ({
-        id: c.id,
-        name: c.branches?.name ? `${c.branches.name} - ${c.name}` : c.name
-      }))
-      setClasses(formattedClasses)
-      if (formattedClasses.length > 0) {
-        setSelectedClassId(formattedClasses[0].id)
+      setClasses(classesData)
+      // admin: 첫 지점 & 해당 반 자동 선택
+      if (profile?.role === 'admin' && branchesData && branchesData.length > 0) {
+        setSelectedBranchId(branchesData[0].id)
+        const firstBranchClasses = classesData.filter((c: any) => c.branch_id === branchesData[0].id)
+        if (firstBranchClasses.length > 0) {
+          setSelectedClassId(firstBranchClasses[0].id)
+        }
+      } else if (classesData.length > 0) {
+        setSelectedClassId(classesData[0].id)
       }
     }
 
-    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
+    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
 
     if (profile?.role !== 'admin') {
       const now = new Date()
@@ -250,82 +271,6 @@ export default function DailyMessagePage() {
         ? prev.filter(m => m !== material)
         : [...prev, material]
     )
-  }
-
-  // 스케치북 진도 추가 함수
-  const addToSketchbook = async (studentId: string, curriculumId: string | null, customTitle: string | null, customDescription: string | null) => {
-    try {
-      // 1. 학생의 활성 스케치북 확인
-      let { data: activeSketchbook } = await supabase
-        .from('sketchbooks')
-        .select('id, book_number')
-        .eq('student_id', studentId)
-        .eq('status', 'active')
-        .single()
-
-      // 2. 활성 스케치북이 없으면 새로 생성
-      if (!activeSketchbook) {
-        // 이전 스케치북 번호 확인
-        const { data: lastSketchbook } = await supabase
-          .from('sketchbooks')
-          .select('book_number')
-          .eq('student_id', studentId)
-          .order('book_number', { ascending: false })
-          .limit(1)
-          .single()
-
-        const newBookNumber = (lastSketchbook?.book_number || 0) + 1
-
-        const { data: newSketchbook, error: createError } = await supabase
-          .from('sketchbooks')
-          .insert({
-            student_id: studentId,
-            book_number: newBookNumber,
-            started_at: new Date().toISOString().split('T')[0],
-            status: 'active'
-          })
-          .select()
-          .single()
-
-        if (createError) {
-          console.error('스케치북 생성 오류:', createError)
-          return
-        }
-
-        activeSketchbook = newSketchbook
-      }
-
-      // 3. 진도 추가
-      if (!activeSketchbook) {
-        console.error('스케치북을 찾을 수 없습니다')
-        return
-      }
-
-      const workData: any = {
-        sketchbook_id: activeSketchbook.id,
-        work_date: new Date().toISOString().split('T')[0],
-        is_custom: !curriculumId
-      }
-
-      if (curriculumId) {
-        workData.curriculum_id = curriculumId
-      } else {
-        workData.custom_title = customTitle
-        workData.custom_description = customDescription
-      }
-
-      const { error: workError } = await supabase
-        .from('sketchbook_works')
-        .insert(workData)
-
-      if (workError) {
-        console.error('진도 추가 오류:', workError)
-      } else {
-        console.log('스케치북 진도 추가 완료')
-      }
-    } catch (error) {
-      console.error('스케치북 처리 오류:', error)
-    }
   }
 
   const uploadImages = async (messageId: string): Promise<string[]> => {
@@ -492,10 +437,6 @@ export default function DailyMessagePage() {
         .eq('id', student.id)
         .single()
 
-      // 만료 시간: 48시간 후
-      const expiresAt = new Date()
-      expiresAt.setHours(expiresAt.getHours() + 48)
-
       const { data: newMessage, error: insertError } = await supabase
         .from('daily_messages')
         .insert({
@@ -505,8 +446,7 @@ export default function DailyMessagePage() {
           message: message,
           lesson_type: lessonType,
           topic_title: topicTitle,
-          progress_status: progressStatus,
-          expires_at: expiresAt.toISOString()
+          progress_status: progressStatus
         })
         .select()
         .single()
@@ -532,17 +472,6 @@ export default function DailyMessagePage() {
         }
       }
 
-      // 완료 상태일 때 스케치북 진도에 자동 추가
-      if (progressStatus === 'completed') {
-        if (lessonType === 'curriculum' && selectedTopicId) {
-          // 커리큘럼 수업: curriculum_id만 저장
-          await addToSketchbook(student.id, selectedTopicId, null, null)
-        } else if (lessonType === 'free' && freeSubject) {
-          // 자율 수업: 제목 + 메시지 저장
-          await addToSketchbook(student.id, null, freeSubject, message)
-        }
-      }
-
       router.push(`/daily-message/result/${student.id}`)
     } catch (error) {
       console.error('Error:', error)
@@ -552,23 +481,29 @@ export default function DailyMessagePage() {
     setGenerating(false)
   }
 
-  // 월별 -> 주차별 -> 유치부/초등부 그루핑
-  const groupedTopics = curriculumTopics.reduce((acc, topic) => {
-    const monthKey = `${topic.year}-${topic.month}`
-    if (!acc[monthKey]) {
-      acc[monthKey] = { year: topic.year, month: topic.month, weeks: {} as {[week: number]: { kindergarten: CurriculumTopic[], elementary: CurriculumTopic[] }} }
-    }
-    const week = topic.week || 1
-    if (!acc[monthKey].weeks[week]) {
-      acc[monthKey].weeks[week] = { kindergarten: [], elementary: [] }
-    }
-    if (topic.age_group === 'kindergarten') {
-      acc[monthKey].weeks[week].kindergarten.push(topic)
+  const handleBranchChange = (branchId: string) => {
+    setSelectedBranchId(branchId)
+    setSelectedStudentId('')
+    const branchClasses = classes.filter(c => c.branch_id === branchId)
+    if (branchClasses.length > 0) {
+      setSelectedClassId(branchClasses[0].id)
     } else {
-      acc[monthKey].weeks[week].elementary.push(topic)
+      setSelectedClassId('')
     }
+  }
+
+  const filteredClasses = selectedBranchId
+    ? classes.filter(c => c.branch_id === selectedBranchId)
+    : classes
+
+  const groupedTopics = curriculumTopics.reduce((acc, topic) => {
+    const key = `${topic.year}-${topic.month}`
+    if (!acc[key]) {
+      acc[key] = { year: topic.year, month: topic.month, topics: [] }
+    }
+    acc[key].topics.push(topic)
     return acc
-  }, {} as {[key: string]: { year: number, month: number, weeks: {[week: number]: { kindergarten: CurriculumTopic[], elementary: CurriculumTopic[] }} }})
+  }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
 
   const selectedStudent = students.find(s => s.id === selectedStudentId)
   const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
@@ -589,7 +524,10 @@ export default function DailyMessagePage() {
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-gray-800 mb-1">💬 일일 메시지</h1>
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">
+              ← 뒤로
+            </button>
+            <h1 className="text-lg font-bold text-gray-800">일일 수업 메시지</h1>
             <button 
               onClick={() => router.push('/daily-message/results')}
               className="relative"
@@ -619,31 +557,55 @@ export default function DailyMessagePage() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
-          <select
-            value={selectedClassId}
-            onChange={(e) => setSelectedClassId(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-          >
-            {classes.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <div className="flex flex-col gap-3">
+            {(userRole === 'admin' || branches.length > 1) && (
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🏢</span>
+                <select
+                  value={selectedBranchId}
+                  onChange={(e) => handleBranchChange(e.target.value)}
+                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm text-gray-700 appearance-none cursor-pointer hover:bg-gray-100 transition"
+                >
+                  {branches.map(branch => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">▼</span>
+              </div>
+            )}
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">📚</span>
+              <select
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
+                className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm text-gray-700 appearance-none cursor-pointer hover:bg-gray-100 transition"
+              >
+                {filteredClasses.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">▼</span>
+            </div>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
-          <button
-            onClick={() => setShowStudentModal(true)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
+          <select
+            value={selectedStudentId}
+            onChange={(e) => setSelectedStudentId(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           >
-            <span className={selectedStudentId ? 'text-gray-800' : 'text-gray-400'}>
-              {selectedStudent 
-                ? `${selectedStudent.name} (${new Date().getFullYear() - selectedStudent.birth_year + 1}세)`
-                : '학생을 선택해주세요'
-              }
-            </span>
-            <span className="text-gray-400">▼</span>
-          </button>
+            <option value="">학생을 선택해주세요</option>
+            {students.map(student => {
+              const age = new Date().getFullYear() - student.birth_year + 1
+              return (
+                <option key={student.id} value={student.id}>
+                  {student.name} ({age}세)
+                </option>
+              )
+            })}
+          </select>
           {students.length === 0 && (
             <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
           )}
@@ -836,127 +798,40 @@ export default function DailyMessagePage() {
                   <div className="sticky top-0 bg-gray-50 px-4 py-2 border-b border-gray-100">
                     <span className="font-semibold text-gray-700">{group.year}년 {group.month}월</span>
                   </div>
-                  
-                  {Object.entries(group.weeks).sort(([a], [b]) => Number(a) - Number(b)).map(([week, ageGroups]) => (
-                    <div key={week} className="border-b border-gray-100">
-                      <div className="bg-gray-100/50 px-4 py-2">
-                        <span className="font-medium text-gray-600 text-sm">{week}주차</span>
-                      </div>
-                      
-                      {/* 유치부 */}
-                      {ageGroups.kindergarten.length > 0 && (
-                        <div className="px-4 py-2">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="px-2 py-0.5 bg-pink-100 text-pink-600 text-xs font-bold rounded-lg">유치부</span>
-                          </div>
-                          <div className="space-y-1">
-                            {ageGroups.kindergarten.map(topic => (
-                              <button
-                                key={topic.id}
-                                onClick={() => {
-                                  setSelectedTopicId(topic.id)
-                                  setShowCurriculumModal(false)
-                                }}
-                                className={`w-full px-3 py-2.5 text-left rounded-xl transition flex items-center justify-between ${
-                                  selectedTopicId === topic.id ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50 hover:bg-teal-50'
-                                }`}
-                              >
-                                <span className="font-medium text-gray-800">{topic.title}</span>
-                                {selectedTopicId === topic.id && (
-                                  <span className="text-teal-500">✓</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
+                  <div className="divide-y divide-gray-100">
+                    {group.topics.map(topic => (
+                      <button
+                        key={topic.id}
+                        onClick={() => {
+                          setSelectedTopicId(topic.id)
+                          setShowCurriculumModal(false)
+                        }}
+                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
+                          selectedTopicId === topic.id ? 'bg-teal-50' : ''
+                        }`}
+                      >
+                        <div className="flex-1 flex items-center gap-3">
+                          <p className="font-medium text-gray-800">{topic.title}</p>
+                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                            topic.age_group === 'kindergarten' 
+                              ? 'bg-pink-100 text-pink-600' 
+                              : 'bg-blue-100 text-blue-600'
+                          }`}>
+                            {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                          </span>
                         </div>
-                      )}
-                      
-                      {/* 초등부 */}
-                      {ageGroups.elementary.length > 0 && (
-                        <div className="px-4 py-2">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-xs font-bold rounded-lg">초등부</span>
-                          </div>
-                          <div className="space-y-1">
-                            {ageGroups.elementary.map(topic => (
-                              <button
-                                key={topic.id}
-                                onClick={() => {
-                                  setSelectedTopicId(topic.id)
-                                  setShowCurriculumModal(false)
-                                }}
-                                className={`w-full px-3 py-2.5 text-left rounded-xl transition flex items-center justify-between ${
-                                  selectedTopicId === topic.id ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50 hover:bg-teal-50'
-                                }`}
-                              >
-                                <span className="font-medium text-gray-800">{topic.title}</span>
-                                {selectedTopicId === topic.id && (
-                                  <span className="text-teal-500">✓</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        {selectedTopicId === topic.id && (
+                          <span className="text-teal-500 text-xl">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))}
               
               {curriculumTopics.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <p>등록된 커리큘럼이 없습니다</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 학생 선택 모달 */}
-      {showStudentModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
-          <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-t-3xl md:rounded-2xl overflow-hidden">
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between z-10">
-              <h3 className="font-bold text-gray-800 text-lg">학생 선택</h3>
-              <button 
-                onClick={() => setShowStudentModal(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="overflow-y-auto max-h-[calc(80vh-60px)]">
-              {students.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <p>해당 반에 학생이 없습니다</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {students.map(student => {
-                    const age = new Date().getFullYear() - student.birth_year + 1
-                    return (
-                      <button
-                        key={student.id}
-                        onClick={() => {
-                          setSelectedStudentId(student.id)
-                          setShowStudentModal(false)
-                        }}
-                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
-                          selectedStudentId === student.id ? 'bg-teal-50' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium text-gray-800">{student.name}</span>
-                          <span className="text-gray-400 text-sm">({age}세)</span>
-                        </div>
-                        {selectedStudentId === student.id && (
-                          <span className="text-teal-500 text-xl">✓</span>
-                        )}
-                      </button>
-                    )
-                  })}
                 </div>
               )}
             </div>

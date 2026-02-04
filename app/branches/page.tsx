@@ -1,74 +1,220 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useUserContext } from '@/lib/UserContext'
 
-interface Branch {
+interface BranchWithStats {
   id: string
   name: string
   address: string | null
   phone: string | null
   class_count: number
-}
-
-interface ClassItem {
-  id: string
-  name: string
-  code: string
-  branch_id: string
+  active_count: number
+  message_rate: number
+  report_rate: number
+  status: 'green' | 'yellow' | 'red'
+  status_reason: string
 }
 
 export default function BranchesPage() {
   const router = useRouter()
-  const { userRole, isLoading: userLoading } = useUserContext()
-  
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [branches, setBranches] = useState<BranchWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  
-  // 지점 모달
-  const [showBranchModal, setShowBranchModal] = useState(false)
-  const [editingBranch, setEditingBranch] = useState<Branch | null>(null)
-  const [branchForm, setBranchForm] = useState({ 
-    name: '', 
-    address: '', 
-    phone: '',
-    class_count: 1
-  })
+  const [sortBy, setSortBy] = useState<'status' | 'messageRate' | 'reportRate' | 'name'>('status')
 
+  // 새 지점 추가 모달
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [addForm, setAddForm] = useState({ name: '', address: '', phone: '', class_count: 1 })
   const [saving, setSaving] = useState(false)
 
-  // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    if (!userLoading && userRole !== 'admin') {
-      router.push('/dashboard')
-    }
-  }, [userLoading, userRole, router])
+    loadData()
+  }, [])
 
-  useEffect(() => {
-    if (!userLoading && userRole === 'admin') {
-      loadData()
+  function getStatusFromRates(messageRate: number, reportRate: number): { status: 'green' | 'yellow' | 'red'; reason: string } {
+    if (messageRate < 50 || reportRate < 50) {
+      const reasons: string[] = []
+      if (messageRate < 50) reasons.push('메시지')
+      if (reportRate < 50) reasons.push('리포트')
+      return { status: 'red', reason: `${reasons.join('·')} 부족` }
     }
-  }, [userLoading, userRole])
+    if (messageRate < 80 || reportRate < 80) {
+      if (messageRate < 80 && reportRate < 80) return { status: 'yellow', reason: '메시지·리포트 저조' }
+      if (messageRate < 80) return { status: 'yellow', reason: '메시지 작성률 저조' }
+      return { status: 'yellow', reason: '리포트 작성률 저조' }
+    }
+    return { status: 'green', reason: '정상' }
+  }
 
   async function loadData() {
-    // 모든 데이터를 병렬로 가져오기 (성능 최적화)
-    const [branchResult, classResult] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/login'); return }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      router.push('/dashboard')
+      return
+    }
+
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+
+    // 이번 달의 수업일 수 계산 (월~금)
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let businessDaysSoFar = 0
+    for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
+      const day = new Date(now.getFullYear(), now.getMonth(), d).getDay()
+      if (day !== 0 && day !== 6) businessDaysSoFar++
+    }
+
+    const [branchesResult, studentsResult, messagesResult, reportsResult] = await Promise.all([
       supabase.from('branches').select('*').order('name'),
-      supabase.from('classes').select('*').order('name')
+      supabase.from('students').select('id, branch_id, status, last_report_at'),
+      supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
+      supabase.from('reports').select('id, branch_id, created_at')
     ])
 
-    if (branchResult.data) setBranches(branchResult.data)
-    if (classResult.data) setClasses(classResult.data)
+    const branchesData = branchesResult.data || []
+    const students = studentsResult.data || []
+    const messages = messagesResult.data || []
+    const reports = reportsResult.data || []
 
+    const stats: BranchWithStats[] = branchesData.map(branch => {
+      const activeStudents = students.filter(s => s.branch_id === branch.id && s.status === 'active')
+      const activeCount = activeStudents.length
+
+      // 메시지 작성률: 이번 달 작성일 수 / 수업일 수
+      const branchMessageDates = new Set(
+        messages
+          .filter(m => m.branch_id === branch.id)
+          .map(m => new Date(m.created_at).toDateString())
+      )
+      const messageRate = businessDaysSoFar > 0
+        ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100)
+        : 0
+
+      // 리포트 작성률: 최근 2개월 내 리포트가 있는 학생 비율
+      const studentsWithReport = activeStudents.filter(s => {
+        if (!s.last_report_at) return false
+        return new Date(s.last_report_at) >= twoMonthsAgo
+      }).length
+      const reportRate = activeCount > 0
+        ? Math.round((studentsWithReport / activeCount) * 100)
+        : 0
+
+      const statusInfo = getStatusFromRates(messageRate, reportRate)
+
+      return {
+        ...branch,
+        active_count: activeCount,
+        message_rate: messageRate,
+        report_rate: reportRate,
+        status: statusInfo.status,
+        status_reason: statusInfo.reason
+      }
+    })
+
+    setBranches(stats)
     setLoading(false)
   }
 
-  // admin 아니면 로딩 표시 (리다이렉트 전)
-  if (userLoading || userRole !== 'admin') {
+  async function handleAddBranch() {
+    if (!addForm.name.trim()) {
+      alert('지점명을 입력해주세요.')
+      return
+    }
+    setSaving(true)
+
+    try {
+      const { data: newBranch, error } = await supabase
+        .from('branches')
+        .insert({
+          name: addForm.name,
+          address: addForm.address || null,
+          phone: addForm.phone || null,
+          class_count: addForm.class_count
+        })
+        .select()
+        .single()
+
+      if (error) {
+        alert('지점 추가 실패: ' + error.message)
+        setSaving(false)
+        return
+      }
+
+      // 반 자동 생성
+      const classInserts = Array.from({ length: addForm.class_count }, (_, i) => {
+        const className = `${String(i + 1).padStart(2, '0')}반`
+        const classCode = `${addForm.name}_${className}`.replace(/\s/g, '')
+        return { name: className, code: classCode, branch_id: newBranch.id }
+      })
+
+      await supabase.from('classes').insert(classInserts)
+
+      alert('지점이 추가되었습니다!')
+      setShowAddModal(false)
+      setAddForm({ name: '', address: '', phone: '', class_count: 1 })
+      loadData()
+    } catch (error) {
+      alert('오류가 발생했습니다.')
+    }
+    setSaving(false)
+  }
+
+  const filteredBranches = branches.filter(branch =>
+    branch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (branch.address && branch.address.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
+
+  const sortedBranches = [...filteredBranches].sort((a, b) => {
+    if (sortBy === 'status') {
+      const order = { red: 0, yellow: 1, green: 2 }
+      return order[a.status] - order[b.status]
+    }
+    if (sortBy === 'messageRate') return a.message_rate - b.message_rate
+    if (sortBy === 'reportRate') return a.report_rate - b.report_rate
+    return a.name.localeCompare(b.name)
+  })
+
+  const greenCount = branches.filter(b => b.status === 'green').length
+  const yellowCount = branches.filter(b => b.status === 'yellow').length
+  const redCount = branches.filter(b => b.status === 'red').length
+  const totalStudents = branches.reduce((sum, b) => sum + b.active_count, 0)
+
+  const getRateColor = (rate: number) => {
+    if (rate >= 80) return 'text-emerald-600'
+    if (rate >= 50) return 'text-amber-600'
+    return 'text-red-600'
+  }
+
+  const getStatusDotColor = (status: string) => {
+    switch (status) {
+      case 'green': return 'bg-emerald-500'
+      case 'yellow': return 'bg-amber-500'
+      case 'red': return 'bg-red-500'
+      default: return 'bg-gray-400'
+    }
+  }
+
+  const getStatusBadgeStyle = (status: string) => {
+    switch (status) {
+      case 'green': return 'bg-emerald-50 border-emerald-200 text-emerald-700'
+      case 'yellow': return 'bg-amber-50 border-amber-200 text-amber-700'
+      case 'red': return 'bg-red-50 border-red-200 text-red-700'
+      default: return 'bg-gray-50 border-gray-200 text-gray-700'
+    }
+  }
+
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -79,310 +225,164 @@ export default function BranchesPage() {
     )
   }
 
-  function openBranchModal(branch?: Branch) {
-    if (branch) {
-      setEditingBranch(branch)
-      setBranchForm({
-        name: branch.name,
-        address: branch.address || '',
-        phone: branch.phone || '',
-        class_count: branch.class_count || 1
-      })
-    } else {
-      setEditingBranch(null)
-      setBranchForm({ name: '', address: '', phone: '', class_count: 1 })
-    }
-    setShowBranchModal(true)
-  }
-
-  async function handleSaveBranch() {
-    if (!branchForm.name.trim()) {
-      alert('지점명을 입력해주세요.')
-      return
-    }
-
-    setSaving(true)
-
-    try {
-      if (editingBranch) {
-        const { error } = await supabase
-          .from('branches')
-          .update({
-            name: branchForm.name,
-            address: branchForm.address || null,
-            phone: branchForm.phone || null,
-            class_count: branchForm.class_count
-          })
-          .eq('id', editingBranch.id)
-
-        if (error) {
-          alert('수정 실패: ' + error.message)
-          setSaving(false)
-          return
-        }
-
-        await adjustClasses(editingBranch.id, branchForm.name, branchForm.class_count)
-        alert('지점이 수정되었습니다!')
-      } else {
-        const { data: newBranch, error } = await supabase
-          .from('branches')
-          .insert({
-            name: branchForm.name,
-            address: branchForm.address || null,
-            phone: branchForm.phone || null,
-            class_count: branchForm.class_count
-          })
-          .select()
-          .single()
-
-        if (error) {
-          alert('등록 실패: ' + error.message)
-          setSaving(false)
-          return
-        }
-
-        await createClassesForBranch(newBranch.id, branchForm.name, branchForm.class_count)
-        alert('지점이 등록되었습니다!')
-      }
-
-      setShowBranchModal(false)
-      loadData()
-    } catch (error) {
-      console.error(error)
-      alert('저장에 실패했습니다.')
-    }
-
-    setSaving(false)
-  }
-
-  async function createClassesForBranch(branchId: string, branchName: string, count: number) {
-    const classInserts = Array.from({ length: count }, (_, i) => {
-      const className = `${String(i + 1).padStart(2, '0')}반`
-      const classCode = `${branchName}_${className}`.replace(/\s/g, '')
-      return { name: className, code: classCode, branch_id: branchId }
-    })
-
-    await supabase.from('classes').insert(classInserts)
-  }
-
-  async function adjustClasses(branchId: string, branchName: string, newCount: number) {
-    const branchClasses = classes.filter(c => c.branch_id === branchId)
-    const currentCount = branchClasses.length
-
-    if (newCount > currentCount) {
-      const classInserts = Array.from({ length: newCount - currentCount }, (_, i) => {
-        const num = currentCount + i + 1
-        const className = `${String(num).padStart(2, '0')}반`
-        const classCode = `${branchName}_${className}`.replace(/\s/g, '')
-        return { name: className, code: classCode, branch_id: branchId }
-      })
-
-      await supabase.from('classes').insert(classInserts)
-    } else if (newCount < currentCount) {
-      const classesToDelete = branchClasses
-        .sort((a, b) => b.name.localeCompare(a.name))
-        .slice(0, currentCount - newCount)
-
-      const studentCountChecks = await Promise.all(
-        classesToDelete.map(cls =>
-          supabase.from('students')
-            .select('*', { count: 'exact', head: true }).eq('class_id', cls.id)
-            .then(result => ({ cls, count: result.count || 0 }))
-        )
-      )
-
-      const classWithStudents = studentCountChecks.find(item => item.count > 0)
-      if (classWithStudents) {
-        alert(`"${classWithStudents.cls.name}"에 학생이 있어 삭제할 수 없습니다.\n먼저 학생을 다른 반으로 이동해주세요.`)
-        return
-      }
-
-      await Promise.all(
-        classesToDelete.map(cls => supabase.from('classes').delete().eq('id', cls.id))
-      )
-    }
-  }
-
-  async function handleDeleteBranch(id: string, name: string) {
-    const { count: studentCount } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('branch_id', id)
-
-    if (studentCount && studentCount > 0) {
-      alert(`"${name}" 지점에 ${studentCount}명의 학생이 있습니다.\n먼저 학생을 다른 지점으로 이동해주세요.`)
-      return
-    }
-    
-    if (!confirm(`"${name}" 지점을 삭제하시겠습니까?\n해당 지점의 모든 반도 함께 삭제됩니다.`)) return
-
-    await supabase.from('classes').delete().eq('branch_id', id)
-
-    const { error } = await supabase
-      .from('branches')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      alert('삭제 실패: ' + error.message)
-    } else {
-      loadData()
-    }
-  }
-
-  // 검색 필터링
-  const filteredBranches = branches.filter(branch => 
-    branch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (branch.address && branch.address.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-gray-500">로딩 중...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* 헤더 - 다른 페이지와 통일 */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-4xl mx-auto px-4 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <button 
-              onClick={() => router.push('/dashboard')} 
-              className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base"
-            >
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition">
               ← 대시보드
             </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">지점/반 관리</h1>
-            <div className="w-16 md:w-20"></div>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">지점 관리</h1>
+            <div className="w-16"></div>
           </div>
         </div>
       </header>
+      <div className="max-w-5xl mx-auto px-4 py-6">
 
-      <div className="max-w-4xl mx-auto px-4 py-4 md:py-6">
-        {/* 검색 및 추가 - 통일된 스타일 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1 relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-              <input
-                type="text"
-                placeholder="지점명 또는 주소로 검색"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 text-sm md:text-base"
-              />
+        {/* 요약 카드 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
+            <p className="text-slate-500 text-xs md:text-sm font-medium mb-1">전체 지점</p>
+            <p className="text-2xl md:text-3xl font-bold text-slate-800">{branches.length}<span className="text-sm font-normal text-slate-400 ml-0.5">개</span></p>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
+            <p className="text-slate-500 text-xs md:text-sm font-medium mb-1">총 원생</p>
+            <p className="text-2xl md:text-3xl font-bold text-slate-800">{totalStudents}<span className="text-sm font-normal text-slate-400 ml-0.5">명</span></p>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
+            <p className="text-slate-500 text-xs md:text-sm font-medium mb-2">상태 요약</p>
+            <div className="flex items-center justify-center gap-3">
+              <span className="flex items-center gap-1.5 text-sm font-medium"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>{greenCount}</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>{yellowCount}</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>{redCount}</span>
             </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center flex items-center justify-center">
             <button
-              onClick={() => openBranchModal()}
-              className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-5 py-3 rounded-xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 whitespace-nowrap text-sm md:text-base"
+              onClick={() => setShowAddModal(true)}
+              className="text-teal-600 font-semibold text-sm md:text-base hover:text-teal-700 transition"
             >
-              + 새 지점
+              + 새 지점 추가
             </button>
           </div>
         </div>
 
-        {/* 지점 수 표시 */}
-        <div className="mb-4 text-sm text-gray-600 px-1">
-          {searchTerm ? (
-            <>검색 결과: <span className="font-bold text-teal-600">{filteredBranches.length}</span>개 지점</>
-          ) : (
-            <>총 <span className="font-bold text-teal-600">{branches.length}</span>개 지점</>
-          )}
+        {/* 상태 판정 기준 */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 mb-5">
+          <p className="text-sm font-bold text-slate-600 mb-3">📐 상태 판정 기준</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex items-start gap-2">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 mt-0.5 shrink-0"></span>
+              <div>
+                <p className="text-sm font-medium text-slate-700">정상</p>
+                <p className="text-xs md:text-sm text-slate-400">메시지 ≥80% AND 리포트 ≥80%</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-3 h-3 rounded-full bg-amber-500 mt-0.5 shrink-0"></span>
+              <div>
+                <p className="text-sm font-medium text-slate-700">유의</p>
+                <p className="text-xs md:text-sm text-slate-400">메시지 또는 리포트 50~79%</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-3 h-3 rounded-full bg-red-500 mt-0.5 shrink-0"></span>
+              <div>
+                <p className="text-sm font-medium text-slate-700">관리 필요</p>
+                <p className="text-xs md:text-sm text-slate-400">메시지 또는 리포트 50% 미만</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* 지점 목록 - 통일된 카드 스타일 */}
-        <div className="space-y-4">
-          {filteredBranches.map(branch => {
-            const branchClasses = classes.filter(c => c.branch_id === branch.id)
-            return (
-              <div 
-                key={branch.id} 
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 hover:shadow-md transition"
+        {/* 검색 & 정렬 */}
+        <div className="flex flex-col md:flex-row gap-3 mb-4">
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="🔍 지점명 검색"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm md:text-base focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            />
+          </div>
+          <div className="flex gap-2">
+            {[
+              { key: 'status' as const, label: '상태순' },
+              { key: 'messageRate' as const, label: '메시지율순' },
+              { key: 'reportRate' as const, label: '리포트율순' },
+              { key: 'name' as const, label: '이름순' },
+            ].map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => setSortBy(opt.key)}
+                className={`px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+                  sortBy === opt.key
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+                }`}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-purple-500/30">
-                        {branch.name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-800 text-base md:text-lg">{branch.name}</p>
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                          {branchClasses.length}개 반
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {(branch.address || branch.phone) && (
-                      <div className="ml-13 space-y-1 mt-3">
-                        {branch.address && (
-                          <p className="text-sm text-gray-500 flex items-center gap-2">
-                            <span>📍</span> {branch.address}
-                          </p>
-                        )}
-                        {branch.phone && (
-                          <p className="text-sm text-gray-500 flex items-center gap-2">
-                            <span>📞</span> {branch.phone}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* 반 목록 */}
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {branchClasses
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map(cls => (
-                          <span 
-                            key={cls.id} 
-                            className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium"
-                          >
-                            {cls.name}
-                          </span>
-                        ))
-                      }
-                    </div>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 지점 카드 - 수치만 */}
+        <div className="space-y-3">
+          {sortedBranches.map(branch => (
+            <div
+              key={branch.id}
+              onClick={() => router.push(`/branches/${branch.id}`)}
+              className="bg-white rounded-2xl border border-slate-200 hover:shadow-md hover:border-teal-200 cursor-pointer transition-all duration-200 p-4 md:p-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 md:gap-6">
+                  <div className="flex items-center gap-2.5 min-w-28 md:min-w-40">
+                    <span className={`w-3 h-3 rounded-full ${getStatusDotColor(branch.status)}`}></span>
+                    <h3 className="font-bold text-slate-800 text-base md:text-lg">{branch.name}</h3>
                   </div>
-                  
-                  {/* 액션 버튼 */}
-                  <div className="flex gap-2 ml-4">
-                    <button
-                      onClick={() => openBranchModal(branch)}
-                      className="px-4 py-2 bg-teal-50 text-teal-600 rounded-xl text-sm font-medium hover:bg-teal-100 transition"
-                    >
-                      수정
-                    </button>
-                    <button
-                      onClick={() => handleDeleteBranch(branch.id, branch.name)}
-                      className="px-4 py-2 bg-red-50 text-red-500 rounded-xl text-sm font-medium hover:bg-red-100 transition"
-                    >
-                      삭제
-                    </button>
+
+                  <div className="flex items-center gap-5 md:gap-6">
+                    <div className="text-center min-w-14 md:min-w-20">
+                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">원생</p>
+                      <p className="font-bold text-slate-800 text-base md:text-lg">{branch.active_count}명</p>
+                    </div>
+                    <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
+                    <div className="text-center min-w-16 md:min-w-24">
+                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">메시지 작성률</p>
+                      <p className={`font-bold text-base md:text-lg ${getRateColor(branch.message_rate)}`}>{branch.message_rate}%</p>
+                    </div>
+                    <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
+                    <div className="text-center min-w-16 md:min-w-24">
+                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">리포트 작성률</p>
+                      <p className={`font-bold text-base md:text-lg ${getRateColor(branch.report_rate)}`}>{branch.report_rate}%</p>
+                    </div>
                   </div>
                 </div>
+
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm px-3 py-1 rounded-full border hidden md:inline-block ${getStatusBadgeStyle(branch.status)}`}>
+                    {branch.status_reason}
+                  </span>
+                  <span className="text-slate-300 text-xl">›</span>
+                </div>
               </div>
-            )
-          })}
-          
-          {/* 빈 상태 */}
-          {filteredBranches.length === 0 && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
+            </div>
+          ))}
+
+          {sortedBranches.length === 0 && (
+            <div className="text-center py-16 text-slate-500">
               {searchTerm ? (
                 <>
-                  <p className="text-4xl mb-3">🔍</p>
-                  <p className="font-medium">"{searchTerm}" 검색 결과가 없습니다</p>
+                  <p className="text-4xl mb-2">🔍</p>
+                  <p>"{searchTerm}" 검색 결과가 없습니다</p>
                 </>
               ) : (
                 <>
-                  <p className="text-4xl mb-3">🏢</p>
-                  <p className="font-medium">등록된 지점이 없습니다</p>
+                  <p className="text-4xl mb-2">🏢</p>
+                  <p>등록된 지점이 없습니다</p>
                   <p className="text-sm mt-1">새 지점을 추가해보세요!</p>
                 </>
               )}
@@ -391,90 +391,75 @@ export default function BranchesPage() {
         </div>
       </div>
 
-      {/* 지점 추가/수정 모달 - 통일된 스타일 */}
-      {showBranchModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            {/* 모달 헤더 */}
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-800">
-                🏢 {editingBranch ? '지점 수정' : '새 지점 추가'}
-              </h3>
-              <button 
-                onClick={() => setShowBranchModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-xl"
-              >
-                ✕
-              </button>
-            </div>
-            
-            {/* 모달 내용 */}
-            <div className="p-5 space-y-4">
+      {/* 새 지점 추가 모달 */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-bold mb-4">🏢 새 지점 추가</h3>
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
                   지점명 <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={branchForm.name}
-                  onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
                   placeholder="강남점"
-                  className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">주소</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">주소</label>
                 <input
                   type="text"
-                  value={branchForm.address}
-                  onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
+                  value={addForm.address}
+                  onChange={(e) => setAddForm({ ...addForm, address: e.target.value })}
                   placeholder="서울시 강남구..."
-                  className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">전화번호</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">전화번호</label>
                 <input
                   type="tel"
-                  value={branchForm.phone}
-                  onChange={(e) => setBranchForm({ ...branchForm, phone: e.target.value })}
+                  value={addForm.phone}
+                  onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
                   placeholder="02-1234-5678"
-                  className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
                   반 개수 <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={branchForm.class_count}
-                  onChange={(e) => setBranchForm({ ...branchForm, class_count: parseInt(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
+                  value={addForm.class_count}
+                  onChange={(e) => setAddForm({ ...addForm, class_count: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500"
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
                     <option key={num} value={num}>{num}개 반</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-2">
-                  💡 01반 ~ {String(branchForm.class_count).padStart(2, '0')}반이 자동 생성됩니다.
+                <p className="text-xs text-slate-400 mt-1">
+                  01반 ~ {String(addForm.class_count).padStart(2, '0')}반이 자동 생성됩니다.
                 </p>
               </div>
             </div>
-            
-            {/* 모달 푸터 */}
-            <div className="px-5 py-4 bg-gray-50 flex gap-3">
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowBranchModal(false)}
-                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-300 transition"
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-xl hover:bg-slate-200 font-medium transition"
               >
                 취소
               </button>
               <button
-                onClick={handleSaveBranch}
+                onClick={handleAddBranch}
                 disabled={saving}
-                className="flex-1 bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-3 rounded-xl font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-lg shadow-teal-500/30 disabled:opacity-50"
+                className="flex-1 bg-teal-500 text-white py-2.5 rounded-xl hover:bg-teal-600 disabled:bg-slate-300 font-medium transition"
               >
-                {saving ? '저장 중...' : '저장'}
+                {saving ? '저장 중...' : '추가'}
               </button>
             </div>
           </div>

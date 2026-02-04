@@ -167,24 +167,43 @@ export default function NewStudentPage() {
     setSaving(true)
 
     try {
-      // 학생 코드 생성
+      // 지점 ID 결정 (본사는 선택한 지점, 일반 사용자는 소속 지점)
+      const targetBranchId = userRole === 'admin' ? formData.branch_id : userBranchId
+
+      // 해당 지점의 코드 가져오기
+      const targetBranch = userRole === 'admin' 
+        ? branches.find(b => b.id === formData.branch_id) 
+        : userBranch
+
+      if (!targetBranch?.code) {
+        alert('지점 코드를 찾을 수 없습니다.')
+        setSaving(false)
+        return
+      }
+
+      const branchCode = targetBranch.code // 예: "02"
+
+      // 해당 지점코드로 시작하는 학생 중 마지막 번호 조회
       const { data: lastStudent } = await supabase
         .from('students')
         .select('student_code')
+        .like('student_code', `${branchCode}%`)
         .order('student_code', { ascending: false })
         .limit(1)
         .single()
 
-      let nextNum = 10001
+      let nextNum = 1
       if (lastStudent?.student_code) {
-        nextNum = parseInt(lastStudent.student_code) + 1
+        const lastSeq = parseInt(lastStudent.student_code.substring(branchCode.length))
+        if (!isNaN(lastSeq)) {
+          nextNum = lastSeq + 1
+        }
       }
+
+      const studentCode = `${branchCode}${String(nextNum).padStart(4, '0')}`
 
       // 나이를 출생년도로 변환
       const birthYear = ageToBirthYear(parseInt(formData.age))
-
-      // 지점 ID 결정 (본사는 선택한 지점, 일반 사용자는 소속 지점)
-      const targetBranchId = userRole === 'admin' ? formData.branch_id : userBranchId
 
       const { error } = await supabase
         .from('students')
@@ -196,7 +215,7 @@ export default function NewStudentPage() {
           parent_name: formData.parent_name.trim() || null,
           parent_phone: formData.parent_phone.trim() || null,
           status: formData.status,
-          student_code: String(nextNum).padStart(6, '0'),
+          student_code: studentCode,
           enrolled_at: formData.enrolled_at
         })
 

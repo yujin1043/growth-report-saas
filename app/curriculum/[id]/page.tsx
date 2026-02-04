@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
@@ -42,7 +42,6 @@ export default function CurriculumDetailPage() {
   const router = useRouter()
   const params = useParams()
   const curriculumId = params.id as string
-  const printRef = useRef<HTMLDivElement>(null)
 
   const [loading, setLoading] = useState(true)
   const [curriculum, setCurriculum] = useState<Curriculum | null>(null)
@@ -85,175 +84,6 @@ export default function CurriculumDetailPage() {
 
     setCurriculum(data)
     setLoading(false)
-  }
-
-  // 이미지 출력 (A4 꽉 차게, 가로/세로 자동 감지)
-  const printImage = async (imageUrl: string, title: string) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const isLandscape = img.width > img.height
-      
-      const printWindow = window.open('', '_blank')
-      if (!printWindow) return
-
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            @page {
-              size: ${isLandscape ? 'A4 landscape' : 'A4 portrait'};
-              margin: 0;
-            }
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            body {
-              width: 100vw;
-              height: 100vh;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: white;
-            }
-            img {
-              width: 100%;
-              height: 100%;
-              object-fit: contain;
-            }
-          </style>
-        </head>
-        <body>
-          <img src="${imageUrl}" alt="${title}" />
-        </body>
-        </html>
-      `)
-      printWindow.document.close()
-      printWindow.onload = () => {
-        printWindow.print()
-      }
-    }
-    img.src = imageUrl
-  }
-
-  // 전체 콘텐츠 출력
-  const printAll = () => {
-    if (!curriculum) return
-
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
-
-    const teachingPointsHtml = curriculum.teaching_points?.map((point, idx) => `
-      <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-        <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">${point.title}</h4>
-        ${point.description ? `<p style="font-size: 13px; color: #4b5563; margin-bottom: 10px;">${point.description}</p>` : ''}
-        ${point.image_url ? `<img src="${point.image_url}" style="max-width: 200px; border-radius: 8px;" />` : ''}
-      </div>
-    `).join('') || ''
-
-    const variationHtml = curriculum.variation_guide?.references?.map(ref => `
-      <div style="text-align: center;">
-        ${ref.image_url ? `<img src="${ref.image_url}" style="width: 150px; height: 150px; object-fit: cover; border-radius: 8px; margin-bottom: 8px;" />` : ''}
-        <p style="font-size: 12px;">${ref.title}</p>
-      </div>
-    `).join('') || ''
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${curriculum.title} - 커리큘럼</title>
-        <style>
-          @page { size: A4; margin: 15mm; }
-          * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-          body { padding: 20px; color: #1f2937; }
-          .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #0d9488; }
-          .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 8px; }
-          .badge-pink { background: #fce7f3; color: #be185d; }
-          .badge-blue { background: #dbeafe; color: #1d4ed8; }
-          .title { font-size: 24px; font-weight: 700; margin-top: 12px; }
-          .meta { font-size: 14px; color: #6b7280; margin-top: 8px; }
-          .section { margin-bottom: 25px; }
-          .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb; }
-          .content { font-size: 14px; line-height: 1.6; color: #374151; }
-          .images { display: flex; gap: 10px; flex-wrap: wrap; }
-          .images img { width: 150px; height: 150px; object-fit: cover; border-radius: 8px; }
-          .variation-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <span class="badge ${curriculum.target_group === '유치부' ? 'badge-pink' : 'badge-blue'}">${curriculum.target_group}</span>
-          <span class="badge" style="background: #f3f4f6; color: #374151;">${curriculum.year}년 ${curriculum.month}월 ${curriculum.week}주차</span>
-          <h1 class="title">${curriculum.title}</h1>
-        </div>
-
-        ${curriculum.main_images?.length > 0 ? `
-          <div class="section">
-            <h3 class="section-title">🖼️ 완성작품</h3>
-            <div class="images">
-              ${curriculum.main_images.map(url => `<img src="${url}" />`).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        ${curriculum.main_materials ? `
-          <div class="section">
-            <h3 class="section-title">🎨 주재료</h3>
-            <p class="content">${curriculum.main_materials}</p>
-          </div>
-        ` : ''}
-
-        ${curriculum.parent_message_template ? `
-          <div class="section">
-            <h3 class="section-title">💬 학부모 안내멘트</h3>
-            <div style="background: #f9fafb; padding: 15px; border-radius: 8px;">
-              <p class="content" style="white-space: pre-line;">${curriculum.parent_message_template}</p>
-            </div>
-          </div>
-        ` : ''}
-
-        ${curriculum.teaching_points?.length > 0 ? `
-          <div class="section">
-            <h3 class="section-title">📌 지도 포인트</h3>
-            ${teachingPointsHtml}
-          </div>
-        ` : ''}
-
-        ${curriculum.cautions ? `
-          <div class="section">
-            <h3 class="section-title">⚠️ 유의사항</h3>
-            <p class="content" style="white-space: pre-line;">${curriculum.cautions}</p>
-          </div>
-        ` : ''}
-
-        ${curriculum.material_sources ? `
-          <div class="section">
-            <h3 class="section-title">🛒 재료 구입처</h3>
-            <p class="content" style="white-space: pre-line;">${curriculum.material_sources}</p>
-          </div>
-        ` : ''}
-
-        ${curriculum.variation_guide?.description || curriculum.variation_guide?.references?.length > 0 ? `
-          <div class="section">
-            <h3 class="section-title">💡 Variation Guide</h3>
-            ${curriculum.variation_guide.description ? `<p class="content" style="margin-bottom: 15px; white-space: pre-line;">${curriculum.variation_guide.description}</p>` : ''}
-            ${curriculum.variation_guide.references?.length > 0 ? `
-              <div class="variation-grid">${variationHtml}</div>
-            ` : ''}
-          </div>
-        ` : ''}
-      </body>
-      </html>
-    `)
-    printWindow.document.close()
-    printWindow.onload = () => {
-      printWindow.print()
-    }
   }
 
   if (loading) {
@@ -319,12 +149,6 @@ export default function CurriculumDetailPage() {
                 </div>
                 <h2 className="text-xl font-bold text-gray-800">{curriculum.title}</h2>
               </div>
-              <button
-                onClick={printAll}
-                className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
-              >
-                🖨️ 전체 출력
-              </button>
             </div>
           </div>
 

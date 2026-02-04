@@ -290,11 +290,17 @@ export default function AllResultsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
-      <div className="hidden md:block bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-800">📋 메시지 결과</h1>
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <button onClick={() => router.back()} className="text-gray-600">
+              ← 뒤로
+            </button>
+            <h1 className="text-lg font-bold text-gray-800">📋 메시지 결과</h1>
+            <div className="w-12"></div>
+          </div>
         </div>
-      </div>
+      </header>
 
       <div className="max-w-6xl mx-auto px-4 py-4">
         <div className="flex items-center justify-between mb-4">

@@ -181,9 +181,35 @@ export default function ImportStudentsPage() {
         const ageValue = row['나이'] || row['학년'] || row['age'] || row['출생년도'] || row['birth_year'] || ''
         const parsedAge = parseAge(ageValue)
         
-        const className = row['반'] || row['class'] || ''
+        const rawClassName = String(row['반'] || row['class'] || '').trim()
         const parentName = row['학부모'] || row['parent_name'] || ''
         const parentPhone = row['연락처'] || row['parent_phone'] || ''
+
+        // 반 이름 유연 매칭: '01반', '1반', '1', '01' 등 모두 인식
+        const matchClass = (input: string) => {
+          if (!input) return null
+          // 정확히 일치하면 바로 반환
+          const exact = classes.find(c => c.name === input)
+          if (exact) return exact.name
+
+          // 숫자만 추출 (예: '01반' → '01', '1반' → '1', '01' → '01')
+          const numMatch = input.replace(/[반班\s]/g, '').trim()
+          
+          for (const c of classes) {
+            const classNum = c.name.replace(/[반班\s]/g, '').trim()
+            // 숫자 비교 (앞의 0 제거해서 비교: '01' == '1')
+            if (parseInt(numMatch) === parseInt(classNum) && !isNaN(parseInt(numMatch))) {
+              return c.name
+            }
+            // 문자열 그대로 비교
+            if (numMatch === classNum) {
+              return c.name
+            }
+          }
+          return null
+        }
+
+        const matchedClassName = matchClass(rawClassName)
 
         let isValid = true
         let error = ''
@@ -194,19 +220,19 @@ export default function ImportStudentsPage() {
         } else if (!parsedAge || parsedAge < 4 || parsedAge > 20) {
           isValid = false
           error = '나이 오류 (4~20세)'
-        } else if (!className) {
+        } else if (!rawClassName) {
           isValid = false
           error = '반 없음'
-        } else if (!classes.find(c => c.name === className)) {
+        } else if (!matchedClassName) {
           isValid = false
-          error = '존재하지 않는 반'
+          error = `존재하지 않는 반 (${rawClassName})`
         }
 
         return {
           name,
           age: parsedAge || 0,
           birth_year: parsedAge ? currentYear - parsedAge + 1 : 0,
-          class_name: className,
+          class_name: matchedClassName || rawClassName,
           parent_name: parentName,
           parent_phone: parentPhone,
           status: 'active',
@@ -234,22 +260,41 @@ export default function ImportStudentsPage() {
       // 지점 ID 결정
       const targetBranchId = userRole === 'admin' ? selectedBranchId : userBranchId
 
+      // 해당 지점의 코드 가져오기
+      const targetBranch = userRole === 'admin'
+        ? branches.find(b => b.id === selectedBranchId)
+        : userBranch
+
+      if (!targetBranch?.code) {
+        alert('지점 코드를 찾을 수 없습니다.')
+        setSaving(false)
+        return
+      }
+
+      const branchCode = targetBranch.code
+
+      // 해당 지점코드로 시작하는 학생 중 마지막 번호 조회
       const { data: lastStudent } = await supabase
         .from('students')
         .select('student_code')
+        .like('student_code', `${branchCode}%`)
         .order('student_code', { ascending: false })
         .limit(1)
         .single()
 
-      let nextNum = 10001
+      let nextNum = 1
       if (lastStudent?.student_code) {
-        nextNum = parseInt(lastStudent.student_code) + 1
+        const lastSeq = parseInt(lastStudent.student_code.substring(branchCode.length))
+        if (!isNaN(lastSeq)) {
+          nextNum = lastSeq + 1
+        }
       }
 
       const today = new Date().toISOString().split('T')[0]
 
       for (const student of validStudents) {
         const classObj = classes.find(c => c.name === student.class_name)
+        const studentCode = `${branchCode}${String(nextNum).padStart(4, '0')}`
         
         await supabase.from('students').insert({
           name: student.name,
@@ -259,7 +304,7 @@ export default function ImportStudentsPage() {
           parent_name: student.parent_name || null,
           parent_phone: student.parent_phone || null,
           status: 'active',
-          student_code: String(nextNum).padStart(6, '0'),
+          student_code: studentCode,
           enrolled_at: today
         })
 
@@ -413,7 +458,7 @@ export default function ImportStudentsPage() {
               <ul className="text-sm text-blue-700 space-y-1">
                 <li>• <strong>이름</strong> (필수)</li>
                 <li>• <strong>나이</strong> (필수) - 예: 7, 7세, 유치부7세, 초등1학년, 초1</li>
-                <li>• <strong>반</strong> (필수) - 예: 01반</li>
+                <li>• <strong>반</strong> (필수) - 예: 01반, 1반, 1, 01 모두 인식</li>
                 <li>• 학부모 (선택)</li>
                 <li>• 연락처 (선택)</li>
               </ul>
