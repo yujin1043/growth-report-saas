@@ -113,12 +113,12 @@ export default function DailyMessagePage() {
 
     const classIds = teacherClasses?.map(tc => tc.class_id) || []
 
-    // 지점 목록 가져오기
-    const { data: branchesData } = await supabase
-      .from('branches')
-      .select('id, name')
-      .order('name')
-    
+    // 지점 목록 가져오기 (admin만 전체, 나머지는 자기 지점만)
+    let branchQuery = supabase.from('branches').select('id, name').order('name')
+    if (profile?.role !== 'admin' && profile?.branch_id) {
+      branchQuery = branchQuery.eq('id', profile.branch_id)
+    }
+    const { data: branchesData } = await branchQuery
     if (branchesData) setBranches(branchesData)
 
     // 반 목록 가져오기 (branch_id 포함)
@@ -131,6 +131,7 @@ export default function DailyMessagePage() {
     }
 
     const { data: classesData } = await classQuery.order('name')
+
     if (classesData) {
       setClasses(classesData)
       // admin: 첫 지점 & 해당 반 자동 선택
@@ -555,7 +556,7 @@ export default function DailyMessagePage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
           <div className="flex flex-col gap-3">
-            {(userRole === 'admin' || branches.length > 1) && (
+            {userRole === 'admin' && (
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🏢</span>
                 <select
