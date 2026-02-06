@@ -228,13 +228,9 @@ export default function BranchesPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition">
-              ← 대시보드
-            </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">지점 관리</h1>
-            <div className="w-16"></div>
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-center min-h-[40px]">
+            <h1 className="text-lg font-bold text-gray-800">🏢 지점 관리</h1>
           </div>
         </div>
       </header>

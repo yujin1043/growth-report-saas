@@ -522,13 +522,10 @@ export default function DailyMessagePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">
-              ← 뒤로
-            </button>
-            <h1 className="text-lg font-bold text-gray-800">일일 수업 메시지</h1>
-            <button 
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <div className="relative flex items-center justify-end min-h-[40px]">
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold text-gray-800">💬 일일 메시지</h1>
+            <button
               onClick={() => router.push('/daily-message/results')}
               className="relative"
             >

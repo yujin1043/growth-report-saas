@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -384,7 +384,7 @@ function StudentsPage() {
   const getFilterTitle = () => {
     if (specialFilter === 'pending') return '이번 달 미작성 학생'
     if (specialFilter === 'needReport') return '리포트 필요 학생 (2개월 이상 경과)'
-    return '학생 관리'
+    return '🧑‍🎓 학생 관리'
   }
 
   if (loading) {
@@ -401,12 +401,9 @@ function StudentsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
-              ← 대시보드
-            </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">{getFilterTitle()}</h1>
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="relative flex items-center justify-end min-h-[40px]">
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold text-gray-800">{getFilterTitle()}</h1>
             <div className="flex gap-2">
               {!bulkMode ? (
                 <>

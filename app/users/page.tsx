@@ -1,8 +1,10 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { formatDate } from '@/lib/utils'
+import { RoleBadge, StatusBadge } from '@/components/ui/Badges'
 
 interface User {
   id: string
@@ -105,36 +107,6 @@ export default function UsersPage() {
       return (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99)
     })
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">본사</span>
-      case 'director':
-        return <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs">원장</span>
-      case 'manager':
-        return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">실장</span>
-      case 'teacher':
-        return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">강사</span>
-      default:
-        return <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">{role}</span>
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">활성</span>
-      case 'inactive':
-        return <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">비활성</span>
-      default:
-        return null
-    }
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ko-KR')
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -149,12 +121,9 @@ export default function UsersPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700 transition">
-              ← 대시보드
-            </button>
-            <h1 className="text-base md:text-lg font-bold text-gray-800">사용자 관리</h1>
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="relative flex items-center justify-end min-h-[40px]">
+            <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold text-gray-800">👥 사용자 관리</h1>
             <button
               onClick={() => router.push('/users/new')}
               className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm"
@@ -270,9 +239,9 @@ export default function UsersPage() {
                 >
                   <td className="px-5 py-4 text-sm font-medium text-gray-900">{user.name || '-'}</td>
                   <td className="px-5 py-4 text-sm text-gray-600">{user.email}</td>
-                  <td className="px-5 py-4">{getRoleBadge(user.role)}</td>
+                  <td className="px-5 py-4"><RoleBadge role={user.role} /></td>
                   <td className="px-5 py-4 text-sm text-gray-600">{user.branch_name || '전체 (본사)'}</td>
-                  <td className="px-5 py-4">{getStatusBadge(user.status)}</td>
+                  <td className="px-5 py-4"><StatusBadge status={user.status} /></td>
                   <td className="px-5 py-4 text-sm text-gray-500">{formatDate(user.created_at)}</td>
                 </tr>
               ))}
@@ -298,9 +267,9 @@ export default function UsersPage() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-900">{user.name || '-'}</span>
-                  {getRoleBadge(user.role)}
+                  <RoleBadge role={user.role} />
                 </div>
-                {getStatusBadge(user.status)}
+                <StatusBadge status={user.status} />
               </div>
               <div className="text-xs text-gray-500 space-y-1">
                 <p>{user.email}</p>

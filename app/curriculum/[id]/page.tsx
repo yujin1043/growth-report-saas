@@ -167,15 +167,6 @@ export default function CurriculumDetailPage() {
                       className="w-full aspect-square object-cover rounded-xl cursor-pointer hover:opacity-90"
                       onClick={() => setSelectedImage(url)}
                     />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        printImage(url, `${curriculum.title}_완성작품_${idx + 1}`)
-                      }}
-                      className="absolute bottom-2 right-2 px-2 py-1 bg-white/90 hover:bg-white text-gray-700 rounded-lg text-xs font-medium shadow-sm opacity-0 group-hover:opacity-100 transition"
-                    >
-                      🖨️
-                    </button>
                   </div>
                 ))}
               </div>
@@ -277,15 +268,6 @@ export default function CurriculumDetailPage() {
                               className="w-full aspect-square object-cover rounded-lg mb-2 cursor-pointer"
                               onClick={() => setSelectedImage(ref.image_url)}
                             />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                printImage(ref.image_url, `${curriculum.title}_Variation_${idx + 1}`)
-                              }}
-                              className="absolute top-5 right-5 px-2 py-1 bg-white/90 hover:bg-white text-gray-700 rounded-lg text-xs font-medium shadow-sm opacity-0 group-hover:opacity-100 transition"
-                            >
-                              🖨️
-                            </button>
                           </>
                         )}
                         <p className="text-sm text-gray-700 font-medium">{ref.title}</p>

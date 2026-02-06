@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { RoleBadge } from '@/components/ui/Badges'
 
 interface UserProfile {
   id: string
@@ -184,21 +185,6 @@ export default function UserDetailPage() {
     setSaving(false)
   }
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">본사</span>
-      case 'director':
-        return <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs">원장</span>
-      case 'manager':
-        return <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">실장</span>
-      case 'teacher':
-        return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">강사</span>
-      default:
-        return null
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -241,7 +227,7 @@ export default function UserDetailPage() {
             <div>
               <p className="font-bold text-gray-800">{user.email}</p>
               <div className="flex items-center gap-2 mt-1">
-                {getRoleBadge(form.role)}
+                <RoleBadge role={form.role} />
               </div>
             </div>
           </div>

@@ -10,6 +10,6 @@
 }
 
 export function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const sizeClass = { sm: 'h-5 w-5', md: 'h-8 w-8', lg: 'h-12 w-12' }
+  const sizeClass: Record<string, string> = { sm: 'h-5 w-5', md: 'h-8 w-8', lg: 'h-12 w-12' }
   return <div className={`animate-spin rounded-full border-b-2 border-teal-500 ${sizeClass[size]}`}></div>
 }

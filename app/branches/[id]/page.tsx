@@ -1,8 +1,9 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency as formatCurrencyUtil, getBillingInfo as getBillingInfoUtil, getRateColor as getRateColorUtil } from '@/lib/utils'
 
 interface BranchInfo {
   id: string
