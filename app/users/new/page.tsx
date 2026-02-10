@@ -282,6 +282,7 @@ export default function NewUserPage() {
                 <option value="manager">실장</option>
                 <option value="director">원장</option>
                 <option value="admin">본사</option>
+                <option value="staff">내부직원 (커리큘럼만)</option>
               </select>
             </div>
 
@@ -359,6 +360,7 @@ export default function NewUserPage() {
               <li>• <strong>실장</strong>: 지점 내 모든 학생 관리</li>
               <li>• <strong>원장</strong>: 지점 내 모든 학생 관리 (실장과 동일)</li>
               <li>• <strong>본사</strong>: 전체 지점 및 사용자 관리</li>
+              <li>• <strong>내부직원</strong>: 커리큘럼 관리만 가능</li>
             </ul>
           </div>
 

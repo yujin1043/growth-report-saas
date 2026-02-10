@@ -118,6 +118,11 @@ export default function DashboardPage() {
 
     setUserRole(profile.role)
 
+    if (profile.role === 'staff') {
+      router.push('/admin/curriculum')
+      return
+    }
+
     if (profile.role === 'admin') {
       setUser({ name: profile.name, role: profile.role, branch_id: null, branch_name: null, class_names: [] })
       await loadAdminData()

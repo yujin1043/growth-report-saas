@@ -43,14 +43,14 @@ export default function AdminCurriculumPage() {
 
   // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    if (!userLoading && userRole !== 'admin') {
+    if (!userLoading && userRole !== 'admin' && userRole !== 'staff') {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
     }
   }, [userLoading, userRole, router])
 
   useEffect(() => {
-    if (!userLoading && userRole === 'admin') {
+    if (!userLoading && (userRole === 'admin' || userRole === 'staff')) {
       loadCurriculums()
     }
   }, [userLoading, userRole])
@@ -199,7 +199,7 @@ export default function AdminCurriculumPage() {
   }
 
   // admin 아니면 로딩 표시 (리다이렉트 전)
-  if (userLoading || userRole !== 'admin') {
+  if (userLoading || (userRole !== 'admin' && userRole !== 'staff')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

@@ -17,6 +17,12 @@ const adminMenuItems = [
   { id: 'settings', label: '설정', icon: '⚙️', path: '/settings' },
 ]
 
+// 내부직원(staff) 전용 메뉴
+const staffMenuItems = [
+  { id: 'curriculum', label: '커리큘럼', icon: '📚', path: '/admin/curriculum' },
+  { id: 'settings', label: '설정', icon: '⚙️', path: '/settings' },
+]
+
 // 지점(teacher, manager, director) 전용 메뉴
 const branchMenuItems = [
   { id: 'dashboard', label: '대시보드', icon: '🏠', path: '/dashboard' },
@@ -74,9 +80,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return <>{children}</>
   }
 
-  const menuItems = userRole === 'admin' ? adminMenuItems : branchMenuItems
-  const roleLabel = userRole === 'admin' ? '본사 관리' : branchName || '지점'
+  const menuItems = userRole === 'admin' ? adminMenuItems : userRole === 'staff' ? staffMenuItems : branchMenuItems
+  const roleLabel = userRole === 'admin' ? '본사 관리' : userRole === 'staff' ? '내부직원' : branchName || '지점'
   const roleText = userRole === 'admin' ? '본사 관리자' : 
+                   userRole === 'staff' ? '내부직원' :
                    userRole === 'director' ? '원장' :
                    userRole === 'manager' ? '실장' : '강사'
 
