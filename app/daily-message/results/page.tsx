@@ -245,6 +245,7 @@ export default function AllResultsPage() {
     if (!confirm('삭제하시겠습니까?')) return
     
     try {
+      await supabase.from('daily_message_images').delete().eq('daily_message_id', messageId)
       await supabase.from('daily_messages').delete().eq('id', messageId)
       setResults(prev => prev.filter(r => r.id !== messageId))
     } catch (error) {
@@ -260,6 +261,9 @@ export default function AllResultsPage() {
       const batchSize = 100
       for (let i = 0; i < messageIds.length; i += batchSize) {
         const batch = messageIds.slice(i, i + batchSize)
+        // 이미지 먼저 삭제
+        await supabase.from('daily_message_images').delete().in('daily_message_id', batch)
+        // 그 다음 메시지 삭제
         await supabase.from('daily_messages').delete().in('id', batch)
       }
       setResults([])

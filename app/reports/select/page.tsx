@@ -73,7 +73,14 @@ export default function ReportSelectPage() {
       setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
     }
 
-    setBranches(branchesResult.data || [])
+    // admin만 전체 지점, 나머지는 자기 지점만
+    if (profileResult.data?.role === 'admin') {
+      setBranches(branchesResult.data || [])
+    } else if (profileResult.data?.branch_id) {
+      setBranches((branchesResult.data || []).filter(b => b.id === profileResult.data.branch_id))
+    } else {
+      setBranches(branchesResult.data || [])
+    }
     setClasses(classesResult.data || [])
 
     const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
@@ -103,12 +110,16 @@ export default function ReportSelectPage() {
   }
 
   // 선택된 지점에 따른 반 목록
-  const filteredClasses = selectedBranch === 'all'
-    ? classes
-    : classes.filter(c => {
-        const branch = branches.find(b => b.name === selectedBranch)
-        return branch ? c.branch_id === branch.id : false
-      })
+  const filteredClasses = (() => {
+    // 비-admin: 자기 지점 반만
+    if (userRole !== 'admin' && userBranchId) {
+      return classes.filter(c => c.branch_id === userBranchId)
+    }
+    // admin: 지점 선택에 따라
+    if (selectedBranch === 'all') return classes
+    const branch = branches.find(b => b.name === selectedBranch)
+    return branch ? classes.filter(c => c.branch_id === branch.id) : classes
+  })()
 
   // 리포트 필요 학생 수
   const needReportCount = students.filter(s => {
@@ -225,7 +236,8 @@ export default function ReportSelectPage() {
             </div>
 
             {/* 지점 + 반 드롭다운 */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex gap-3">
+              {userRole === 'admin' && (
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🏢</span>
                 <select
@@ -240,7 +252,8 @@ export default function ReportSelectPage() {
                 </select>
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">▼</span>
               </div>
-              <div className="relative">
+              )}
+              <div className="relative w-48">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">📚</span>
                 <select
                   value={selectedClass}

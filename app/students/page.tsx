@@ -46,6 +46,7 @@ function StudentsPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
+  const [showNewMenu, setShowNewMenu] = useState(false)
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -413,9 +414,24 @@ function StudentsPage() {
                   <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
                     대량수정
                   </button>
-                  <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
-                    + 새 학생
-                  </button>
+                  <div className="relative">
+                    <button onClick={() => setShowNewMenu(!showNewMenu)} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
+                      + 새 학생
+                    </button>
+                    {showNewMenu && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowNewMenu(false)}></div>
+                        <div className="absolute right-0 top-full mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
+                          <button onClick={() => { router.push('/students/new'); setShowNewMenu(false) }} className="w-full px-4 py-3 text-sm text-left text-gray-700 hover:bg-teal-50 transition">
+                            ✏️ 개별 등록
+                          </button>
+                          <button onClick={() => { router.push('/students/import'); setShowNewMenu(false) }} className="w-full px-4 py-3 text-sm text-left text-gray-700 hover:bg-teal-50 transition border-t border-gray-100">
+                            📥 일괄 등록
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               ) : (
                 <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-600 transition">
