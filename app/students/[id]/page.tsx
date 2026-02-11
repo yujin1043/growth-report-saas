@@ -729,21 +729,21 @@ export default function StudentDetailPage() {
             {/* 현재 스케치북 */}
             {activeSketchbook ? (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4 md:mb-6">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="px-4 py-4 border-b border-gray-100">
+                  <div className="flex items-center gap-3 mb-2">
                     <span className="text-2xl">📒</span>
-                    <div>
-                      <h3 className="font-semibold text-gray-800">스케치북 #{activeSketchbook.book_number}</h3>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-800 text-sm md:text-base">스케치북 #{activeSketchbook.book_number}</h3>
                       <p className="text-xs text-gray-500">시작일: {activeSketchbook.started_at}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm font-medium">
+                  <div className="flex items-center gap-2 ml-9">
+                    <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-full text-xs md:text-sm font-medium">
                       진행중 · {sketchbookWorks.length}작품
                     </span>
                     <button
                       onClick={handleCompleteSketchbook}
-                      className="px-3 py-1.5 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition"
+                      className="px-2.5 py-1.5 bg-purple-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-purple-600 transition"
                     >
                       완료 처리
                     </button>
@@ -764,23 +764,23 @@ export default function StudentDetailPage() {
                 {sketchbookWorks.length > 0 ? (
                   <div className="divide-y divide-gray-100">
                     {sketchbookWorks.map((work, index) => (
-                      <div key={work.id} className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition group">
-                        <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm">
-                          {sketchbookWorks.length - index}
+                      <div key={work.id} className="px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition group">
+                      <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm shrink-0 mt-0.5">
+                        {sketchbookWorks.length - index}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start gap-2 flex-wrap">
+                          <p className="font-medium text-gray-800 text-sm md:text-base">
+                            {work.is_custom ? work.custom_title : work.curriculum?.title}
+                          </p>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${
+                            work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
+                          }`}>
+                            {work.is_custom ? '자율' : '커리큘럼'}
+                          </span>
                         </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-gray-800">
-                              {work.is_custom ? work.custom_title : work.curriculum?.title}
-                            </p>
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
-                            }`}>
-                              {work.is_custom ? '자율' : '커리큘럼'}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5">{work.work_date}</p>
-                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">{work.work_date}</p>
+                      </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                           <button
                             onClick={() => openEditWorkModal(work)}
@@ -828,31 +828,31 @@ export default function StudentDetailPage() {
                 </div>
                 <div className="divide-y divide-gray-100">
                   {completedSketchbooks.map(sketchbook => (
-                    <div key={sketchbook.id} className="px-5 py-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">📗</span>
-                        <div>
-                          <p className="font-medium text-gray-800">스케치북 #{sketchbook.book_number}</p>
-                          <p className="text-xs text-gray-500">
-                            {sketchbook.started_at} ~ {sketchbook.completed_at}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}`)}
-                          className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition"
-                        >
-                          상세보기
-                        </button>
-                        <button
-                          onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}/print`)}
-                          className="px-3 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-sm font-medium hover:bg-teal-100 transition"
-                        >
-                          출력
-                        </button>
+                    <div key={sketchbook.id} className="px-4 py-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-xl">📗</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 text-sm md:text-base">스케치북 #{sketchbook.book_number}</p>
+                        <p className="text-xs text-gray-500">
+                          {sketchbook.started_at} ~ {sketchbook.completed_at}
+                        </p>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2 ml-8">
+                      <button
+                        onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}`)}
+                        className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs md:text-sm font-medium hover:bg-gray-200 transition"
+                      >
+                        상세보기
+                      </button>
+                      <button
+                        onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbook.id}/print`)}
+                        className="px-3 py-1.5 bg-teal-50 text-teal-600 rounded-lg text-xs md:text-sm font-medium hover:bg-teal-100 transition"
+                      >
+                        출력
+                      </button>
+                    </div>
+                  </div>
                   ))}
                 </div>
               </div>

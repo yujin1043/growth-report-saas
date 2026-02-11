@@ -176,31 +176,33 @@ export default function SketchbookPrintPage() {
     <div className="min-h-screen bg-gray-100">
       {/* 컨트롤 바 (인쇄 시 숨김) */}
       <div className="print:hidden sticky top-0 bg-white border-b border-gray-200 px-4 py-3 z-10">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="text-gray-500 hover:text-gray-700 font-medium"
-          >
-            ← 뒤로
-          </button>
-          <h1 className="font-bold text-gray-800">작품 설명 출력 미리보기</h1>
-          <div className="flex items-center gap-2">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center justify-between">
             <button
-              onClick={() => setEditMode(!editMode)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                editMode 
-                  ? 'bg-amber-500 text-white' 
-                  : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-              }`}
+              onClick={() => router.back()}
+              className="text-gray-500 hover:text-gray-700 font-medium text-sm shrink-0"
             >
-              {editMode ? '수정 완료' : '수정'}
+              ← 뒤로
             </button>
-            <button
-              onClick={handlePrint}
-              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition"
-            >
-              🖨️ 인쇄
-            </button>
+            <h1 className="font-bold text-gray-800 text-sm md:text-base truncate mx-2">작품 설명 출력 미리보기</h1>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setEditMode(!editMode)}
+                className={`px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition ${
+                  editMode 
+                    ? 'bg-amber-500 text-white' 
+                    : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                }`}
+              >
+                {editMode ? '수정 완료' : '수정'}
+              </button>
+              <button
+                onClick={handlePrint}
+                className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition"
+              >
+                🖨️ 인쇄
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -220,10 +222,10 @@ export default function SketchbookPrintPage() {
         {pages.map((pageWorks, pageIndex) => (
           <div 
             key={pageIndex}
-            className="bg-white mx-auto mb-8 print:mb-0 print:page-break-after-always shadow-lg print:shadow-none"
+            className="print-page bg-white mx-auto mb-8 print:mb-0 print:page-break-after-always shadow-lg print:shadow-none max-w-full"
             style={{ 
               width: '210mm', 
-              minHeight: '297mm',
+              minHeight: 'auto',
               padding: '15mm'
             }}
           >
@@ -304,6 +306,13 @@ export default function SketchbookPrintPage() {
 
       {/* 인쇄 스타일 */}
       <style jsx global>{`
+        @media screen and (max-width: 768px) {
+          .print-page {
+            width: 100% !important;
+            min-height: auto !important;
+            padding: 16px !important;
+          }
+        }
         @media print {
           @page {
             size: A4;
@@ -312,6 +321,11 @@ export default function SketchbookPrintPage() {
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+          }
+          .print-page {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            padding: 15mm !important;
           }
           .print\\:hidden {
             display: none !important;
