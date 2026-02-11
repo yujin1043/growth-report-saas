@@ -45,7 +45,7 @@ export default function EditCurriculumPage() {
 
   // 권한 체크: admin만 접근 가능
   useEffect(() => {
-    if (!userLoading && userRole !== 'admin' && userRole !== 'staff') {
+    if (!userLoading && userRole && userRole !== 'none' && userRole !== 'admin' && userRole !== 'staff') {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
     }

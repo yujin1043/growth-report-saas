@@ -84,20 +84,19 @@ export default function DashboardPage() {
     return { tier: '150명+', amount: 100000 + extra }
   }
 
-  function getStatus(
-    lastMessageDays: number | null,
-    lastReportDays: number | null
-  ): { status: 'green' | 'yellow' | 'red', reason: string } {
-    if (lastMessageDays === null || lastMessageDays > 7) {
-      return { status: 'red', reason: lastMessageDays === null ? '메시지 없음' : `메시지 ${lastMessageDays}일 전` }
+  function getStatusFromRates(messageRate: number, reportRate: number): { status: 'green' | 'yellow' | 'red', reason: string } {
+    if (messageRate < 50 || reportRate < 50) {
+      const reasons: string[] = []
+      if (messageRate < 50) reasons.push('메시지')
+      if (reportRate < 50) reasons.push('리포트')
+      return { status: 'red', reason: `${reasons.join('·')} 부족` }
     }
-    if (lastReportDays !== null && lastReportDays > 90) {
-      return { status: 'red', reason: `리포트 ${lastReportDays}일 전` }
+    if (messageRate < 80 || reportRate < 80) {
+      if (messageRate < 80 && reportRate < 80) return { status: 'yellow', reason: '메시지·리포트 저조' }
+      if (messageRate < 80) return { status: 'yellow', reason: '메시지 작성률 저조' }
+      return { status: 'yellow', reason: '리포트 작성률 저조' }
     }
-    if (lastMessageDays >= 4) {
-      return { status: 'yellow', reason: `메시지 ${lastMessageDays}일 전` }
-    }
-    return { status: 'green', reason: '정상 운영' }
+    return { status: 'green', reason: '양호' }
   }
 
   const formatCurrency = (amount: number) => {
@@ -139,9 +138,9 @@ export default function DashboardPage() {
 
     const [branchesResult, studentsResult, messagesResult, reportsResult] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
-      supabase.from('students').select('id, branch_id, status, enrolled_at'),
-      supabase.from('daily_messages').select('id, branch_id, created_at').order('created_at', { ascending: false }),
-      supabase.from('reports').select('id, branch_id, created_at').order('created_at', { ascending: false })
+      supabase.from('students').select('id, branch_id, status, enrolled_at, last_report_at'),
+      supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
+      supabase.from('reports').select('id, branch_id, created_at')
     ])
 
     const branches = branchesResult.data || []
@@ -151,19 +150,35 @@ export default function DashboardPage() {
 
     setTotalBranches(branches.length)
 
+    // 수업일 수 계산 (월~금)
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let businessDaysSoFar = 0
+    for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
+      const day = new Date(now.getFullYear(), now.getMonth(), d).getDay()
+      if (day !== 0 && day !== 6) businessDaysSoFar++
+    }
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+
     const stats: BranchStats[] = branches.map(branch => {
       const branchStudents = students.filter(s => s.branch_id === branch.id)
-      const activeCount = branchStudents.filter(s => s.status === 'active').length
+      const activeStudents = branchStudents.filter(s => s.status === 'active')
+      const activeCount = activeStudents.length
       const newThisMonth = branchStudents.filter(s => s.enrolled_at && new Date(s.enrolled_at) >= startOfMonth && s.status === 'active').length
       const billing = getBillingInfo(activeCount)
 
-      const lastMessage = messages.find(m => m.branch_id === branch.id)
-      const lastMessageDays = lastMessage ? Math.floor((now.getTime() - new Date(lastMessage.created_at).getTime()) / (1000 * 60 * 60 * 24)) : null
-      const lastReport = reports.find(r => r.branch_id === branch.id)
-      const lastReportDays = lastReport ? Math.floor((now.getTime() - new Date(lastReport.created_at).getTime()) / (1000 * 60 * 60 * 24)) : null
-      const statusInfo = getStatus(lastMessageDays, lastReportDays)
+      // 메시지 작성률
+      const branchMessageDates = new Set(
+        messages.filter(m => m.branch_id === branch.id).map(m => new Date(m.created_at).toDateString())
+      )
+      const messageRate = businessDaysSoFar > 0 ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100) : 0
 
-      return { id: branch.id, name: branch.name, active_count: activeCount, change_this_month: newThisMonth, billing_tier: billing.tier, billing_amount: billing.amount, last_message_days: lastMessageDays, last_report_days: lastReportDays, status: statusInfo.status, status_reason: statusInfo.reason }
+      // 리포트 작성률
+      const studentsWithReport = activeStudents.filter(s => s.last_report_at && new Date(s.last_report_at) >= twoMonthsAgo).length
+      const reportRate = activeCount > 0 ? Math.round((studentsWithReport / activeCount) * 100) : 0
+
+      const statusInfo = getStatusFromRates(messageRate, reportRate)
+
+      return { id: branch.id, name: branch.name, active_count: activeCount, change_this_month: newThisMonth, billing_tier: billing.tier, billing_amount: billing.amount, last_message_days: null, last_report_days: null, status: statusInfo.status, status_reason: statusInfo.reason }
     })
 
     setBranchStats(stats)
@@ -345,10 +360,7 @@ export default function DashboardPage() {
           <div className="max-w-5xl mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <h1 className="text-lg font-bold text-slate-800">🎛 HQ 통합 대시보드</h1>
-              <div className="flex items-center gap-3">
-                <button onClick={() => router.push('/settings')} className="text-slate-500 hover:text-slate-700 text-sm transition">설정</button>
-                <button onClick={handleLogout} className="text-slate-500 hover:text-red-500 text-sm transition">로그아웃</button>
-              </div>
+              <div className="w-20"></div>
             </div>
           </div>
         </header>
@@ -372,7 +384,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex justify-center gap-6">
-            {[{ color: 'bg-green-500', label: '정상', count: greenCount }, { color: 'bg-yellow-500', label: '주의', count: yellowCount }, { color: 'bg-red-500', label: '위험', count: redCount }].map(s => (
+            {[{ color: 'bg-green-500', label: '양호', count: greenCount }, { color: 'bg-yellow-500', label: '유의', count: yellowCount }, { color: 'bg-red-500', label: '관리 필요', count: redCount }].map(s => (
               <div key={s.label} className="flex items-center gap-2">
                 <span className={`w-4 h-4 rounded-full ${s.color}`}></span>
                 <span className="text-slate-600">{s.label} <strong>{s.count}</strong></span>
@@ -384,33 +396,37 @@ export default function DashboardPage() {
             <h2 className="font-bold text-slate-800 mb-4">📊 지점별 현황</h2>
             <div className="space-y-3">
               {sortedStats.map(branch => (
-                <div key={branch.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition" onClick={() => router.push(`/dashboard/branches/${branch.id}`)}>
-                  <div className="flex items-center gap-3">
-                    <span className={`w-3 h-3 rounded-full ${branch.status === 'green' ? 'bg-green-500' : branch.status === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
-                    <span className="font-medium text-slate-800">{branch.name}</span>
-                  </div>
-                  <span className="font-bold text-slate-800">{branch.active_count}명</span>
+                <div key={branch.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition" onClick={() => router.push(`/branches/${branch.id}`)}>
+                <div className="flex items-center gap-3">
+                  <span className={`w-3 h-3 rounded-full ${branch.status === 'green' ? 'bg-emerald-500' : branch.status === 'yellow' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
+                  <span className="font-medium text-slate-800">{branch.name}</span>
+                  {branch.status !== 'green' && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${branch.status === 'yellow' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>{branch.status_reason}</span>
+                  )}
                 </div>
+                <span className="text-sm text-slate-400">재원 <span className="text-base font-bold text-slate-800">{branch.active_count}</span>명</span>
+              </div>
               ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={() => router.push('/students')} className="bg-white text-gray-700 py-4 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2"><span className="text-xl">👨‍🎓</span> 학생 관리</button>
-            <button onClick={() => router.push('/users')} className="bg-white text-gray-700 py-4 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2"><span className="text-xl">👥</span> 사용자 관리</button>
-            <button onClick={() => router.push('/branches')} className="bg-white text-gray-700 py-4 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200 flex items-center justify-center gap-2"><span className="text-xl">🏢</span> 지점 관리</button>
-            <button onClick={() => router.push('/admin')} className="bg-gradient-to-r from-purple-500 to-indigo-500 text-white py-4 rounded-2xl font-medium hover:from-purple-600 hover:to-indigo-600 transition shadow-lg shadow-purple-500/30 flex items-center justify-center gap-2"><span className="text-xl">📊</span> 본사 관리</button>
-          </div>
-
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h2 className="font-bold text-slate-800 mb-4">💰 과금 요약</h2>
-            <div className="space-y-2 mb-4">
-              {billingByTier.map(tier => (
-                <div key={tier.tier} className="flex justify-between text-sm">
-                  <span className="text-slate-600">[{tier.tier}] {tier.count}개 지점</span>
-                  <span className="text-slate-800">{formatCurrency(tier.amount)}</span>
-                </div>
-              ))}
+            <div className="space-y-3 mb-4">
+              {billingByTier.map(tier => {
+                const tierBranches = branchStats.filter(b => b.billing_tier === tier.tier)
+                return (
+                  <div key={tier.tier}>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">[{tier.tier}] {tier.count}개 지점</span>
+                      <span className="text-slate-800">{formatCurrency(tier.amount)}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5 pl-1">
+                      {tierBranches.map(b => `${b.name}(${b.active_count}명)`).join(', ')}
+                    </p>
+                  </div>
+                )
+              })}
             </div>
             <div className="border-t border-slate-200 pt-3 flex justify-between font-bold">
               <span className="text-slate-800">총 예상 SaaS 이용료</span>

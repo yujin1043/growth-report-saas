@@ -271,7 +271,7 @@ export default function BranchesPage() {
             <div className="flex items-start gap-2">
               <span className="w-3 h-3 rounded-full bg-emerald-500 mt-0.5 shrink-0"></span>
               <div>
-                <p className="text-sm font-medium text-slate-700">정상</p>
+                <p className="text-sm font-medium text-slate-700">양호</p>
                 <p className="text-xs md:text-sm text-slate-400">메시지 ≥80% AND 리포트 ≥80%</p>
               </div>
             </div>
