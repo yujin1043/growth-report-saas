@@ -333,36 +333,25 @@ export default function BranchesPage() {
               onClick={() => router.push(`/branches/${branch.id}`)}
               className="bg-white rounded-2xl border border-slate-200 hover:shadow-md hover:border-teal-200 cursor-pointer transition-all duration-200 p-4 md:p-5"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 md:gap-6">
-                  <div className="flex items-center gap-2.5 min-w-28 md:min-w-40">
-                    <span className={`w-3 h-3 rounded-full ${getStatusDotColor(branch.status)}`}></span>
-                    <h3 className="font-bold text-slate-800 text-base md:text-lg">{branch.name}</h3>
-                  </div>
-
-                  <div className="flex items-center gap-5 md:gap-6">
-                    <div className="text-center min-w-14 md:min-w-20">
-                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">원생</p>
-                      <p className="font-bold text-slate-800 text-base md:text-lg">{branch.active_count}명</p>
-                    </div>
-                    <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
-                    <div className="text-center min-w-16 md:min-w-24">
-                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">메시지 작성률</p>
-                      <p className={`font-bold text-base md:text-lg ${getRateColor(branch.message_rate)}`}>{branch.message_rate}%</p>
-                    </div>
-                    <div className="w-px h-8 bg-slate-100 hidden md:block"></div>
-                    <div className="text-center min-w-16 md:min-w-24">
-                      <p className="text-xs md:text-sm text-slate-400 mb-0.5">리포트 작성률</p>
-                      <p className={`font-bold text-base md:text-lg ${getRateColor(branch.report_rate)}`}>{branch.report_rate}%</p>
-                    </div>
-                  </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor(branch.status)}`}></span>
+                  <h3 className="font-bold text-slate-800 text-sm md:text-lg truncate">{branch.name}</h3>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <span className={`text-sm px-3 py-1 rounded-full border hidden md:inline-block ${getStatusBadgeStyle(branch.status)}`}>
-                    {branch.status_reason}
-                  </span>
-                  <span className="text-slate-300 text-xl">›</span>
+                <div className="flex items-center gap-3 md:gap-6 shrink-0">
+                  <div className="text-center">
+                    <p className="text-[10px] md:text-sm text-slate-400">원생</p>
+                    <p className="font-bold text-slate-800 text-sm md:text-lg">{branch.active_count}명</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] md:text-sm text-slate-400">메시지</p>
+                    <p className={`font-bold text-sm md:text-lg ${getRateColor(branch.message_rate)}`}>{branch.message_rate}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] md:text-sm text-slate-400">리포트</p>
+                    <p className={`font-bold text-sm md:text-lg ${getRateColor(branch.report_rate)}`}>{branch.report_rate}%</p>
+                  </div>
+                  <span className="text-slate-300 text-xl hidden md:inline">›</span>
                 </div>
               </div>
             </div>

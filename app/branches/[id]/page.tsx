@@ -403,20 +403,20 @@ export default function BranchDetailPage() {
 
 
         {/* 지점 정보 요약 */}
-        <div className="grid grid-cols-3 gap-3 md:gap-4 mb-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
-            <p className="text-xs md:text-sm text-slate-500 font-medium mb-1">재원 학생</p>
-            <p className="text-2xl md:text-3xl font-bold text-slate-800">{activeCount}<span className="text-sm font-normal text-slate-400 ml-0.5">명</span></p>
+        <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+            <p className="text-[10px] md:text-sm text-slate-500 font-medium mb-1">재원 학생</p>
+            <p className="text-xl md:text-3xl font-bold text-slate-800">{activeCount}<span className="text-xs md:text-sm font-normal text-slate-400 ml-0.5">명</span></p>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
-            <p className="text-xs md:text-sm text-slate-500 font-medium mb-1">서비스 이용률</p>
-            <p className={`text-2xl md:text-3xl font-bold mb-0.5 ${messageRate + reportRate > 0 ? (Math.round((messageRate + reportRate) / 2) >= 80 ? 'text-emerald-600' : Math.round((messageRate + reportRate) / 2) >= 50 ? 'text-amber-600' : 'text-red-600') : 'text-slate-800'}`}>{messageRate + reportRate > 0 ? Math.round((messageRate + reportRate) / 2) : 0}%</p>
-            <p className="text-xs text-slate-400">메시지·리포트 평균</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+            <p className="text-[10px] md:text-sm text-slate-500 font-medium mb-1">서비스 이용률</p>
+            <p className={`text-xl md:text-3xl font-bold mb-0.5 ${messageRate + reportRate > 0 ? (Math.round((messageRate + reportRate) / 2) >= 80 ? 'text-emerald-600' : Math.round((messageRate + reportRate) / 2) >= 50 ? 'text-amber-600' : 'text-red-600') : 'text-slate-800'}`}>{messageRate + reportRate > 0 ? Math.round((messageRate + reportRate) / 2) : 0}%</p>
+            <p className="text-[10px] md:text-xs text-slate-400">메시지·리포트 평균</p>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 md:p-5 text-center">
-            <p className="text-xs md:text-sm text-slate-500 font-medium mb-1">예상 과금</p>
-            <p className="text-xl md:text-2xl font-bold text-teal-600">{formatCurrency(billingAmount)}</p>
-            <p className="text-xs md:text-sm text-slate-400">{billingTier}</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+            <p className="text-[10px] md:text-sm text-slate-500 font-medium mb-1">예상 과금</p>
+            <p className="text-lg md:text-2xl font-bold text-teal-600">{formatCurrency(billingAmount)}</p>
+            <p className="text-[10px] md:text-sm text-slate-400">{billingTier}</p>
           </div>
         </div>
 
