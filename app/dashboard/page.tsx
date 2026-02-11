@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { DashboardBranchSkeleton, DashboardAdminSkeleton } from '@/components/Skeleton'
 
 interface UserProfile {
   name: string
@@ -99,6 +100,25 @@ export default function DashboardPage() {
     return { status: 'green', reason: '양호' }
   }
 
+  function getStatus(
+    lastMessageDays: number | null, 
+    lastReportDays: number | null
+  ): { status: 'green' | 'yellow' | 'red', reason: string } {
+    if (lastMessageDays === null || lastMessageDays > 7) {
+      return { 
+        status: 'red', 
+        reason: lastMessageDays === null ? '메시지 없음' : `메시지 ${lastMessageDays}일 전` 
+      }
+    }
+    if (lastReportDays !== null && lastReportDays > 90) {
+      return { status: 'red', reason: `리포트 ${lastReportDays}일 전` }
+    }
+    if (lastMessageDays >= 4) {
+      return { status: 'yellow', reason: `메시지 ${lastMessageDays}일 전` }
+    }
+    return { status: 'green', reason: '정상' }
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('ko-KR').format(amount) + '원'
   }
@@ -136,49 +156,59 @@ export default function DashboardPage() {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const [branchesResult, studentsResult, messagesResult, reportsResult] = await Promise.all([
+    // ✅ 최적화: messages/reports 전체 조회 제거 → RPC 함수로 대체
+    const [branchesResult, studentsResult, activityResult] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
-      supabase.from('students').select('id, branch_id, status, enrolled_at, last_report_at'),
-      supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
-      supabase.from('reports').select('id, branch_id, created_at')
+      supabase.from('students').select('id, branch_id, status, enrolled_at'),
+      supabase.rpc('get_branch_last_activity')
     ])
 
     const branches = branchesResult.data || []
     const students = studentsResult.data || []
-    const messages = messagesResult.data || []
-    const reports = reportsResult.data || []
+
+    // RPC 결과를 Map으로 변환 (O(1) 조회)
+    const activityMap = new Map(
+      activityResult.data?.map((a: any) => [a.branch_id, a]) || []
+    )
 
     setTotalBranches(branches.length)
 
-    // 수업일 수 계산 (월~금)
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-    let businessDaysSoFar = 0
-    for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
-      const day = new Date(now.getFullYear(), now.getMonth(), d).getDay()
-      if (day !== 0 && day !== 6) businessDaysSoFar++
-    }
-    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
-
     const stats: BranchStats[] = branches.map(branch => {
       const branchStudents = students.filter(s => s.branch_id === branch.id)
-      const activeStudents = branchStudents.filter(s => s.status === 'active')
-      const activeCount = activeStudents.length
-      const newThisMonth = branchStudents.filter(s => s.enrolled_at && new Date(s.enrolled_at) >= startOfMonth && s.status === 'active').length
+      const activeStudentsList = branchStudents.filter(s => s.status === 'active')
+      const activeCount = activeStudentsList.length
+
+      const newThisMonth = branchStudents.filter(s => {
+        if (!s.enrolled_at) return false
+        return new Date(s.enrolled_at) >= startOfMonth && s.status === 'active'
+      }).length
+
       const billing = getBillingInfo(activeCount)
 
-      // 메시지 작성률
-      const branchMessageDates = new Set(
-        messages.filter(m => m.branch_id === branch.id).map(m => new Date(m.created_at).toDateString())
-      )
-      const messageRate = businessDaysSoFar > 0 ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100) : 0
+      // ✅ 최적화: RPC 결과에서 바로 조회 (전체 메시지 순회 X)
+      const activity = activityMap.get(branch.id)
+      const lastMessageDays = activity?.last_message_at
+        ? Math.floor((now.getTime() - new Date(activity.last_message_at).getTime()) / (1000 * 60 * 60 * 24))
+        : null
 
-      // 리포트 작성률
-      const studentsWithReport = activeStudents.filter(s => s.last_report_at && new Date(s.last_report_at) >= twoMonthsAgo).length
-      const reportRate = activeCount > 0 ? Math.round((studentsWithReport / activeCount) * 100) : 0
+      const lastReportDays = activity?.last_report_at
+        ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
+        : null
 
-      const statusInfo = getStatusFromRates(messageRate, reportRate)
+      const statusInfo = getStatus(lastMessageDays, lastReportDays)
 
-      return { id: branch.id, name: branch.name, active_count: activeCount, change_this_month: newThisMonth, billing_tier: billing.tier, billing_amount: billing.amount, last_message_days: null, last_report_days: null, status: statusInfo.status, status_reason: statusInfo.reason }
+      return {
+        id: branch.id,
+        name: branch.name,
+        active_count: activeCount,
+        change_this_month: newThisMonth,
+        billing_tier: billing.tier,
+        billing_amount: billing.amount,
+        last_message_days: lastMessageDays,
+        last_report_days: lastReportDays,
+        status: statusInfo.status,
+        status_reason: statusInfo.reason
+      }
     })
 
     setBranchStats(stats)
@@ -337,14 +367,7 @@ export default function DashboardPage() {
 
   // ===== 로딩 =====
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-gray-500">로딩 중...</p>
-        </div>
-      </div>
-    )
+    return userRole === 'admin' ? <DashboardAdminSkeleton /> : <DashboardBranchSkeleton />
   }
 
   // ===== 본사 관리자 =====

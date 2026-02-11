@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { DailyMessageSkeleton } from '@/components/Skeleton'
 
 interface Student {
   id: string
@@ -84,6 +85,7 @@ export default function DailyMessagePage() {
     }
   }, [selectedClassId])
 
+  // ✅ 최적화: 순차 쿼리 → 병렬 쿼리
   async function loadInitialData() {
     const { data: { user } } = await supabase.auth.getUser()
     
@@ -94,6 +96,7 @@ export default function DailyMessagePage() {
 
     setUserId(user.id)
 
+    // 1단계: 프로필 먼저 (다른 쿼리의 조건으로 필요)
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('role, branch_id')
@@ -106,22 +109,55 @@ export default function DailyMessagePage() {
 
     setUserRole(profile?.role || '')
 
-    const { data: teacherClasses } = await supabase
-      .from('teacher_classes')
-      .select('class_id')
-      .eq('teacher_id', user.id)
+    // 2단계: 나머지 전부 병렬 실행 ✅
+    const now = new Date()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1
+    let prevYear = currentYear
+    let prevMonth = currentMonth - 1
+    if (prevMonth === 0) {
+      prevMonth = 12
+      prevYear = currentYear - 1
+    }
 
-    const classIds = teacherClasses?.map(tc => tc.class_id) || []
-
-    // 지점 목록 가져오기 (admin만 전체, 나머지는 자기 지점만)
+    // 지점 쿼리 구성
     let branchQuery = supabase.from('branches').select('id, name').order('name')
     if (profile?.role !== 'admin' && profile?.branch_id) {
       branchQuery = branchQuery.eq('id', profile.branch_id)
     }
-    const { data: branchesData } = await branchQuery
-    if (branchesData) setBranches(branchesData)
 
-    // 반 목록 가져오기 (branch_id 포함)
+    // 커리큘럼 쿼리 구성
+    let topicsQuery = supabase.from('monthly_curriculum')
+      .select('id, year, month, target_group, title, main_materials, parent_message_template, age_group')
+      .eq('status', 'active')
+
+    if (profile?.role !== 'admin') {
+      topicsQuery = topicsQuery.or(
+        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
+      )
+    }
+
+    // ✅ 5개 쿼리를 동시에 실행 (기존: 순차 5회 → 최적화: 병렬 1회)
+    const [
+      teacherClassesResult,
+      branchesResult,
+      topicsResult,
+      existingMsgResult
+    ] = await Promise.all([
+      supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id),
+      branchQuery,
+      topicsQuery.order('year', { ascending: false }).order('month', { ascending: false }).order('created_at'),
+      // ✅ 카운트 + 학생 ID를 하나의 쿼리로 합침
+      supabase.from('daily_messages')
+        .select('student_id', { count: 'exact' })
+        .gte('expires_at', now.toISOString())
+    ])
+
+    // 지점 반영
+    if (branchesResult.data) setBranches(branchesResult.data)
+
+    // 반 목록 조회 (teacherClasses 결과 활용)
+    const classIds = teacherClassesResult.data?.map(tc => tc.class_id) || []
     let classQuery = supabase.from('classes').select('id, name, branch_id')
     
     if (profile?.role === 'teacher' && classIds.length > 0) {
@@ -134,10 +170,9 @@ export default function DailyMessagePage() {
 
     if (classesData) {
       setClasses(classesData)
-      // admin: 첫 지점 & 해당 반 자동 선택
-      if (profile?.role === 'admin' && branchesData && branchesData.length > 0) {
-        setSelectedBranchId(branchesData[0].id)
-        const firstBranchClasses = classesData.filter((c: any) => c.branch_id === branchesData[0].id)
+      if (profile?.role === 'admin' && branchesResult.data && branchesResult.data.length > 0) {
+        setSelectedBranchId(branchesResult.data[0].id)
+        const firstBranchClasses = classesData.filter((c: any) => c.branch_id === branchesResult.data![0].id)
         if (firstBranchClasses.length > 0) {
           setSelectedClassId(firstBranchClasses[0].id)
         }
@@ -146,46 +181,13 @@ export default function DailyMessagePage() {
       }
     }
 
-    let topicsQuery = supabase.from('monthly_curriculum').select('id, year, month, target_group, title, main_materials, parent_message_template, age_group').eq('status', 'active')
+    // 커리큘럼 반영
+    if (topicsResult.data) setCurriculumTopics(topicsResult.data)
 
-    if (profile?.role !== 'admin') {
-      const now = new Date()
-      const currentYear = now.getFullYear()
-      const currentMonth = now.getMonth() + 1
-      let prevYear = currentYear
-      let prevMonth = currentMonth - 1
-      if (prevMonth === 0) {
-        prevMonth = 12
-        prevYear = currentYear - 1
-      }
-      topicsQuery = topicsQuery.or(
-        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
-      )
-    }
-
-    const { data: topics } = await topicsQuery
-      .order('year', { ascending: false })
-      .order('month', { ascending: false })
-      .order('created_at')
-
-    if (topics) {
-      setCurriculumTopics(topics)
-    }
-
-    const { count } = await supabase
-      .from('daily_messages')
-      .select('*', { count: 'exact', head: true })
-      .gte('expires_at', new Date().toISOString())
-
-    setAllResultsCount(count || 0)
-
-    const { data: existingMessages } = await supabase
-      .from('daily_messages')
-      .select('student_id')
-      .gte('expires_at', new Date().toISOString())
-
-    if (existingMessages) {
-      setGeneratedStudentIds(existingMessages.map(m => m.student_id))
+    // ✅ 카운트 + 학생 ID 한 번에 처리 (기존: 2개 쿼리 → 1개 쿼리)
+    setAllResultsCount(existingMsgResult.count || 0)
+    if (existingMsgResult.data) {
+      setGeneratedStudentIds(existingMsgResult.data.map(m => m.student_id))
     }
 
     setLoading(false)
@@ -204,13 +206,27 @@ export default function DailyMessagePage() {
     }
   }
 
+  const MAX_IMAGES = 4
+
   const handleImageUpload = async (files: FileList) => {
-    const fileArray = Array.from(files).slice(0, 4 - images.length)
-    
-    const compressedFiles: File[] = []
-    const newUrls: string[] = []
-    
-    for (const file of fileArray) {
+      // 이미 4장이면 즉시 차단
+      if (images.length >= MAX_IMAGES) {
+        alert(`사진은 최대 ${MAX_IMAGES}장까지 첨부할 수 있습니다.`)
+        return
+      }
+
+      const remaining = MAX_IMAGES - images.length
+      const fileArray = Array.from(files).slice(0, remaining)
+      
+      // 초과 선택 시 안내
+      if (files.length > remaining) {
+        alert(`${remaining}장만 추가할 수 있어서 처음 ${remaining}장만 첨부됩니다.`)
+      }
+      
+      const compressedFiles: File[] = []
+      const newUrls: string[] = []
+      
+      for (const file of fileArray) {
       try {
         const img = new Image()
         const originalUrl = URL.createObjectURL(file)
@@ -274,11 +290,9 @@ export default function DailyMessagePage() {
     )
   }
 
+  // ✅ 최적화: 이미지 병렬 업로드 (기존: 순차 1장씩 → 최적화: 동시 전부)
   const uploadImages = async (messageId: string): Promise<string[]> => {
-    const uploadedUrls: string[] = []
-    
-    for (let i = 0; i < images.length; i++) {
-      const file = images[i]
+    const uploadPromises = images.map(async (file, i) => {
       const fileExt = file.name.split('.').pop()
       const fileName = `${messageId}/${i}.${fileExt}`
       
@@ -286,21 +300,31 @@ export default function DailyMessagePage() {
         .from('daily-message-images')
         .upload(fileName, file)
 
-      if (!uploadError) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('daily-message-images')
-          .getPublicUrl(fileName)
-        
-        uploadedUrls.push(publicUrl)
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        return null
       }
-    }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('daily-message-images')
+        .getPublicUrl(fileName)
+      
+      return publicUrl
+    })
     
-    return uploadedUrls
+    const results = await Promise.all(uploadPromises)
+    return results.filter((url): url is string => url !== null)
   }
 
   const generateMessage = async () => {
     if (!selectedStudentId) {
       alert('학생을 선택해주세요')
+      return
+    }
+
+    // 이미지 최대 4장 이중 검증
+    if (images.length > MAX_IMAGES) {
+      alert(`사진은 최대 ${MAX_IMAGES}장까지만 첨부 가능합니다.`)
       return
     }
     
@@ -426,24 +450,22 @@ export default function DailyMessagePage() {
     }
 
     try {
-      await supabase
-        .from('daily_messages')
-        .delete()
-        .eq('student_id', student.id)
-        .eq('teacher_id', userId)
-
-      const { data: studentData } = await supabase
-        .from('students')
-        .select('branch_id')
-        .eq('id', student.id)
-        .single()
+      // ✅ 최적화: 기존 메시지 삭제 + 학생 branch 조회를 병렬로
+      const [, studentDataResult] = await Promise.all([
+        supabase.from('daily_messages').delete()
+          .eq('student_id', student.id)
+          .eq('teacher_id', userId),
+        supabase.from('students').select('branch_id')
+          .eq('id', student.id)
+          .single()
+      ])
 
       const { data: newMessage, error: insertError } = await supabase
         .from('daily_messages')
         .insert({
           student_id: student.id,
           teacher_id: userId,
-          branch_id: studentData?.branch_id || userBranchId,
+          branch_id: studentDataResult.data?.branch_id || userBranchId,
           message: message,
           lesson_type: lessonType,
           topic_title: topicTitle,
@@ -459,17 +481,19 @@ export default function DailyMessagePage() {
         return
       }
 
+      // ✅ 최적화: 이미지 병렬 업로드 + 일괄 DB insert
       if (images.length > 0 && newMessage) {
         const uploadedUrls = await uploadImages(newMessage.id)
         
-        for (let i = 0; i < uploadedUrls.length; i++) {
-          await supabase
-            .from('daily_message_images')
-            .insert({
-              daily_message_id: newMessage.id,
-              image_url: uploadedUrls[i],
-              image_order: i
-            })
+        // ✅ 일괄 insert (기존: for 루프로 1개씩 insert → 최적화: 한 번에 전부)
+        if (uploadedUrls.length > 0) {
+          const imageRecords = uploadedUrls.map((url, i) => ({
+            daily_message_id: newMessage.id,
+            image_url: url,
+            image_order: i
+          }))
+          
+          await supabase.from('daily_message_images').insert(imageRecords)
         }
       }
 
@@ -510,14 +534,7 @@ export default function DailyMessagePage() {
   const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-gray-500">로딩 중...</p>
-        </div>
-      </div>
-    )
+    return <DailyMessageSkeleton />
   }
 
   return (
@@ -612,10 +629,12 @@ export default function DailyMessagePage() {
         {selectedStudent && (
           <>
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-800 mb-3">
-                📷 {selectedStudent.name} 작품 사진
-                <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
-              </h2>
+            <h2 className="font-semibold text-gray-800 mb-3">
+              📷 {selectedStudent.name} 작품 사진
+              <span className="text-gray-400 font-normal text-sm ml-1">
+                ({images.length}/{MAX_IMAGES}장)
+              </span>
+            </h2>
               <div className="grid grid-cols-4 gap-2">
                 {imageUrls.map((url, index) => (
                   <div key={index} className="relative aspect-square">
@@ -629,14 +648,18 @@ export default function DailyMessagePage() {
                   </div>
                 ))}
                 
-                {images.length < 4 && (
-                  <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center cursor-pointer hover:bg-gray-50">
+                {images.length < MAX_IMAGES && (
+                  <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50">
                     <span className="text-2xl text-gray-300">+</span>
+                    <span className="text-[10px] text-gray-300 mt-0.5">{MAX_IMAGES - images.length}장 가능</span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp,image/heic"
                       multiple
-                      onChange={(e) => e.target.files && handleImageUpload(e.target.files)}
+                      onChange={(e) => {
+                        e.target.files && handleImageUpload(e.target.files)
+                        e.target.value = ''
+                      }}
                       className="hidden"
                     />
                   </label>
