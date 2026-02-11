@@ -38,6 +38,8 @@ interface BranchStats {
   billing_amount: number
   last_message_days: number | null
   last_report_days: number | null
+  message_rate: number
+  report_rate: number
   status: 'green' | 'yellow' | 'red'
   status_reason: string
 }
@@ -155,18 +157,28 @@ export default function DashboardPage() {
   async function loadAdminData() {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
-    // ✅ 최적화: messages/reports 전체 조회 제거 → RPC 함수로 대체
-    const [branchesResult, studentsResult, activityResult] = await Promise.all([
+    // 이번 달 수업일 수 계산 (월~금)
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let businessDaysSoFar = 0
+    for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
+      const day = new Date(now.getFullYear(), now.getMonth(), d).getDay()
+      if (day !== 0 && day !== 6) businessDaysSoFar++
+    }
+
+    const [branchesResult, studentsResult, activityResult, messagesResult, reportsResult] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
-      supabase.from('students').select('id, branch_id, status, enrolled_at'),
-      supabase.rpc('get_branch_last_activity')
+      supabase.from('students').select('id, branch_id, status, enrolled_at, last_report_at'),
+      supabase.rpc('get_branch_last_activity'),
+      supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
+      supabase.from('reports').select('id, branch_id, created_at')
     ])
 
     const branches = branchesResult.data || []
     const students = studentsResult.data || []
+    const messages = messagesResult.data || []
 
-    // RPC 결과를 Map으로 변환 (O(1) 조회)
     const activityMap = new Map<string, any>(
       activityResult.data?.map((a: any) => [a.branch_id, a]) || []
     )
@@ -185,17 +197,35 @@ export default function DashboardPage() {
 
       const billing = getBillingInfo(activeCount)
 
-      // ✅ 최적화: RPC 결과에서 바로 조회 (전체 메시지 순회 X)
       const activity = activityMap.get(branch.id)
       const lastMessageDays = activity?.last_message_at
         ? Math.floor((now.getTime() - new Date(activity.last_message_at).getTime()) / (1000 * 60 * 60 * 24))
         : null
-
       const lastReportDays = activity?.last_report_at
         ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
         : null
 
-      const statusInfo = getStatus(lastMessageDays, lastReportDays)
+      // 메시지 작성률: 이번 달 작성 날짜 수 / 수업일 수
+      const branchMessageDates = new Set(
+        messages
+          .filter(m => m.branch_id === branch.id)
+          .map(m => new Date(m.created_at).toDateString())
+      )
+      const messageRate = businessDaysSoFar > 0
+        ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100)
+        : 0
+
+      // 리포트 작성률: 최근 2개월 내 리포트가 있는 학생 비율
+      const studentsWithReport = activeStudentsList.filter(s => {
+        const student = s as any
+        if (!student.last_report_at) return false
+        return new Date(student.last_report_at) >= twoMonthsAgo
+      }).length
+      const reportRate = activeCount > 0
+        ? Math.round((studentsWithReport / activeCount) * 100)
+        : 0
+
+      const statusInfo = getStatusFromRates(messageRate, reportRate)
 
       return {
         id: branch.id,
@@ -206,6 +236,8 @@ export default function DashboardPage() {
         billing_amount: billing.amount,
         last_message_days: lastMessageDays,
         last_report_days: lastReportDays,
+        message_rate: messageRate,
+        report_rate: reportRate,
         status: statusInfo.status,
         status_reason: statusInfo.reason
       }
@@ -391,18 +423,18 @@ export default function DashboardPage() {
         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
           <p className="text-center text-sm text-slate-400">&quot;이 화면의 목적은 지점을 평가하는 것이 아니라, 문제를 놓치지 않는 것이다.&quot;</p>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">총 지점 수</p>
-              <p className="text-3xl font-bold text-slate-800">{totalBranches}<span className="text-base font-normal text-slate-400 ml-1">개</span></p>
+          <div className="grid grid-cols-3 gap-2 md:gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+              <p className="text-slate-500 text-xs md:text-sm mb-1">총 지점 수</p>
+              <p className="text-2xl md:text-3xl font-bold text-slate-800">{totalBranches}<span className="text-xs md:text-base font-normal text-slate-400 ml-0.5">개</span></p>
             </div>
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">총 원생 수</p>
-              <p className="text-3xl font-bold text-slate-800">{totalActiveStudents}<span className="text-base font-normal text-slate-400 ml-1">명</span></p>
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+              <p className="text-slate-500 text-xs md:text-sm mb-1">총 원생 수</p>
+              <p className="text-2xl md:text-3xl font-bold text-slate-800">{totalActiveStudents}<span className="text-xs md:text-base font-normal text-slate-400 ml-0.5">명</span></p>
             </div>
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              <p className="text-slate-500 text-sm mb-1">이번달 예상 과금</p>
-              <p className="text-2xl font-bold text-teal-600">{formatCurrency(totalBilling)}</p>
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 md:p-5 text-center">
+              <p className="text-slate-500 text-xs md:text-sm mb-1">예상 과금</p>
+              <p className="text-lg md:text-2xl font-bold text-teal-600">{formatCurrency(totalBilling)}</p>
             </div>
           </div>
 
@@ -417,18 +449,28 @@ export default function DashboardPage() {
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h2 className="font-bold text-slate-800 mb-4">📊 지점별 현황</h2>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {sortedStats.map(branch => (
-                <div key={branch.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition" onClick={() => router.push(`/branches/${branch.id}`)}>
-                <div className="flex items-center gap-3">
-                  <span className={`w-3 h-3 rounded-full ${branch.status === 'green' ? 'bg-emerald-500' : branch.status === 'yellow' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
-                  <span className="font-medium text-slate-800">{branch.name}</span>
-                  {branch.status !== 'green' && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${branch.status === 'yellow' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>{branch.status_reason}</span>
-                  )}
+                <div key={branch.id} onClick={() => router.push(`/branches/${branch.id}`)} className="p-3 md:p-4 rounded-xl hover:bg-slate-50 cursor-pointer transition border border-slate-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-3 h-3 rounded-full flex-shrink-0 ${branch.status === 'green' ? 'bg-emerald-500' : branch.status === 'yellow' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
+                      <span className="font-semibold text-slate-800">{branch.name}</span>
+                      {branch.status !== 'green' && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${branch.status === 'yellow' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>{branch.status_reason}</span>
+                      )}
+                    </div>
+                    <span className="text-sm text-slate-500">원생 <strong className="text-slate-800">{branch.active_count}</strong>명</span>
+                  </div>
+                  <div className="flex gap-4 ml-5 text-xs">
+                    <span className={branch.message_rate < 50 ? 'text-red-500 font-semibold' : branch.message_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>
+                      메시지 {branch.message_rate}%
+                    </span>
+                    <span className={branch.report_rate < 50 ? 'text-red-500 font-semibold' : branch.report_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>
+                      리포트 {branch.report_rate}%
+                    </span>
+                  </div>
                 </div>
-                <span className="text-sm text-slate-400">재원 <span className="text-base font-bold text-slate-800">{branch.active_count}</span>명</span>
-              </div>
               ))}
             </div>
           </div>
