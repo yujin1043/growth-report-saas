@@ -55,29 +55,47 @@ export default function ReportSelectPage() {
       return
     }
 
-    // 모든 데이터를 병렬로 가져오기
-    const [profileResult, teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
-      supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single(),
+    // 1) 프로필 먼저 가져오기 (지점 필터에 필요)
+    const profileResult = await supabase
+      .from('user_profiles')
+      .select('role, branch_id')
+      .eq('id', user.id)
+      .single()
+
+    const role = profileResult.data?.role || ''
+    const branchId = profileResult.data?.branch_id || null
+
+    setUserRole(role)
+    setUserBranchId(branchId)
+
+    // 2) 학생 쿼리: 비-admin이면 내 지점만
+    let studentsQuery = supabase
+      .from('students')
+      .select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at')
+      .eq('status', 'active')
+      .order('name')
+
+    if (role !== 'admin' && branchId) {
+      studentsQuery = studentsQuery.eq('branch_id', branchId)
+    }
+
+    // 3) 나머지 병렬로 가져오기
+    const [teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
       supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id),
-      supabase.from('students').select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at').eq('status', 'active').order('name'),
+      studentsQuery,
       supabase.from('classes').select('id, name, branch_id').order('name'),
       supabase.from('branches').select('id, name').order('name')
     ])
-
-    if (profileResult.data) {
-      setUserRole(profileResult.data.role)
-      setUserBranchId(profileResult.data.branch_id)
-    }
 
     if (teacherClassesResult.data) {
       setTeacherClassIds(teacherClassesResult.data.map(tc => tc.class_id))
     }
 
     // admin만 전체 지점, 나머지는 자기 지점만
-    if (profileResult.data?.role === 'admin') {
+    if (role === 'admin') {
       setBranches(branchesResult.data || [])
-    } else if (profileResult.data?.branch_id) {
-      setBranches((branchesResult.data || []).filter(b => b.id === profileResult.data.branch_id))
+    } else if (branchId) {
+      setBranches((branchesResult.data || []).filter(b => b.id === branchId))
     } else {
       setBranches(branchesResult.data || [])
     }

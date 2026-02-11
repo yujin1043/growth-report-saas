@@ -326,8 +326,11 @@ function NewReportPage() {
 
     try {
       // 이미지를 Base64로 변환
-      const imageBeforeBase64 = await compressImage(imageBefore.croppedUrl, 800, 0.7)
-      const imageAfterBase64 = await compressImage(imageAfter.croppedUrl, 800, 0.7)
+      const imageBeforeBase64 = await compressImage(imageBefore.croppedUrl, 512, 0.5)
+      const imageAfterBase64 = await compressImage(imageAfter.croppedUrl, 512, 0.5)
+
+      const fetchController = new AbortController()
+      const fetchTimeout = setTimeout(() => fetchController.abort(), 35000)
 
       const response = await fetch('/api/generate-report', {
         method: 'POST',
@@ -340,8 +343,11 @@ function NewReportPage() {
           parentRequest,
           imageBeforeBase64,
           imageAfterBase64
-        })
+        }),
+        signal: fetchController.signal
       })
+
+      clearTimeout(fetchTimeout)
 
       if (!response.ok) {
         throw new Error('AI 생성 실패')
@@ -351,10 +357,16 @@ function NewReportPage() {
       setReportContent(data)
       setShowResult(true)
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error)
-      alert('AI 리포트 생성에 실패했습니다. 다시 시도해주세요.')
-    } finally {
+      if (error.name === 'AbortError') {
+        alert('AI 응답 시간이 초과되었습니다.\n네트워크 상태를 확인하고 다시 시도해주세요.')
+      } else {
+        alert('AI 리포트 생성에 실패했습니다. 다시 시도해주세요.')
+      }
+    } 
+    
+    finally {
       setGenerating(false)
     }
   }
@@ -462,7 +474,14 @@ function NewReportPage() {
         return
       }
 
+      // ★ 학생의 last_report_at 업데이트 (이 줄 추가!)
+      await supabase
+        .from('students')
+        .update({ last_report_at: new Date().toISOString() })
+        .eq('id', student.id)
+
       alert('리포트가 저장되었습니다!')
+      
       router.push(`/students/${student.id}`)
 
     } catch (error) {

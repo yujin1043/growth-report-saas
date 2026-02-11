@@ -171,6 +171,9 @@ ${parentRequest ? `## 학부모 요청사항\n${parentRequest}\n(이 내용을 [
       messages.push({ role: 'user', content: userPrompt })
     }
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -181,9 +184,12 @@ ${parentRequest ? `## 학부모 요청사항\n${parentRequest}\n(이 내용을 [
         model: 'gpt-4o-mini',
         messages,
         temperature: 0.75,
-        max_tokens: 2000
-      })
+        max_tokens: 1500
+      }),
+      signal: controller.signal
     })
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       const error = await response.json()
@@ -199,7 +205,6 @@ ${parentRequest ? `## 학부모 요청사항\n${parentRequest}\n(이 내용을 [
     if (jsonMatch) {
       const reportContent = JSON.parse(jsonMatch[0])
       
-      // [형태], [색채] 등 태그 제거 (혹시 붙어있을 경우 대비)
       const cleanContent = {
         content_form: reportContent.content_form.replace(/^\[형태\]\s*/i, ''),
         content_color: reportContent.content_color.replace(/^\[색채\]\s*/i, ''),
@@ -216,6 +221,14 @@ ${parentRequest ? `## 학부모 요청사항\n${parentRequest}\n(이 내용을 [
 
   } catch (error) {
     console.error('Error:', error)
+
+    if ((error as Error).name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'AI 응답 시간이 초과되었습니다. 다시 시도해주세요.' },
+        { status: 504 }
+      )
+    }
+
     return NextResponse.json({ error: '서버 오류' }, { status: 500 })
   }
 }
