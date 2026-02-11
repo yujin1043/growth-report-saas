@@ -123,7 +123,7 @@ export default function ReportsPage() {
             <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold text-gray-800">📝 리포트</h1>
             <button
               onClick={() => router.push('/reports/select')}
-              className="px-4 py-2 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition"
+              className="hidden md:block px-4 py-2 bg-teal-500 text-white rounded-xl font-medium hover:bg-teal-600 transition"
             >
               ✏️ 리포트 생성
             </button>

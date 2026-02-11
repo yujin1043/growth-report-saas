@@ -408,10 +408,10 @@ function StudentsPage() {
             <div className="flex gap-2">
               {!bulkMode ? (
                 <>
-                  <button onClick={handleExcelDownload} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
+                  <button onClick={handleExcelDownload} className="hidden md:block bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
                     📥 엑셀
                   </button>
-                  <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
+                  <button onClick={() => setBulkMode(true)} className="hidden md:block bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
                     대량수정
                   </button>
                   <div className="relative">
