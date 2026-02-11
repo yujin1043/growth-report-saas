@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 interface UserContextType {
@@ -11,6 +12,7 @@ interface UserContextType {
   branchName: string
   isLoading: boolean
   refresh: () => void
+  logout: () => Promise<void>
 }
 
 const UserContext = createContext<UserContextType>({
@@ -20,10 +22,16 @@ const UserContext = createContext<UserContextType>({
   branchId: null,
   branchName: '',
   isLoading: true,
-  refresh: () => {}
+  refresh: () => {},
+  logout: async () => {}
 })
 
+// 로그인 없이 접근 가능한 페이지
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/login-preview']
+
 export function UserProvider({ children }: { children: ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState('')
   const [userRole, setUserRole] = useState<string | null>(null)
@@ -34,7 +42,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
   async function loadUser() {
     setIsLoading(true)
     
-    const { data: { user } } = await supabase.auth.getUser()
+    let user = null
+    try {
+      const { data } = await supabase.auth.getUser()
+      user = data.user
+    } catch (e) {
+      console.error('Auth check failed:', e)
+      setIsLoading(false)
+      return
+    }
     
     if (!user) {
       setUserId(null)
@@ -43,6 +59,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setBranchId(null)
       setBranchName('')
       setIsLoading(false)
+      
+      // 보호된 페이지에서 비로그인 → 로그인으로 리다이렉트
+      const isPublic = PUBLIC_PATHS.some(p => window.location.pathname.startsWith(p)) || window.location.pathname === '/'
+      if (!isPublic) {
+        router.push('/login')
+      }
       return
     }
 
@@ -85,8 +107,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     // Auth 상태 변화 감지 (로그인/로그아웃)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         loadUser()
+      }
+      if (event === 'SIGNED_OUT') {
+        setUserId(null)
+        setUserName('')
+        setUserRole('none')
+        setBranchId(null)
+        setBranchName('')
+        router.push('/login')
       }
     })
 
@@ -94,6 +124,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe()
     }
   }, [])
+
+  async function logout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   return (
     <UserContext.Provider value={{
@@ -103,7 +138,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       branchId,
       branchName,
       isLoading,
-      refresh: loadUser
+      refresh: loadUser,
+      logout
     }}>
       {children}
     </UserContext.Provider>
