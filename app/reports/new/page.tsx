@@ -84,6 +84,15 @@ function NewReportPage() {
   
   // 편집 모달 상태
   const [editingImage, setEditingImage] = useState<'before' | 'after' | null>(null)
+
+  useEffect(() => {
+    if (editingImage) {
+      document.body.classList.add('modal-open')
+    } else {
+      document.body.classList.remove('modal-open')
+    }
+    return () => document.body.classList.remove('modal-open')
+  }, [editingImage])
   const [tempCrop, setTempCrop] = useState<Crop>()
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
   const imgRef = useRef<HTMLImageElement>(null)

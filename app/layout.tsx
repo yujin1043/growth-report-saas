@@ -1,4 +1,3 @@
-import KakaoProvider from '@/components/KakaoProvider'
 import { UserProvider } from '@/lib/UserContext'
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -28,11 +27,9 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <KakaoProvider>
           <UserProvider>
             <AdminLayout>{children}</AdminLayout>
           </UserProvider>
-        </KakaoProvider>
       </body>
     </html>
   );
