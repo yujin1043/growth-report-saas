@@ -107,7 +107,7 @@ export default function CurriculumDetailPage() {
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <button onClick={() => router.push('/curriculum')} className="text-gray-600">
+            <button onClick={() => userRole === 'admin' ? router.push('/admin/curriculum') : router.push('/curriculum')} className="text-gray-600 text-sm flex-shrink-0">
               ← 뒤로
             </button>
             <h1 className="text-lg font-bold text-gray-800">커리큘럼 상세</h1>
@@ -158,7 +158,7 @@ export default function CurriculumDetailPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-gray-800">🖼️ 완성작품</h3>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
                 {curriculum.main_images.map((url, idx) => (
                   <div key={idx} className="relative group">
                     <img
@@ -215,7 +215,7 @@ export default function CurriculumDetailPage() {
                       <img
                         src={point.image_url}
                         alt={point.title}
-                        className="w-full max-w-xs rounded-lg cursor-pointer"
+                        className="w-full max-w-xs max-h-64 md:max-h-96 object-contain rounded-lg cursor-pointer"
                         onClick={() => setSelectedImage(point.image_url)}
                       />
                     )}
