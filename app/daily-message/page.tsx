@@ -27,6 +27,7 @@ interface CurriculumTopic {
   id: string
   year: number
   month: number
+  week: number | null
   target_group: string
   title: string
   main_materials: string | null
@@ -128,7 +129,7 @@ export default function DailyMessagePage() {
 
     // 커리큘럼 쿼리 구성
     let topicsQuery = supabase.from('monthly_curriculum')
-      .select('id, year, month, target_group, title, main_materials, parent_message_template, age_group')
+      .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group')
       .eq('status', 'active')
 
     if (profile?.role !== 'admin') {
@@ -521,14 +522,19 @@ export default function DailyMessagePage() {
     ? classes.filter(c => c.branch_id === selectedBranchId)
     : classes
 
-  const groupedTopics = curriculumTopics.reduce((acc, topic) => {
-    const key = `${topic.year}-${topic.month}`
-    if (!acc[key]) {
-      acc[key] = { year: topic.year, month: topic.month, topics: [] }
-    }
-    acc[key].topics.push(topic)
-    return acc
-  }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
+    const groupedTopics = curriculumTopics.reduce((acc, topic) => {
+      const key = `${topic.year}-${topic.month}`
+      if (!acc[key]) {
+        acc[key] = { year: topic.year, month: topic.month, topics: [] }
+      }
+      acc[key].topics.push(topic)
+      return acc
+    }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
+  
+    // 각 그룹 내에서 주차순 정렬
+    Object.values(groupedTopics).forEach(group => {
+      group.topics.sort((a, b) => (a.week || 99) - (b.week || 99))
+    })
 
   const selectedStudent = students.find(s => s.id === selectedStudentId)
   const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
@@ -702,8 +708,8 @@ export default function DailyMessagePage() {
                 >
                   <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
                     {selectedTopicData 
-                      ? `${selectedTopicData.title} [${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}]`
-                      : '선택해주세요'
+                        ? `${selectedTopicData.week ? selectedTopicData.week + '주 ' : ''}${selectedTopicData.title} ${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}`
+                        : '선택해주세요'
                     }
                   </span>
                   <span className="text-gray-400">▼</span>
@@ -832,6 +838,7 @@ export default function DailyMessagePage() {
                         }`}
                       >
                         <div className="flex-1 flex items-center gap-3">
+                          {topic.week && <span className="text-sm font-bold text-teal-600 whitespace-nowrap">{topic.week}주</span>}
                           <p className="font-medium text-gray-800">{topic.title}</p>
                           <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
                             topic.age_group === 'kindergarten' 
