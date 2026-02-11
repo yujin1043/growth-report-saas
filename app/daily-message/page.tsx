@@ -209,72 +209,71 @@ export default function DailyMessagePage() {
 
   const MAX_IMAGES = 4
 
-  const handleImageUpload = async (files: FileList) => {
-      // 이미 4장이면 즉시 차단
-      if (images.length >= MAX_IMAGES) {
-        alert(`사진은 최대 ${MAX_IMAGES}장까지 첨부할 수 있습니다.`)
-        return
-      }
+  const [compressing, setCompressing] = useState(false)
 
-      const remaining = MAX_IMAGES - images.length
-      const fileArray = Array.from(files).slice(0, remaining)
+  const compressSingleImage = async (file: File): Promise<{ file: File; url: string }> => {
+    try {
+      // createImageBitmap은 Image보다 빠름 (특히 모바일)
+      const bitmap = await createImageBitmap(file)
       
-      // 초과 선택 시 안내
-      if (files.length > remaining) {
-        alert(`${remaining}장만 추가할 수 있어서 처음 ${remaining}장만 첨부됩니다.`)
-      }
+      const canvas = document.createElement('canvas')
+      const maxSize = 800
+      let { width, height } = bitmap
       
-      const compressedFiles: File[] = []
-      const newUrls: string[] = []
-      
-      for (const file of fileArray) {
-      try {
-        const img = new Image()
-        const originalUrl = URL.createObjectURL(file)
-        
-        await new Promise((resolve, reject) => {
-          img.onload = resolve
-          img.onerror = reject
-          img.src = originalUrl
-        })
-        
-        const canvas = document.createElement('canvas')
-        const maxSize = 600
-        let { width, height } = img
-        
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = (height / width) * maxSize
-            width = maxSize
-          } else {
-            width = (width / height) * maxSize
-            height = maxSize
-          }
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round((height / width) * maxSize)
+          width = maxSize
+        } else {
+          width = Math.round((width / height) * maxSize)
+          height = maxSize
         }
-        
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, width, height)
-        
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
-        })
-        
-        const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
-        compressedFiles.push(compressedFile)
-        newUrls.push(URL.createObjectURL(compressedFile))
-        
-        URL.revokeObjectURL(originalUrl)
-      } catch (e) {
-        console.error('이미지 압축 실패:', e)
-        compressedFiles.push(file)
-        newUrls.push(URL.createObjectURL(file))
       }
+      
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+      
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
+      })
+      
+      const compressedFile = new File(
+        [blob], 
+        file.name.replace(/\.[^.]+$/, '.jpg'), 
+        { type: 'image/jpeg' }
+      )
+      
+      return { file: compressedFile, url: URL.createObjectURL(compressedFile) }
+    } catch (e) {
+      console.error('이미지 압축 실패:', e)
+      return { file, url: URL.createObjectURL(file) }
     }
+  }
+
+  const handleImageUpload = async (files: FileList) => {
+    if (images.length >= MAX_IMAGES) {
+      alert(`사진은 최대 ${MAX_IMAGES}장까지 첨부할 수 있습니다.`)
+      return
+    }
+
+    const remaining = MAX_IMAGES - images.length
+    const fileArray = Array.from(files).slice(0, remaining)
     
-    setImages(prev => [...prev, ...compressedFiles])
-    setImageUrls(prev => [...prev, ...newUrls])
+    if (files.length > remaining) {
+      alert(`${remaining}장만 추가할 수 있어서 처음 ${remaining}장만 첨부됩니다.`)
+    }
+
+    setCompressing(true)
+    
+    // 모든 이미지를 병렬로 압축
+    const results = await Promise.all(fileArray.map(f => compressSingleImage(f)))
+    
+    setImages(prev => [...prev, ...results.map(r => r.file)])
+    setImageUrls(prev => [...prev, ...results.map(r => r.url)])
+    setCompressing(false)
   }
 
   const removeImage = (index: number) => {
@@ -655,20 +654,27 @@ export default function DailyMessagePage() {
                 ))}
                 
                 {images.length < MAX_IMAGES && (
-                  <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50">
-                    <span className="text-2xl text-gray-300">+</span>
-                    <span className="text-[10px] text-gray-300 mt-0.5">{MAX_IMAGES - images.length}장 가능</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/heic"
-                      multiple
-                      onChange={(e) => {
-                        e.target.files && handleImageUpload(e.target.files)
-                        e.target.value = ''
-                      }}
-                      className="hidden"
-                    />
-                  </label>
+                  compressing ? (
+                    <div className="aspect-square border-2 border-dashed border-teal-300 rounded-xl flex flex-col items-center justify-center bg-teal-50">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500 mb-1"></div>
+                      <span className="text-[10px] text-teal-500">압축중...</span>
+                    </div>
+                  ) : (
+                    <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50">
+                      <span className="text-2xl text-gray-300">+</span>
+                      <span className="text-[10px] text-gray-300 mt-0.5">{MAX_IMAGES - images.length}장 가능</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/heic"
+                        multiple
+                        onChange={(e) => {
+                          e.target.files && handleImageUpload(e.target.files)
+                          e.target.value = ''
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )
                 )}
               </div>
             </div>

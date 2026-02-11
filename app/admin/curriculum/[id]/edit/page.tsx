@@ -92,31 +92,29 @@ export default function EditCurriculumPage() {
   }
 
   const compressImage = async (file: File): Promise<Blob> => {
-    return new Promise((resolve) => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const maxSize = 800
-        let { width, height } = img
-        
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = (height / width) * maxSize
-            width = maxSize
-          } else {
-            width = (width / height) * maxSize
-            height = maxSize
-          }
-        }
-        
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, width, height)
-        
-        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.7)
+    const bitmap = await createImageBitmap(file)
+    const canvas = document.createElement('canvas')
+    const maxSize = 800
+    let { width, height } = bitmap
+    
+    if (width > maxSize || height > maxSize) {
+      if (width > height) {
+        height = Math.round((height / width) * maxSize)
+        width = maxSize
+      } else {
+        width = Math.round((width / height) * maxSize)
+        height = maxSize
       }
-      img.src = URL.createObjectURL(file)
+    }
+    
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    bitmap.close()
+    
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.7)
     })
   }
 
@@ -149,14 +147,16 @@ export default function EditCurriculumPage() {
     const files = e.target.files
     if (!files) return
 
-    for (const file of Array.from(files)) {
-      const url = await uploadImage(file, `main/${formData.year}/${formData.month}`)
-      if (url) {
-        setFormData(prev => ({
-          ...prev,
-          main_images: [...prev.main_images, url]
-        }))
-      }
+    const uploads = Array.from(files).map(file => 
+      uploadImage(file, `main/${formData.year}/${formData.month}`)
+    )
+    const urls = (await Promise.all(uploads)).filter((url): url is string => url !== null)
+    
+    if (urls.length > 0) {
+      setFormData(prev => ({
+        ...prev,
+        main_images: [...prev.main_images, ...urls]
+      }))
     }
   }
 
