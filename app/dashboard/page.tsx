@@ -167,7 +167,7 @@ export default function DashboardPage() {
     const students = studentsResult.data || []
 
     // RPC 결과를 Map으로 변환 (O(1) 조회)
-    const activityMap = new Map(
+    const activityMap = new Map<string, any>(
       activityResult.data?.map((a: any) => [a.branch_id, a]) || []
     )
 
