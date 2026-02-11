@@ -21,15 +21,27 @@ export default function ResetPasswordPage() {
   }, [])
 
   async function checkSession() {
-    const { data: { session } } = await supabase.auth.getSession()
+    try {
+    // 1) PKCE 방식: URL에 ?code= 파라미터가 있으면 Supabase가 자동으로 세션 교환
+    const urlParams = new URLSearchParams(window.location.search)
+    const code = urlParams.get('code')
     
-    // 해시 파라미터에서 토큰 확인 (Supabase가 리다이렉트 시 추가)
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      if (!error) {
+        setIsValidSession(true)
+        // URL 정리
+        window.history.replaceState({}, '', window.location.pathname)
+        return
+      }
+    }
+
+    // 2) 기존 해시 방식 (하위호환)
     const hashParams = new URLSearchParams(window.location.hash.substring(1))
     const accessToken = hashParams.get('access_token')
     const type = hashParams.get('type')
 
     if (type === 'recovery' && accessToken) {
-      // 복구 토큰으로 세션 설정
       const { error } = await supabase.auth.setSession({
         access_token: accessToken,
         refresh_token: hashParams.get('refresh_token') || '',
@@ -41,9 +53,15 @@ export default function ResetPasswordPage() {
       }
     }
 
+    // 3) 이미 세션이 있는 경우
+    const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       setIsValidSession(true)
     } else {
+      setIsValidSession(false)
+    }
+    } catch (e) {
+      console.error('Session check failed:', e)
       setIsValidSession(false)
     }
   }
