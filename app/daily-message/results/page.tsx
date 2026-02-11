@@ -146,46 +146,51 @@ export default function AllResultsPage() {
       if (result.imageUrls.length > 0) {
         const filePromises = result.imageUrls.map(async (url, i) => {
           try {
-            const img = new Image()
-            img.crossOrigin = 'anonymous'
-            await new Promise((resolve, reject) => {
-              img.onload = resolve
-              img.onerror = reject
-              img.src = url
-            })
+            // fetch로 가져오면 CORS 문제 없음 (같은 도메인 스토리지)
+            const response = await fetch(url)
+            const blob = await response.blob()
+            const bitmap = await createImageBitmap(blob)
             
             const canvas = document.createElement('canvas')
             const maxSize = 600
-            let { width, height } = img
-            
+            let { width, height } = bitmap
+
             if (width > maxSize || height > maxSize) {
               if (width > height) {
-                height = (height / width) * maxSize
+                height = Math.round((height / width) * maxSize)
                 width = maxSize
               } else {
-                width = (width / height) * maxSize
+                width = Math.round((width / height) * maxSize)
                 height = maxSize
               }
             }
-            
+
             canvas.width = width
             canvas.height = height
-            const ctx = canvas.getContext('2d')
-            ctx?.drawImage(img, 0, 0, width, height)
-            
-            const blob = await new Promise<Blob>((resolve) => {
-              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
+            const ctx = canvas.getContext('2d')!
+            ctx.drawImage(bitmap, 0, 0, width, height)
+            bitmap.close()
+
+            const compressedBlob = await new Promise<Blob>((resolve) => {
+              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
             })
-            
-            return new File([blob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })
+
+            return new File([compressedBlob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })
           } catch (e) {
             console.error('이미지 처리 실패:', e)
-            return null
+            // 폴백: 원본 이미지 그대로 사용
+            try {
+              const response = await fetch(url)
+              const blob = await response.blob()
+              return new File([blob], `image_${i + 1}.jpg`, { type: blob.type })
+            } catch {
+              return null
+            }
           }
         })
-        
-        const results = await Promise.all(filePromises)
-        files.push(...results.filter((f): f is File => f !== null))
+
+        const shareResults = await Promise.all(filePromises)
+        files.push(...shareResults.filter((f): f is File => f !== null))
       }
 
       if (navigator.share && files.length > 0 && navigator.canShare && navigator.canShare({ files })) {
@@ -215,30 +220,53 @@ export default function AllResultsPage() {
 
   const downloadImages = async (result: Result) => {
     try {
-      for (let i = 0; i < result.imageUrls.length; i++) {
-        const response = await fetch(result.imageUrls[i])
-        const blob = await response.blob()
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${result.studentName}_작품_${i + 1}.jpg`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-      }
-      setCopiedId(`download-${result.id}`)
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
       
-      // 이미지 다운로드 완료 표시
+      if (isIOS) {
+        // iOS: Web Share API로 이미지 공유 (저장 가능)
+        const files: File[] = []
+        for (let i = 0; i < result.imageUrls.length; i++) {
+          try {
+            const response = await fetch(result.imageUrls[i])
+            const blob = await response.blob()
+            files.push(new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' }))
+          } catch (e) {
+            console.error('이미지 다운로드 실패:', e)
+          }
+        }
+        
+        if (files.length > 0 && navigator.share && navigator.canShare?.({ files })) {
+          await navigator.share({ files })
+        } else if (files.length > 0) {
+          // 공유 불가 시 새 탭으로 열기
+          result.imageUrls.forEach(url => window.open(url, '_blank'))
+        }
+      } else {
+        // Android/PC: 기존 다운로드 방식
+        for (let i = 0; i < result.imageUrls.length; i++) {
+          const response = await fetch(result.imageUrls[i])
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = url
+          link.download = `${result.studentName}_작품_${i + 1}.jpg`
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+        }
+      }
+      
+      setCopiedId(`download-${result.id}`)
       setDownloadedImageIds(prev => new Set(prev).add(result.id))
-      // 문구 복사도 완료됐으면 발송완료
       if (copiedMessageIds.has(result.id)) {
         await markAsSent(result.id)
       }
-      
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
-      console.error('Download failed:', error)
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Download failed:', error)
+      }
     }
   }
 
@@ -316,7 +344,7 @@ export default function AllResultsPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="학생 이름으로 검색..."
-            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-base"
           />
         </div>
 
