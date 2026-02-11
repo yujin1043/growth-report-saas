@@ -25,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" className="light" style={{ colorScheme: 'light' }}>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
           <UserProvider>
             <AdminLayout>{children}</AdminLayout>
