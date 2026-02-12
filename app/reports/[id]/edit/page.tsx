@@ -64,7 +64,6 @@ export default function EditReportPage() {
       parent_request: report.parent_request || ''
     })
 
-    // 학생 정보 조회
     if (report.student_id) {
       const { data: studentData } = await supabase
         .from('students')
@@ -144,7 +143,6 @@ export default function EditReportPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* 학생 정보 */}
         {student && (
           <div className="bg-teal-50 rounded-lg p-4 mb-6">
             <p className="font-bold text-teal-800">
@@ -153,26 +151,25 @@ export default function EditReportPage() {
           </div>
         )}
 
-        {/* 지도 기간 */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-bold mb-4">📅 지도 기간</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">시작일</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">시작월</label>
               <input
-                type="date"
+                type="month"
                 name="period_start"
-                value={formData.period_start}
+                value={formData.period_start ? formData.period_start.substring(0, 7) : ''}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">종료일</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">종료월</label>
               <input
-                type="date"
+                type="month"
                 name="period_end"
-                value={formData.period_end}
+                value={formData.period_end ? formData.period_end.substring(0, 7) : ''}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border rounded-lg"
               />
@@ -180,128 +177,61 @@ export default function EditReportPage() {
           </div>
         </div>
 
-        {/* 작품 변화 */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-bold mb-4">🎨 작품 변화</h2>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">형태</label>
-              <textarea
-                name="content_form"
-                value={formData.content_form}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="형태 표현의 변화를 작성해주세요"
-              />
+              <textarea name="content_form" value={formData.content_form} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="형태 표현의 변화를 작성해주세요" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">색채</label>
-              <textarea
-                name="content_color"
-                value={formData.content_color}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="색채 사용의 변화를 작성해주세요"
-              />
+              <textarea name="content_color" value={formData.content_color} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="색채 사용의 변화를 작성해주세요" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">표현</label>
-              <textarea
-                name="content_expression"
-                value={formData.content_expression}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="표현력의 변화를 작성해주세요"
-              />
+              <textarea name="content_expression" value={formData.content_expression} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="표현력의 변화를 작성해주세요" />
             </div>
           </div>
         </div>
 
-        {/* 지도교사 코멘트 */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-bold mb-4">💬 지도교사 코멘트</h2>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">강점</label>
-              <textarea
-                name="content_strength"
-                value={formData.content_strength}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="학생의 강점을 작성해주세요"
-              />
+              <textarea name="content_strength" value={formData.content_strength} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="학생의 강점을 작성해주세요" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">수업 태도 및 감성</label>
-              <textarea
-                name="content_attitude"
-                value={formData.content_attitude}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="수업 태도와 감성적 특징을 작성해주세요"
-              />
+              <textarea name="content_attitude" value={formData.content_attitude} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="수업 태도와 감성적 특징을 작성해주세요" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">향후 지도방향</label>
-              <textarea
-                name="content_direction"
-                value={formData.content_direction}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="향후 지도 방향을 작성해주세요"
-              />
+              <textarea name="content_direction" value={formData.content_direction} onChange={handleChange} rows={3} className="w-full px-4 py-2 border rounded-lg" placeholder="향후 지도 방향을 작성해주세요" />
             </div>
           </div>
         </div>
 
-        {/* 메모 */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-bold mb-4">📝 참고 사항</h2>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">교사 메모 (내부용)</label>
-              <textarea
-                name="teacher_memo"
-                value={formData.teacher_memo}
-                onChange={handleChange}
-                rows={2}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="PDF에 표시되지 않는 내부 메모입니다"
-              />
+              <textarea name="teacher_memo" value={formData.teacher_memo} onChange={handleChange} rows={2} className="w-full px-4 py-2 border rounded-lg" placeholder="PDF에 표시되지 않는 내부 메모입니다" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">학부모 요청사항</label>
-              <textarea
-                name="parent_request"
-                value={formData.parent_request}
-                onChange={handleChange}
-                rows={2}
-                className="w-full px-4 py-2 border rounded-lg"
-                placeholder="학부모의 요청사항이 있다면 기록해주세요"
-              />
+              <textarea name="parent_request" value={formData.parent_request} onChange={handleChange} rows={2} className="w-full px-4 py-2 border rounded-lg" placeholder="학부모의 요청사항이 있다면 기록해주세요" />
             </div>
           </div>
         </div>
 
-        {/* 버튼 */}
         <div className="flex gap-3">
-          <button
-            onClick={() => router.back()}
-            className="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg font-medium hover:bg-gray-300"
-          >
+          <button onClick={() => router.back()} className="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg font-medium hover:bg-gray-300">
             취소
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 bg-teal-500 text-white py-4 rounded-lg font-medium hover:bg-teal-600 disabled:bg-gray-400"
-          >
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-teal-500 text-white py-4 rounded-lg font-medium hover:bg-teal-600 disabled:bg-gray-400">
             {saving ? '저장 중...' : '💾 저장'}
           </button>
         </div>

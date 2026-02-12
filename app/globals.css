@@ -12,12 +12,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* 다크모드 비활성화 - 항상 라이트모드 */
 
 /* iOS 자동 줌인 방지 */
 @supports (-webkit-touch-callout: none) {
