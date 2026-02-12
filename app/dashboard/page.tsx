@@ -556,18 +556,18 @@ export default function DashboardPage() {
           </button>
 
           <div className="grid grid-cols-2 gap-2.5">
-            <button onClick={() => router.push('/reports')} className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center gap-3 hover:bg-teal-50/50 transition text-left">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xl flex-shrink-0" style={{ background: '#E8F8F5' }}>📝</div>
-              <div>
-                <div className="text-sm font-semibold text-gray-800">리포트 작성</div>
-                <div className="text-xs text-gray-400">미작성 {pendingReports}명</div>
+            <button onClick={() => router.push('/reports')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#E8F8F5' }}>📝</div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-800 whitespace-nowrap">리포트 작성</div>
+                <div className="text-xs text-gray-400 whitespace-nowrap">미작성 {pendingReports}명</div>
               </div>
             </button>
-            <button onClick={() => router.push('/students')} className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center gap-3 hover:bg-teal-50/50 transition text-left">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xl flex-shrink-0" style={{ background: '#FFF0F5' }}>👨‍🎓</div>
-              <div>
-                <div className="text-sm font-semibold text-gray-800">학생 관리</div>
-                <div className="text-xs text-gray-400">재원 {activeStudents}명</div>
+            <button onClick={() => router.push('/students')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#FFF0F5' }}>👨‍🎓</div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-800 whitespace-nowrap">학생 관리</div>
+                <div className="text-xs text-gray-400 whitespace-nowrap">재원 {activeStudents}명</div>
               </div>
             </button>
           </div>
