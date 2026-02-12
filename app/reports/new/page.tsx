@@ -298,13 +298,31 @@ function NewReportPage() {
 
   // 이미지를 Base64로 변환
   const convertToBase64 = async (url: string): Promise<string> => {
-    const response = await fetch(url)
-    const blob = await response.blob()
     return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        const MAX_SIZE = 800
+        let width = img.width
+        let height = img.height
+        if (width > MAX_SIZE || height > MAX_SIZE) {
+          if (width > height) {
+            height = Math.round(height * MAX_SIZE / width)
+            width = MAX_SIZE
+          } else {
+            width = Math.round(width * MAX_SIZE / height)
+            height = MAX_SIZE
+          }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('Canvas error')); return }
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.onerror = reject
+      img.src = url
     })
   }
 
