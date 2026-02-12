@@ -1,4 +1,4 @@
-
+@'
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -16,13 +16,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "그리마노??,
-  description: "그리�?미술 ?�생 관�??�스??,
+  title: "GrimaNote",
+  description: "Grima Art Student Management System",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "그리마노??,
+    title: "GrimaNote",
   },
   icons: {
     apple: "/icons/icon-192x192.png",
@@ -50,10 +50,9 @@ export default function RootLayout({
     <html lang="ko">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ServiceWorkerRegister />
-        
-          <AdminLayout>{children}</AdminLayout>
-        
+        <AdminLayout>{children}</AdminLayout>
       </body>
     </html>
   );
 }
+'@ | Out-File -FilePath app/layout.tsx -Encoding utf8
