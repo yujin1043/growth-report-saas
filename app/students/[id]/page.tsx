@@ -191,8 +191,11 @@ export default function StudentDetailPage() {
       .eq('status', 'active')
       .single()
 
-    if (activeData) {
-      setActiveSketchbook(activeData)
+      setActiveSketchbook(null)
+      setSketchbookWorks([])
+  
+      if (activeData) {
+        setActiveSketchbook(activeData)
       
       // 진도 목록 로드
       const { data: worksData } = await supabase
