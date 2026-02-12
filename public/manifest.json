@@ -1,7 +1,7 @@
 {
-  "name": "그리마노트 - 성장리포트",
+  "name": "그리마노트 - 수업·원생 관리 시스템",
   "short_name": "그리마노트",
-  "description": "그리마 미술 학생 관리 시스템",
+  "description": "그리마미술 수업·원생 관리 시스템",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#ffffff",

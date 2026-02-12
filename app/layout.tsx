@@ -1,3 +1,4 @@
+import { UserProvider } from '@/lib/UserContext'
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -49,7 +50,9 @@ export default function RootLayout({
     <html lang="ko">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ServiceWorkerRegister />
-        <AdminLayout>{children}</AdminLayout>
+        <UserProvider>
+          <AdminLayout>{children}</AdminLayout>
+        </UserProvider>
       </body>
     </html>
   );
