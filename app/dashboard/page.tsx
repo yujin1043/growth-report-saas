@@ -574,7 +574,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ④ 관리 필요 원생 */}
-        {attentionStudents.length > 0 && (
+        {(
           <div className="bg-white rounded-2xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -628,6 +628,15 @@ export default function DashboardPage() {
                 )
               })}
             </div>
+
+            {attentionStudents.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-3xl mb-2">🎉</p>
+                <p className="font-semibold text-gray-700">모든 원생이 잘 관리되고 있어요!</p>
+                <p className="text-xs text-gray-400 mt-1">메시지 발송과 리포트 작성이 모두 정상입니다</p>
+              </div>
+            )}
+            
           </div>
         )}
 
