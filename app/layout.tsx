@@ -1,4 +1,3 @@
-@'
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -55,4 +54,3 @@ export default function RootLayout({
     </html>
   );
 }
-'@ | Out-File -FilePath app/layout.tsx -Encoding utf8
