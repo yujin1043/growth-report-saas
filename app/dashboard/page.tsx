@@ -126,31 +126,36 @@ export default function DashboardPage() {
   }
 
   async function loadData() {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (!authUser) { router.push('/login'); return }
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) { router.push('/login'); return }
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('name, role, branch_id')
-      .eq('id', authUser.id)
-      .single()
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('name, role, branch_id')
+        .eq('id', authUser.id)
+        .single()
 
-    if (!profile) { router.push('/login'); return }
+      if (!profile) { router.push('/login'); return }
 
-    setUserRole(profile.role)
+      setUserRole(profile.role)
 
-    if (profile.role === 'staff') {
-      router.push('/admin/curriculum')
-      return
+      if (profile.role === 'staff') {
+        router.push('/admin/curriculum')
+        return
+      }
+
+      if (profile.role === 'admin') {
+        setUser({ name: profile.name, role: profile.role, branch_id: null, branch_name: null, class_names: [] })
+        await loadAdminData()
+      } else {
+        await loadBranchData(authUser.id, profile)
+      }
+    } catch (error) {
+      console.error('Dashboard load error:', error)
+    } finally {
+      setLoading(false)
     }
-
-    if (profile.role === 'admin') {
-      setUser({ name: profile.name, role: profile.role, branch_id: null, branch_name: null, class_names: [] })
-      await loadAdminData()
-    } else {
-      await loadBranchData(authUser.id, profile)
-    }
-    setLoading(false)
   }
 
   // ===== 본사 데이터 =====
@@ -205,7 +210,6 @@ export default function DashboardPage() {
         ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
         : null
 
-      // 메시지 작성률: 이번 달 작성 날짜 수 / 수업일 수
       const branchMessageDates = new Set(
         messages
           .filter(m => m.branch_id === branch.id)
@@ -215,7 +219,6 @@ export default function DashboardPage() {
         ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100)
         : 0
 
-      // 리포트 작성률: 최근 2개월 내 리포트가 있는 학생 비율
       const studentsWithReport = activeStudentsList.filter(s => {
         const student = s as any
         if (!student.last_report_at) return false
@@ -263,68 +266,60 @@ export default function DashboardPage() {
     setBillingByTier(tiers)
   }
 
-  // ===== 지점 계정 데이터 =====
+  // ===== 지점 계정 데이터 (최적화: 6개 쿼리 → Promise.all 1번 + 메시지 1번) =====
   async function loadBranchData(authUserId: string, profile: any) {
     const now = new Date()
     const currentMonth = now.getMonth() + 1
     const currentYear = now.getFullYear()
     const twoMonthsAgo = new Date(currentYear, now.getMonth() - 2, now.getDate())
+    const startOfMonth = new Date(currentYear, now.getMonth(), 1)
 
-    const [branchesResult, classesResult] = await Promise.all([
+    // ★ 1단계: 모든 기본 데이터를 한번에 병렬로 가져오기
+    let studentsQuery = supabase.from('students').select('id, name, class_id, last_report_at, status')
+    if (profile.branch_id) studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
+
+    let reportsQuery = supabase.from('reports').select('student_id').gte('created_at', startOfMonth.toISOString())
+    if (profile.branch_id) reportsQuery = reportsQuery.eq('branch_id', profile.branch_id)
+
+    const [branchesResult, classesResult, teacherClassesResult, studentsResult, reportsResult, curriculumResult] = await Promise.all([
       supabase.from('branches').select('id, name'),
-      supabase.from('classes').select('id, name')
+      supabase.from('classes').select('id, name'),
+      profile.role === 'teacher'
+        ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', authUserId)
+        : Promise.resolve({ data: null }),
+      studentsQuery,
+      reportsQuery,
+      supabase.from('monthly_curriculum').select('id, month, target_group, title').eq('status', 'active').eq('year', currentYear).eq('month', currentMonth)
     ])
+
+    // 맵 생성
     const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
     const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
 
-    let branchName = profile.branch_id ? (branchMap.get(profile.branch_id) || null) : null
+    // 유저 프로필 설정
+    const branchName = profile.branch_id ? (branchMap.get(profile.branch_id) || null) : null
     let classNames: string[] = []
-
-    if (profile.role === 'teacher') {
-      const { data: teacherClasses } = await supabase.from('teacher_classes').select('class_id').eq('teacher_id', authUserId)
-      if (teacherClasses && teacherClasses.length > 0) {
-        classNames = teacherClasses.map(tc => classMap.get(tc.class_id)).filter((name): name is string => !!name)
-      }
+    if (profile.role === 'teacher' && teacherClassesResult.data) {
+      classNames = teacherClassesResult.data.map((tc: any) => classMap.get(tc.class_id)).filter((name: any): name is string => !!name)
     }
-
     setUser({ name: profile.name, role: profile.role, branch_id: profile.branch_id, branch_name: branchName, class_names: classNames })
 
     // 재원학생 + 리포트 미작성
-    let activeQuery = supabase.from('students').select('id').eq('status', 'active')
-    let reportsStudentQuery = supabase.from('reports').select('student_id').gte('created_at', new Date(currentYear, now.getMonth(), 1).toISOString())
+    const allStudents = studentsResult.data || []
+    const activeStudentsList = allStudents.filter(s => s.status === 'active')
+    setActiveStudents(activeStudentsList.length)
 
-    if (profile.branch_id) {
-      activeQuery = activeQuery.eq('branch_id', profile.branch_id)
-      reportsStudentQuery = reportsStudentQuery.eq('branch_id', profile.branch_id)
-    }
-
-    const [activeResult, reportsStudentResult] = await Promise.all([activeQuery, reportsStudentQuery])
-    const activeCount = activeResult.data?.length || 0
-    setActiveStudents(activeCount)
-
-    const reportedIds = new Set(reportsStudentResult.data?.map(r => r.student_id) || [])
-    setPendingReports((activeResult.data || []).filter(s => !reportedIds.has(s.id)).length)
+    const reportedIds = new Set(reportsResult.data?.map(r => r.student_id) || [])
+    setPendingReports(activeStudentsList.filter(s => !reportedIds.has(s.id)).length)
 
     // 커리큘럼 랜덤 1개
-    const { data: curriculumData } = await supabase
-      .from('monthly_curriculum')
-      .select('id, month, target_group, title')
-      .eq('status', 'active')
-      .eq('year', currentYear)
-      .eq('month', currentMonth)
-
-    if (curriculumData && curriculumData.length > 0) {
-      setRandomCurriculum(curriculumData[Math.floor(Math.random() * curriculumData.length)])
+    if (curriculumResult.data && curriculumResult.data.length > 0) {
+      setRandomCurriculum(curriculumResult.data[Math.floor(Math.random() * curriculumResult.data.length)])
     }
 
-    // 관리 필요 원생
-    let studentsQuery = supabase.from('students').select('id, name, class_id, last_report_at').eq('status', 'active')
-    if (profile.branch_id) studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
-
-    const { data: allStudents } = await studentsQuery
-
-    if (allStudents && allStudents.length > 0) {
-      const studentIds = allStudents.map(s => s.id)
+    // ★ 2단계: 메시지 데이터 (학생 ID가 필요하므로 1단계 이후 실행)
+    if (activeStudentsList.length > 0) {
+      const studentIds = activeStudentsList.map(s => s.id)
       const { data: messagesData } = await supabase
         .from('daily_messages')
         .select('student_id, created_at')
@@ -338,7 +333,7 @@ export default function DashboardPage() {
 
       const attentionList: AttentionStudent[] = []
 
-      for (const student of allStudents) {
+      for (const student of activeStudentsList) {
         const lastMsgDate = lastMessageMap.get(student.id)
         const noMessageDays = lastMsgDate
           ? Math.floor((now.getTime() - new Date(lastMsgDate).getTime()) / (1000 * 60 * 60 * 24))
