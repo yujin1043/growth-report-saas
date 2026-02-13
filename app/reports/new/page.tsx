@@ -128,21 +128,27 @@ function NewReportPage() {
   }, [studentId])
 
   async function loadStudent() {
-    const { data, error } = await supabase
-      .from('students')
-      .select('id, student_code, name, birth_year, branch_id, classes(name)')
-      .eq('id', studentId)
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, student_code, name, birth_year, branch_id, classes(name)')
+        .eq('id', studentId)
+        .single()
 
-    if (!error && data) {
-      setStudent({
-        ...data,
-        classes: Array.isArray(data.classes) 
-          ? data.classes[0] || null 
-          : data.classes
-      })
+      if (!error && data) {
+        setStudent({
+          ...data,
+          classes: Array.isArray(data.classes) 
+            ? data.classes[0] || null 
+            : data.classes
+        })
+      }
+    } catch (error) {
+      console.error('Load error:', error)
+    } finally {
+      // ← 에러가 나도 반드시 로딩 해제
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
@@ -150,20 +156,28 @@ function NewReportPage() {
   // 이미지 선택 핸들러
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'before' | 'after') => {
     const file = e.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      const newState: ImageEditState = {
-        originalFile: file,
-        originalUrl: url,
-        rotation: 0,
-        croppedUrl: url
-      }
-      if (type === 'before') {
-        setImageBefore(newState)
-      } else {
-        setImageAfter(newState)
-      }
+    
+    // ① 취소 시 input 초기화 후 아무것도 하지 않음
+    if (!file) {
+      e.target.value = ''
+      return
     }
+
+    const url = URL.createObjectURL(file)
+    const newState: ImageEditState = {
+      originalFile: file,
+      originalUrl: url,
+      rotation: 0,
+      croppedUrl: url
+    }
+    if (type === 'before') {
+      setImageBefore(newState)
+    } else {
+      setImageAfter(newState)
+    }
+
+    // ② 같은 파일 재선택 가능하도록 input 초기화
+    e.target.value = ''
   }
 
   // 편집 모달 열기
