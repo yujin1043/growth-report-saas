@@ -574,71 +574,72 @@ export default function DashboardPage() {
         </div>
 
         {/* ④ 관리 필요 원생 */}
-        {(
-          <div className="bg-white rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                <span className="w-1 h-4 rounded-sm inline-block" style={{ background: 'linear-gradient(180deg, #FF6B6B 0%, #FFB4B4 100%)' }}></span>
-                관리 필요 원생
-              </h3>
-              <span className="bg-red-100 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full">{attentionStudents.length}명</span>
-            </div>
-
-            <div className="flex gap-1.5 mb-3.5">
-              {[
-                { id: 'all', label: '전체', count: attentionStudents.length },
-                { id: 'message', label: '메시지 미발송', count: messageAlertCount },
-                { id: 'report', label: '리포트 필요', count: reportAlertCount },
-              ].map(tab => (
-                <button key={tab.id} onClick={() => setAttentionFilter(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${attentionFilter === tab.id ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                  {tab.label} {tab.count}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-1.5">
-              {filteredAttention.map(student => {
-                const isMsgAlert = student.no_message_days === null || student.no_message_days >= 7
-                return (
-                  <div key={student.id} onClick={() => router.push(`/students/${student.id}`)} className="flex items-center p-3.5 rounded-xl bg-gray-50 border border-gray-100 cursor-pointer hover:bg-teal-50/30 transition">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-gray-800 mb-1">
-                        {student.name}
-                        <span className="text-xs font-normal text-gray-400 ml-1.5">{student.class_name}</span>
-                      </div>
-                      <div className="flex gap-1.5 flex-wrap">
-                        {isMsgAlert && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">메시지 {student.no_message_days === null ? '없음' : `${student.no_message_days}일 전`}</span>}
-                        {student.need_report && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">리포트 {student.report_months > 0 ? `${student.report_months}개월 경과` : '없음'}</span>}
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5 flex-shrink-0 ml-2">
-                      {isMsgAlert && (
-                        <button onClick={(e) => { e.stopPropagation(); router.push('/daily-message') }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-amber-50"
-                          style={{ background: '#FFFBEB', borderColor: '#F5D565', color: '#92400E' }}>메시지</button>
-                      )}
-                      {student.need_report && (
-                        <button onClick={(e) => { e.stopPropagation(); router.push(`/students/${student.id}`) }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-teal-50"
-                          style={{ background: '#F0FDFA', borderColor: '#5BB5C5', color: '#0F766E' }}>리포트</button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {attentionStudents.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-3xl mb-2">🎉</p>
-                <p className="font-semibold text-gray-700">모든 원생이 잘 관리되고 있어요!</p>
-                <p className="text-xs text-gray-400 mt-1">메시지 발송과 리포트 작성이 모두 정상입니다</p>
-              </div>
-            )}
-            
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <span className="w-1 h-4 rounded-sm inline-block" style={{ background: 'linear-gradient(180deg, #FF6B6B 0%, #FFB4B4 100%)' }}></span>
+              관리 필요 원생
+            </h3>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${attentionStudents.length > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              {attentionStudents.length}명
+            </span>
           </div>
-        )}
+
+          {attentionStudents.length > 0 ? (
+            <>
+              <div className="flex gap-1.5 mb-3.5">
+                {[
+                  { id: 'all', label: '전체', count: attentionStudents.length },
+                  { id: 'message', label: '메시지 미발송', count: messageAlertCount },
+                  { id: 'report', label: '리포트 필요', count: reportAlertCount },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setAttentionFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${attentionFilter === tab.id ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                    {tab.label} {tab.count}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5">
+                {filteredAttention.map(student => {
+                  const isMsgAlert = student.no_message_days === null || student.no_message_days >= 7
+                  return (
+                    <div key={student.id} onClick={() => router.push(`/students/${student.id}`)} className="flex items-center p-3.5 rounded-xl bg-gray-50 border border-gray-100 cursor-pointer hover:bg-teal-50/30 transition">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-800 mb-1">
+                          {student.name}
+                          <span className="text-xs font-normal text-gray-400 ml-1.5">{student.class_name}</span>
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {isMsgAlert && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">메시지 {student.no_message_days === null ? '없음' : `${student.no_message_days}일 전`}</span>}
+                          {student.need_report && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">리포트 {student.report_months > 0 ? `${student.report_months}개월 경과` : '없음'}</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5 flex-shrink-0 ml-2">
+                        {isMsgAlert && (
+                          <button onClick={(e) => { e.stopPropagation(); router.push('/daily-message') }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-amber-50"
+                            style={{ background: '#FFFBEB', borderColor: '#F5D565', color: '#92400E' }}>메시지</button>
+                        )}
+                        {student.need_report && (
+                          <button onClick={(e) => { e.stopPropagation(); router.push(`/students/${student.id}`) }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-teal-50"
+                            style={{ background: '#F0FDFA', borderColor: '#5BB5C5', color: '#0F766E' }}>리포트</button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-3xl mb-2">🎉</p>
+              <p className="font-semibold text-gray-700">모든 원생이 잘 관리되고 있어요!</p>
+              <p className="text-xs text-gray-400 mt-1">메시지 발송과 리포트 작성이 모두 정상입니다</p>
+            </div>
+          )}
+        </div>
 
       </div>
     </div>
