@@ -53,90 +53,74 @@ export default function SketchbookDetailPage() {
   }, [studentId, sketchbookId])
 
   async function loadData() {
-    // 학생 정보
-    const { data: studentData } = await supabase
-      .from('students')
-      .select('id, name, birth_year, classes(name)')
-      .eq('id', studentId)
-      .single()
+    try {
+      const [studentResult, sketchbookResult, worksResult] = await Promise.all([
+        supabase.from('students').select('id, name, birth_year, classes(name)').eq('id', studentId).single(),
+        supabase.from('sketchbooks').select('*').eq('id', sketchbookId).single(),
+        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description').eq('sketchbook_id', sketchbookId).order('work_date', { ascending: true })
+      ])
 
-    if (studentData) {
-      setStudent({
-        ...studentData,
-        classes: Array.isArray(studentData.classes) 
-          ? studentData.classes[0] || null 
-          : studentData.classes
-      })
-    }
-
-    // 스케치북 정보
-    const { data: sketchbookData } = await supabase
-      .from('sketchbooks')
-      .select('*')
-      .eq('id', sketchbookId)
-      .single()
-
-    if (sketchbookData) setSketchbook(sketchbookData)
-
-    // 진도 목록
-    const { data: worksData } = await supabase
-      .from('sketchbook_works')
-      .select('id, work_date, curriculum_id, is_custom, custom_title, custom_description')
-      .eq('sketchbook_id', sketchbookId)
-      .order('work_date', { ascending: true })
-
-    if (worksData) {
-      // 커리큘럼 정보 가져오기
-      const curriculumIds = worksData
-        .filter(w => w.curriculum_id)
-        .map(w => w.curriculum_id)
-
-      let curriculumMap = new Map()
-      if (curriculumIds.length > 0) {
-        const { data: curriculumData } = await supabase
-          .from('monthly_curriculum')
-          .select('id, title, parent_message_template')
-          .in('id', curriculumIds)
-
-        if (curriculumData) {
-          curriculumMap = new Map(curriculumData.map(c => [c.id, c]))
-        }
+      if (studentResult.data) {
+        setStudent({
+          ...studentResult.data,
+          classes: Array.isArray(studentResult.data.classes) 
+            ? studentResult.data.classes[0] || null 
+            : studentResult.data.classes
+        })
       }
 
-      const worksWithCurriculum = worksData.map(work => ({
-        ...work,
-        curriculum: work.curriculum_id ? curriculumMap.get(work.curriculum_id) : null
-      }))
+      if (sketchbookResult.data) setSketchbook(sketchbookResult.data)
 
-      setWorks(worksWithCurriculum)
+      if (worksResult.data) {
+        const curriculumIds = worksResult.data
+          .filter(w => w.curriculum_id)
+          .map(w => w.curriculum_id)
 
-      // 편집용 초기값 설정
-      const initialEdits: {[key: string]: string} = {}
-      worksWithCurriculum.forEach(work => {
-        initialEdits[work.id] = work.is_custom 
-          ? work.custom_description || ''
-          : work.curriculum?.parent_message_template || ''
-      })
-      setEditedWorks(initialEdits)
+        let curriculumMap = new Map()
+        if (curriculumIds.length > 0) {
+          const { data: curriculumData } = await supabase
+            .from('monthly_curriculum')
+            .select('id, title, parent_message_template')
+            .in('id', curriculumIds)
+
+          if (curriculumData) {
+            curriculumMap = new Map(curriculumData.map(c => [c.id, c]))
+          }
+        }
+
+        const worksWithCurriculum = worksResult.data.map(work => ({
+          ...work,
+          curriculum: work.curriculum_id ? curriculumMap.get(work.curriculum_id) : null
+        }))
+
+        setWorks(worksWithCurriculum)
+
+        const initialEdits: {[key: string]: string} = {}
+        worksWithCurriculum.forEach(work => {
+          initialEdits[work.id] = work.is_custom 
+            ? work.custom_description || ''
+            : work.curriculum?.parent_message_template || ''
+        })
+        setEditedWorks(initialEdits)
+      }
+    } catch (error) {
+      console.error('Load error:', error)
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
-  // 편집 내용 저장
   async function handleSaveEdits() {
     setSaving(true)
     
     try {
       for (const work of works) {
         if (work.is_custom) {
-          // 자율 수업은 custom_description 업데이트
           await supabase
             .from('sketchbook_works')
             .update({ custom_description: editedWorks[work.id] })
             .eq('id', work.id)
         }
-        // 커리큘럼 수업은 원본 유지 (출력 시 editedWorks 값 사용)
       }
       
       setEditMode(false)
@@ -149,7 +133,6 @@ export default function SketchbookDetailPage() {
     setSaving(false)
   }
 
-  // 작품 설명 가져오기
   const getWorkDescription = (work: SketchbookWork) => {
     if (editMode) {
       return editedWorks[work.id] || ''
@@ -159,7 +142,6 @@ export default function SketchbookDetailPage() {
       : work.curriculum?.parent_message_template || ''
   }
 
-  // 작품 제목 가져오기
   const getWorkTitle = (work: SketchbookWork) => {
     return work.is_custom ? work.custom_title : work.curriculum?.title
   }
@@ -204,18 +186,18 @@ export default function SketchbookDetailPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-4 md:py-6">
-        {/* 스케치북 정보 카드 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 mb-4 md:mb-6">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 bg-gradient-to-br from-purple-400 to-pink-500 rounded-2xl flex items-center justify-center text-white text-2xl shadow-lg">
+        {/* ── 스케치북 정보 카드 ── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6 mb-4 md:mb-6">
+          <div className="flex items-start gap-3 md:gap-4">
+            <div className="w-12 h-12 md:w-14 md:h-14 bg-gradient-to-br from-purple-400 to-pink-500 rounded-xl md:rounded-2xl flex items-center justify-center text-white text-xl md:text-2xl shadow-lg flex-shrink-0">
               📒
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-xl font-bold text-gray-800">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 md:gap-3 mb-1">
+                <h2 className="text-base md:text-xl font-bold text-gray-800 break-keep">
                   {student.name} - 스케치북 #{sketchbook.book_number}
                 </h2>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${
                   sketchbook.status === 'completed' 
                     ? 'bg-green-50 text-green-600'
                     : 'bg-blue-50 text-blue-600'
@@ -223,84 +205,81 @@ export default function SketchbookDetailPage() {
                   {sketchbook.status === 'completed' ? '완료' : '진행중'}
                 </span>
               </div>
-              <p className="text-sm text-gray-500">
+              <p className="text-xs md:text-sm text-gray-500">
                 {sketchbook.started_at} ~ {sketchbook.completed_at || '진행중'}
               </p>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-xs md:text-sm text-gray-500 mt-0.5">
                 {student.classes?.name || '-'} · 총 {works.length}작품
               </p>
             </div>
           </div>
         </div>
 
-        {/* 완료 체크리스트 (완료된 스케치북만) */}
+        {/* ── 완료 체크리스트 ── 버튼을 텍스트 아래 별도 줄로 배치 */}
         {sketchbook.status === 'completed' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4 md:mb-6">
-            <h3 className="font-semibold text-gray-800 mb-4">✅ 완료 체크리스트</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📝</span>
-                  <div>
-                    <p className="font-medium text-gray-800">진도 기록 확인</p>
-                    <p className="text-xs text-gray-500">{works.length}개 작품 기록됨</p>
-                  </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
+            <h3 className="font-semibold text-gray-800 mb-3 md:mb-4">✅ 완료 체크리스트</h3>
+            <div className="space-y-2.5 md:space-y-3">
+              {/* 1) 진도 기록 확인 */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <span className="text-lg md:text-xl flex-shrink-0">📝</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-800 text-sm md:text-base">진도 기록 확인</p>
+                  <p className="text-xs text-gray-500">{works.length}개 작품 기록됨</p>
                 </div>
-                <span className="text-green-500 text-xl">✓</span>
+                <span className="text-green-500 text-lg flex-shrink-0">✓</span>
               </div>
               
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">🖨️</span>
-                  <div>
-                    <p className="font-medium text-gray-800">작품 설명 출력</p>
-                    <p className="text-xs text-gray-500">A4 2단으로 출력하여 스케치북에 부착</p>
-                  </div>
+              {/* 2) 작품 설명 출력 */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <span className="text-lg md:text-xl flex-shrink-0">🖨️</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-800 text-sm md:text-base">작품 설명 출력</p>
+                  <p className="text-xs text-gray-500 hidden md:block">A4 2단으로 출력하여 스케치북에 부착</p>
                 </div>
                 <button
                   onClick={() => router.push(`/students/${studentId}/sketchbook/${sketchbookId}/print`)}
-                  className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition"
+                  className="px-3 py-1.5 md:px-4 md:py-2 bg-teal-500 text-white rounded-lg text-xs font-medium hover:bg-teal-600 transition active:scale-95 flex-shrink-0"
                 >
-                  출력하기
+                  출력
                 </button>
               </div>
               
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📊</span>
-                  <div>
-                    <p className="font-medium text-gray-800">성장 리포트 작성</p>
-                    <p className="text-xs text-gray-500">첫 작품 ↔ 마지막 작품 비교 분석</p>
-                  </div>
+              {/* 3) 성장 리포트 작성 */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <span className="text-lg md:text-xl flex-shrink-0">📊</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-800 text-sm md:text-base">성장 리포트 작성</p>
+                  <p className="text-xs text-gray-500 hidden md:block">첫 작품 ↔ 마지막 작품 비교 분석</p>
                 </div>
                 <button
                   onClick={() => router.push(`/reports/new?studentId=${studentId}&sketchbookId=${sketchbookId}`)}
-                  className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition"
+                  className="px-3 py-1.5 md:px-4 md:py-2 bg-purple-500 text-white rounded-lg text-xs font-medium hover:bg-purple-600 transition active:scale-95 flex-shrink-0"
                 >
-                  작성하기
+                  작성
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* 진도 목록 */}
+        {/* ── 진도 목록 ── */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-800">📋 작품 목록 ({works.length}개)</h3>
+          <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="font-semibold text-gray-800 text-sm md:text-base">📋 작품 목록 ({works.length}개)</h3>
             <div className="flex items-center gap-2">
               {editMode ? (
                 <>
                   <button
                     onClick={() => setEditMode(false)}
-                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs md:text-sm font-medium hover:bg-gray-200 transition"
                   >
                     취소
                   </button>
                   <button
                     onClick={handleSaveEdits}
                     disabled={saving}
-                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50"
+                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50"
                   >
                     {saving ? '저장 중...' : '저장'}
                   </button>
@@ -308,7 +287,7 @@ export default function SketchbookDetailPage() {
               ) : (
                 <button
                   onClick={() => setEditMode(true)}
-                  className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-sm font-medium hover:bg-amber-100 transition"
+                  className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs md:text-sm font-medium hover:bg-amber-100 transition"
                 >
                   수정
                 </button>
@@ -318,21 +297,23 @@ export default function SketchbookDetailPage() {
 
           <div className="divide-y divide-gray-100">
             {works.map((work, index) => (
-              <div key={work.id} className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm flex-shrink-0">
+              <div key={work.id} className="p-4 md:p-5">
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="w-7 h-7 md:w-8 md:h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-xs md:text-sm flex-shrink-0 mt-0.5">
                     {index + 1}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="font-medium text-gray-800">{getWorkTitle(work)}</p>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  <div className="flex-1 min-w-0">
+                    {/* 제목 + 태그: flex-wrap으로 줄바꿈 허용 */}
+                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                      <p className="font-medium text-gray-800 text-sm md:text-base break-all">{getWorkTitle(work)}</p>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium flex-shrink-0 ${
                         work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
                       }`}>
                         {work.is_custom ? '자율' : '커리큘럼'}
                       </span>
-                      <span className="text-xs text-gray-400">{work.work_date}</span>
                     </div>
+                    {/* 날짜: 별도 줄 */}
+                    <p className="text-[11px] md:text-xs text-gray-400 mb-2">{work.work_date}</p>
                     
                     {editMode ? (
                       <textarea
@@ -345,7 +326,7 @@ export default function SketchbookDetailPage() {
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                       />
                     ) : (
-                      <p className="text-sm text-gray-600 leading-relaxed">
+                      <p className="text-xs md:text-sm text-gray-600 leading-relaxed">
                         {getWorkDescription(work) || '(설명 없음)'}
                       </p>
                     )}

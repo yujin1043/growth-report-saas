@@ -42,105 +42,71 @@ export default function SketchbookPrintPage() {
   const [works, setWorks] = useState<SketchbookWork[]>([])
   const [loading, setLoading] = useState(true)
 
-  // 편집 모드
-  const [editMode, setEditMode] = useState(false)
-  const [editedWorks, setEditedWorks] = useState<{[key: string]: { title: string, description: string }}>({})
-
   useEffect(() => {
     if (studentId && sketchbookId) loadData()
   }, [studentId, sketchbookId])
 
   async function loadData() {
-    // 학생 정보
-    const { data: studentData } = await supabase
-      .from('students')
-      .select('id, name, classes(name), branches(name)')
-      .eq('id', studentId)
-      .single()
+    try {
+      const [studentResult, sketchbookResult, worksResult] = await Promise.all([
+        supabase.from('students').select('id, name, classes(name), branches(name)').eq('id', studentId).single(),
+        supabase.from('sketchbooks').select('*').eq('id', sketchbookId).single(),
+        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description').eq('sketchbook_id', sketchbookId).order('work_date', { ascending: true })
+      ])
 
-    if (studentData) {
-      setStudent({
-        ...studentData,
-        classes: Array.isArray(studentData.classes) 
-          ? studentData.classes[0] || null 
-          : studentData.classes,
-        branches: Array.isArray(studentData.branches) 
-          ? studentData.branches[0] || null 
-          : studentData.branches
-      })
-    }
-
-    // 스케치북 정보
-    const { data: sketchbookData } = await supabase
-      .from('sketchbooks')
-      .select('*')
-      .eq('id', sketchbookId)
-      .single()
-
-    if (sketchbookData) setSketchbook(sketchbookData)
-
-    // 진도 목록
-    const { data: worksData } = await supabase
-      .from('sketchbook_works')
-      .select('id, work_date, curriculum_id, is_custom, custom_title, custom_description')
-      .eq('sketchbook_id', sketchbookId)
-      .order('work_date', { ascending: true })
-
-    if (worksData) {
-      // 커리큘럼 정보 가져오기
-      const curriculumIds = worksData
-        .filter(w => w.curriculum_id)
-        .map(w => w.curriculum_id)
-
-      let curriculumMap = new Map()
-      if (curriculumIds.length > 0) {
-        const { data: curriculumData } = await supabase
-          .from('monthly_curriculum')
-          .select('id, title, parent_message_template')
-          .in('id', curriculumIds)
-
-        if (curriculumData) {
-          curriculumMap = new Map(curriculumData.map(c => [c.id, c]))
-        }
+      if (studentResult.data) {
+        setStudent({
+          ...studentResult.data,
+          classes: Array.isArray(studentResult.data.classes) 
+            ? studentResult.data.classes[0] || null 
+            : studentResult.data.classes,
+          branches: Array.isArray(studentResult.data.branches) 
+            ? studentResult.data.branches[0] || null 
+            : studentResult.data.branches
+        })
       }
 
-      const worksWithCurriculum = worksData.map(work => ({
-        ...work,
-        curriculum: work.curriculum_id ? curriculumMap.get(work.curriculum_id) : null
-      }))
+      if (sketchbookResult.data) setSketchbook(sketchbookResult.data)
 
-      setWorks(worksWithCurriculum)
+      if (worksResult.data) {
+        const curriculumIds = worksResult.data
+          .filter(w => w.curriculum_id)
+          .map(w => w.curriculum_id)
 
-      // 편집용 초기값 설정
-      const initialEdits: {[key: string]: { title: string, description: string }} = {}
-      worksWithCurriculum.forEach(work => {
-        initialEdits[work.id] = {
-          title: work.is_custom ? work.custom_title || '' : work.curriculum?.title || '',
-          description: work.is_custom 
-            ? work.custom_description || ''
-            : work.curriculum?.parent_message_template || ''
+        let curriculumMap = new Map()
+        if (curriculumIds.length > 0) {
+          const { data: curriculumData } = await supabase
+            .from('monthly_curriculum')
+            .select('id, title, parent_message_template')
+            .in('id', curriculumIds)
+
+          if (curriculumData) {
+            curriculumMap = new Map(curriculumData.map(c => [c.id, c]))
+          }
         }
-      })
-      setEditedWorks(initialEdits)
-    }
 
-    setLoading(false)
+        setWorks(worksResult.data.map(work => ({
+          ...work,
+          curriculum: work.curriculum_id ? curriculumMap.get(work.curriculum_id) : null
+        })))
+      }
+    } catch (error) {
+      console.error('Load error:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  // 인쇄
   const handlePrint = () => {
     window.print()
   }
 
-  // 작품 제목/설명 가져오기
   const getWorkTitle = (work: SketchbookWork) => {
-    return editedWorks[work.id]?.title || 
-      (work.is_custom ? work.custom_title : work.curriculum?.title) || ''
+    return (work.is_custom ? work.custom_title : work.curriculum?.title) || ''
   }
 
   const getWorkDescription = (work: SketchbookWork) => {
-    return editedWorks[work.id]?.description || 
-      (work.is_custom ? work.custom_description : work.curriculum?.parent_message_template) || ''
+    return (work.is_custom ? work.custom_description : work.curriculum?.parent_message_template) || ''
   }
 
   if (loading) {
@@ -165,7 +131,6 @@ export default function SketchbookPrintPage() {
     )
   }
 
-  // 페이지당 10개 작품 (2단 × 5행)
   const worksPerPage = 10
   const totalPages = Math.ceil(works.length / worksPerPage)
   const pages = Array.from({ length: totalPages }, (_, i) => 
@@ -185,33 +150,21 @@ export default function SketchbookPrintPage() {
               ← 뒤로
             </button>
             <h1 className="font-bold text-gray-800 text-sm md:text-base truncate mx-2">작품 설명 출력 미리보기</h1>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={() => setEditMode(!editMode)}
-                className={`px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition ${
-                  editMode 
-                    ? 'bg-amber-500 text-white' 
-                    : 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-                }`}
-              >
-                {editMode ? '수정 완료' : '수정'}
-              </button>
-              <button
-                onClick={handlePrint}
-                className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition"
-              >
-                🖨️ 인쇄
-              </button>
-            </div>
+            <button
+              onClick={handlePrint}
+              className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition shrink-0"
+            >
+              🖨️ 인쇄
+            </button>
           </div>
         </div>
       </div>
 
       {/* 안내 메시지 */}
       <div className="print:hidden max-w-4xl mx-auto px-4 py-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <p className="text-sm text-amber-800">
-            ⚠️ <strong>인쇄 전 확인:</strong> 필요시 "수정" 버튼을 눌러 내용을 수정할 수 있습니다. 
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+          <p className="text-sm text-teal-800">
+            💡 <strong>안내:</strong> 내용 수정은 학생 상세페이지의 스케치북 관리에서 할 수 있습니다. 
             인쇄 시 A4 용지에 2단으로 출력됩니다.
           </p>
         </div>
@@ -256,39 +209,15 @@ export default function SketchbookPrintPage() {
                       <span className="w-6 h-6 bg-teal-100 rounded flex items-center justify-center text-xs font-bold text-teal-700">
                         {workNumber}
                       </span>
-                      {editMode ? (
-                        <input
-                          type="text"
-                          value={editedWorks[work.id]?.title || ''}
-                          onChange={(e) => setEditedWorks({
-                            ...editedWorks,
-                            [work.id]: { ...editedWorks[work.id], title: e.target.value }
-                          })}
-                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm font-semibold"
-                        />
-                      ) : (
-                        <span className="font-semibold text-gray-800 text-sm flex-1 truncate">
-                          {getWorkTitle(work)}
-                        </span>
-                      )}
+                      <span className="font-semibold text-gray-800 text-sm flex-1 truncate">
+                        {getWorkTitle(work)}
+                      </span>
                     </div>
                     
                     {/* 작품 설명 */}
-                    {editMode ? (
-                      <textarea
-                        value={editedWorks[work.id]?.description || ''}
-                        onChange={(e) => setEditedWorks({
-                          ...editedWorks,
-                          [work.id]: { ...editedWorks[work.id], description: e.target.value }
-                        })}
-                        rows={4}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs resize-none"
-                      />
-                    ) : (
-                      <p className="text-xs text-gray-600 leading-relaxed">
-                        {getWorkDescription(work) || '(설명 없음)'}
-                      </p>
-                    )}
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      {getWorkDescription(work) || '(설명 없음)'}
+                    </p>
                   </div>
                 )
               })}
