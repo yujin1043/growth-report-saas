@@ -1,172 +1,388 @@
 ﻿'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useUserContext } from '@/lib/UserContext'
 
-interface Curriculum {
-  id: string
-  year: number
-  month: number
-  week: number
-  target_group: string
+interface TeachingPoint {
   title: string
-  thumbnail_url: string
-  status: string
+  description: string
+  image_url: string
+  image_urls: string[]
 }
 
-interface GroupedCurriculum {
-  label: string
-  year: number
-  month: number
-  week: number
-  items: Curriculum[]
+interface VariationReference {
+  title: string
+  image_url: string
 }
 
-export default function AdminCurriculumPage() {
+export default function EditCurriculumPage() {
   const router = useRouter()
-  const { userRole, isLoading: userLoading } = useUserContext()
-  
+  const params = useParams()
+  const curriculumId = params.id as string
+
   const [loading, setLoading] = useState(true)
-  const [curriculums, setCurriculums] = useState<Curriculum[]>([])
-  const [groupedData, setGroupedData] = useState<GroupedCurriculum[]>([])
-  const [selectedYear, setSelectedYear] = useState<number>(2026)
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [draftSavedMsg, setDraftSavedMsg] = useState('')
+  const formChangedRef = useRef(false)
 
-  // 연도 목록 (동적으로 생성)
-  const years = [2024, 2025, 2026]
+  const [formData, setFormData] = useState({
+    year: 2025,
+    month: 1,
+    target_group: '유치부',
+    title: '',
+    main_images: [] as string[],
+    main_materials: '',
+    teaching_points: [] as TeachingPoint[],
+    cautions: '',
+    material_sources: '',
+    variation_description: '',
+    variation_references: [] as VariationReference[],
+    status: 'draft',
+    parent_message_template: ''
+  })
 
-  // 권한 체크: admin만 접근 가능
+  // 드래그 상태
+  const [dragOverMain, setDragOverMain] = useState(false)
+  const [dragOverPointIndex, setDragOverPointIndex] = useState<number | null>(null)
+
   useEffect(() => {
-    if (!userLoading && userRole !== 'admin') {
+    checkAuthAndLoad()
+  }, [curriculumId])
+
+  // 페이지 이탈 경고
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (formChangedRef.current) {
+        e.preventDefault()
+        e.returnValue = '수정 중인 내용이 있습니다. 페이지를 떠나시겠습니까?'
+        return e.returnValue
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
+  // formData 변경 추적
+  useEffect(() => {
+    if (!loading) formChangedRef.current = true
+  }, [formData, loading])
+
+  async function checkAuthAndLoad() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
+      return
     }
-  }, [userLoading, userRole, router])
-
-  useEffect(() => {
-    if (!userLoading && userRole === 'admin') {
-      loadCurriculums()
-    }
-  }, [userLoading, userRole])
-
-  useEffect(() => {
-    if (curriculums.length > 0) {
-      groupByWeek()
-    } else {
-      setGroupedData([])
-    }
-  }, [curriculums, selectedYear])
-
-  async function loadCurriculums() {
-    setLoading(true)
 
     const { data, error } = await supabase
       .from('monthly_curriculum')
-      .select('id, year, month, week, target_group, title, thumbnail_url, status')
-      .order('year', { ascending: false })
-      .order('month', { ascending: false })
-      .order('week', { ascending: true })
-      .order('target_group', { ascending: true })
+      .select('*')
+      .eq('id', curriculumId)
+      .single()
 
-    if (error) {
-      console.error('Load error:', error)
-      setLoading(false)
+    if (error || !data) {
+      alert('콘텐츠를 찾을 수 없습니다.')
+      router.push('/admin/curriculum')
       return
     }
 
-    setCurriculums(data || [])
+    // teaching_points 호환성 처리: image_url → image_urls
+    const migratedPoints = (data.teaching_points || []).map((p: any) => ({
+      title: p.title || '',
+      description: p.description || '',
+      image_url: p.image_url || '',
+      image_urls: p.image_urls || (p.image_url ? [p.image_url] : [])
+    }))
+
+    setFormData({
+      year: data.year,
+      month: data.month,
+      target_group: data.target_group,
+      title: data.title,
+      main_images: data.main_images || [],
+      main_materials: data.main_materials || '',
+      teaching_points: migratedPoints,
+      cautions: data.cautions || '',
+      material_sources: data.material_sources || '',
+      variation_description: data.variation_guide?.description || '',
+      variation_references: data.variation_guide?.references || [],
+      status: data.status,
+      parent_message_template: data.parent_message_template || ''
+    })
+
     setLoading(false)
   }
 
-  function groupByWeek() {
-    // 선택된 연도로 필터
-    const filtered = curriculums.filter(c => c.year === selectedYear)
-
-    // 그룹핑
-    const groups: { [key: string]: GroupedCurriculum } = {}
-
-    filtered.forEach(item => {
-      const key = `${item.year}-${item.month}-${item.week}`
-      if (!groups[key]) {
-        groups[key] = {
-          label: `${item.month}월 ${item.week}주차`,
-          year: item.year,
-          month: item.month,
-          week: item.week,
-          items: []
+  const compressImage = async (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const maxSize = 800
+        let { width, height } = img
+        
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height / width) * maxSize
+            width = maxSize
+          } else {
+            width = (width / height) * maxSize
+            height = maxSize
+          }
         }
+        
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, width, height)
+        
+        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.7)
       }
-      groups[key].items.push(item)
+      img.src = URL.createObjectURL(file)
     })
-
-    // 정렬: 월 내림차순 → 주차 오름차순
-    const sorted = Object.values(groups).sort((a, b) => {
-      if (a.month !== b.month) return b.month - a.month
-      return a.week - b.week
-    })
-
-    setGroupedData(sorted)
   }
 
-  async function handleStatusChange(id: string, newStatus: string) {
-    const { error } = await supabase
-      .from('monthly_curriculum')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', id)
-
-    if (error) {
-      alert('상태 변경에 실패했습니다.')
-      return
-    }
-
-    // 로컬 상태 업데이트
-    setCurriculums(prev => prev.map(c => 
-      c.id === id ? { ...c, status: newStatus } : c
-    ))
-  }
-
-  async function handleDelete(id: string, title: string) {
-    if (!confirm(`"${title}"을(를) 삭제하시겠습니까?`)) {
-      return
-    }
-
-    setDeleting(id)
-
+  const uploadImage = async (file: File, folder: string): Promise<string | null> => {
+    setUploading(true)
     try {
-      const { error } = await supabase
-        .from('monthly_curriculum')
-        .delete()
-        .eq('id', id)
+      const compressedBlob = await compressImage(file)
+      const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`
+
+      const { error } = await supabase.storage
+        .from('curriculum-images')
+        .upload(fileName, compressedBlob, { contentType: 'image/jpeg' })
 
       if (error) {
-        console.error('Delete error:', error)
-        alert('삭제에 실패했습니다: ' + error.message)
+        console.error('Upload error:', error)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('curriculum-images')
+        .getPublicUrl(fileName)
+
+      return data.publicUrl
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const processImageFiles = async (files: File[], folder: string): Promise<string[]> => {
+    const urls: string[] = []
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue
+      const url = await uploadImage(file, folder)
+      if (url) urls.push(url)
+    }
+    return urls
+  }
+
+  // === 메인 이미지 ===
+  const handleMainImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const urls = await processImageFiles(Array.from(files), `main/${formData.year}/${formData.month}`)
+    if (urls.length > 0) {
+      setFormData(prev => ({ ...prev, main_images: [...prev.main_images, ...urls] }))
+    }
+  }
+
+  const handleMainImageDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOverMain(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    if (files.length === 0) return
+    const urls = await processImageFiles(files, `main/${formData.year}/${formData.month}`)
+    if (urls.length > 0) {
+      setFormData(prev => ({ ...prev, main_images: [...prev.main_images, ...urls] }))
+    }
+  }
+
+  const removeMainImage = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      main_images: prev.main_images.filter((_, i) => i !== index)
+    }))
+  }
+
+  // === 지도 포인트 ===
+  const addTeachingPoint = () => {
+    setFormData(prev => ({
+      ...prev,
+      teaching_points: [...prev.teaching_points, { title: '', description: '', image_url: '', image_urls: [] }]
+    }))
+  }
+
+  const updateTeachingPoint = (index: number, field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      teaching_points: prev.teaching_points.map((point, i) =>
+        i === index ? { ...point, [field]: value } : point
+      )
+    }))
+  }
+
+  const handleTeachingPointImages = async (files: File[], index: number) => {
+    const urls = await processImageFiles(files, `points/${formData.year}/${formData.month}`)
+    if (urls.length > 0) {
+      setFormData(prev => ({
+        ...prev,
+        teaching_points: prev.teaching_points.map((point, i) =>
+          i === index ? { ...point, image_urls: [...point.image_urls, ...urls] } : point
+        )
+      }))
+    }
+  }
+
+  const handleTeachingPointImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const files = e.target.files
+    if (!files) return
+    await handleTeachingPointImages(Array.from(files), index)
+  }
+
+  const handleTeachingPointImageDrop = async (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    setDragOverPointIndex(null)
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    if (files.length === 0) return
+    await handleTeachingPointImages(files, index)
+  }
+
+  const removeTeachingPointImage = (pointIndex: number, imageIndex: number) => {
+    setFormData(prev => ({
+      ...prev,
+      teaching_points: prev.teaching_points.map((point, i) =>
+        i === pointIndex ? { ...point, image_urls: point.image_urls.filter((_, j) => j !== imageIndex) } : point
+      )
+    }))
+  }
+
+  const removeTeachingPoint = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      teaching_points: prev.teaching_points.filter((_, i) => i !== index)
+    }))
+  }
+
+  // === Variation ===
+  const addVariationReference = () => {
+    setFormData(prev => ({
+      ...prev,
+      variation_references: [...prev.variation_references, { title: '', image_url: '' }]
+    }))
+  }
+
+  const updateVariationReference = (index: number, field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      variation_references: prev.variation_references.map((ref, i) =>
+        i === index ? { ...ref, [field]: value } : ref
+      )
+    }))
+  }
+
+  const handleVariationImage = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = await uploadImage(file, `variation/${formData.year}/${formData.month}`)
+    if (url) updateVariationReference(index, 'image_url', url)
+  }
+
+  const removeVariationReference = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      variation_references: prev.variation_references.filter((_, i) => i !== index)
+    }))
+  }
+
+  // === 저장 ===
+  const handleSubmit = async (status: string) => {
+    if (!formData.title.trim()) {
+      alert('제목을 입력해주세요.')
+      return
+    }
+
+    if (formData.main_images.length === 0) {
+      alert('완성작품 사진을 1장 이상 등록해주세요.')
+      return
+    }
+
+    setSaving(true)
+    setDraftSavedMsg('')
+
+    try {
+      const cleanedPoints = formData.teaching_points
+        .filter(p => p.description.trim() || p.image_urls.length > 0)
+        .map(p => ({
+          title: '',
+          description: p.description,
+          image_url: p.image_urls[0] || '',
+          image_urls: p.image_urls
+        }))
+
+      const updateData = {
+        year: formData.year,
+        month: formData.month,
+        target_group: formData.target_group,
+        title: formData.title,
+        thumbnail_url: formData.main_images[0] || null,
+        main_images: formData.main_images,
+        main_materials: formData.main_materials || null,
+        teaching_points: cleanedPoints,
+        cautions: formData.cautions || null,
+        material_sources: formData.material_sources || null,
+        variation_guide: {
+          description: formData.variation_description || null,
+          references: formData.variation_references.filter(r => r.title.trim() && r.image_url)
+        },
+        status: status,
+        updated_at: new Date().toISOString(),
+        parent_message_template: formData.parent_message_template || null,
+        age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary'
+      }
+
+      const { error } = await supabase
+        .from('monthly_curriculum')
+        .update(updateData)
+        .eq('id', curriculumId)
+
+      if (error) {
+        alert('저장에 실패했습니다: ' + error.message)
         return
       }
 
-      setCurriculums(prev => prev.filter(c => c.id !== id))
-      alert('삭제되었습니다.')
+      formChangedRef.current = false
 
-    } catch (err) {
-      console.error('Delete error:', err)
-      alert('삭제에 실패했습니다.')
+      if (status === 'active') {
+        alert('수정되었습니다!')
+        router.push('/admin/curriculum')
+      } else {
+        // 임시저장: 페이지 유지
+        setDraftSavedMsg('임시저장 되었습니다!')
+        setTimeout(() => setDraftSavedMsg(''), 3000)
+      }
+
+    } catch (error) {
+      console.error('Error:', error)
+      alert('저장에 실패했습니다.')
     } finally {
-      setDeleting(null)
+      setSaving(false)
     }
-  }
-
-  // admin 아니면 로딩 표시 (리다이렉트 전)
-  if (userLoading || userRole !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
-          <p className="text-gray-500">로딩 중...</p>
-        </div>
-      </div>
-    )
   }
 
   if (loading) {
@@ -182,119 +398,317 @@ export default function AdminCurriculumPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-4xl mx-auto px-4 py-3">
+        <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <button onClick={() => router.back()} className="text-gray-600">
               ← 뒤로
             </button>
-            <h1 className="text-lg font-bold text-gray-800">콘텐츠 관리</h1>
-            <button
-              onClick={() => router.push('/admin/curriculum/new')}
-              className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium"
-            >
-              + 등록
-            </button>
+            <h1 className="text-lg font-bold text-gray-800">콘텐츠 수정</h1>
+            <div className="w-12"></div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* 연도 탭 */}
-        <div className="flex justify-center gap-2 mb-6">
-          {years.map(year => (
-            <button
-              key={year}
-              onClick={() => setSelectedYear(year)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                selectedYear === year
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              {year}년
-            </button>
-          ))}
+      {/* 임시저장 성공 메시지 */}
+      {draftSavedMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-xl shadow-lg animate-bounce">
+          ✓ {draftSavedMsg}
         </div>
+      )}
 
-        {/* 콘텐츠 목록 */}
-        {groupedData.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-            <p className="text-gray-400">{selectedYear}년 등록된 커리큘럼이 없습니다.</p>
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="space-y-6">
+          {/* 기본 정보 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">📌 기본 정보</h2>
+            
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">연도</label>
+                <select
+                  value={formData.year}
+                  onChange={(e) => setFormData(prev => ({ ...prev, year: Number(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl"
+                >
+                  {[2024, 2025, 2026, 2027].map(y => (
+                    <option key={y} value={y}>{y}년</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">월</label>
+                <select
+                  value={formData.month}
+                  onChange={(e) => setFormData(prev => ({ ...prev, month: Number(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                    <option key={m} value={m}>{m}월</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">대상</label>
+                <select
+                  value={formData.target_group}
+                  onChange={(e) => setFormData(prev => ({ ...prev, target_group: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl"
+                >
+                  <option value="유치부">유치부</option>
+                  <option value="초등부">초등부</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">제목</label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="예: 겨울 풍경 수채화"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+              />
+            </div>
           </div>
-        ) : (
-          <div className="space-y-6">
-            {groupedData.map(group => (
-              <div key={`${group.year}-${group.month}-${group.week}`} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                {/* 주차 헤더 */}
-                <div className="bg-teal-50 px-4 py-3 border-b border-teal-100">
-                  <span className="text-sm font-bold text-teal-700">
-                    📅 {group.month}월 {group.week}주차
-                  </span>
-                  <span className="text-xs text-teal-500 ml-2">
-                    ({group.items.length}개)
-                  </span>
+
+          {/* 완성작품 사진 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">📷 완성작품 사진</h2>
+            <div
+              className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
+                dragOverMain ? 'border-teal-400 bg-teal-50' : 'border-gray-200'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setDragOverMain(true) }}
+              onDragLeave={() => setDragOverMain(false)}
+              onDrop={handleMainImageDrop}
+            >
+              {formData.main_images.map((url, idx) => (
+                <div key={idx} className="relative aspect-square">
+                  <img src={url} alt="" className="w-full h-full object-cover rounded-lg" />
+                  <button
+                    onClick={() => removeMainImage(idx)}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow"
+                  >
+                    ✕
+                  </button>
                 </div>
+              ))}
+              <label className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition">
+                <span className="text-2xl text-gray-300 mb-1">+</span>
+                <span className="text-xs text-gray-400">{uploading ? '...' : '추가'}</span>
+                <span className="text-xs text-gray-300 mt-1">또는 끌어다 놓기</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleMainImageUpload}
+                  className="hidden"
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+          </div>
 
-                {/* 해당 주차 콘텐츠 */}
-                <div className="divide-y divide-gray-100">
-                  {group.items.map(item => (
-                    <div key={item.id} className="px-4 py-3 flex items-center gap-4">
-                      {/* 대상 배지 */}
-                      <span className={`px-2 py-1 text-xs font-medium rounded-lg shrink-0 ${
-                        item.target_group === '유치부' 
-                          ? 'bg-pink-100 text-pink-700' 
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {item.target_group}
-                      </span>
+          {/* 주재료 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">🎨 주재료</h2>
+            <textarea
+              value={formData.main_materials}
+              onChange={(e) => setFormData(prev => ({ ...prev, main_materials: e.target.value }))}
+              placeholder="예: 수채화 물감, 8절 도화지, 둥근 붓"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+            />
+          </div>
 
-                      {/* 제목 */}
-                      <div 
-                        className="flex-1 cursor-pointer hover:text-teal-600"
-                        onClick={() => router.push(`/curriculum/${item.id}`)}
-                      >
-                        <span className="font-medium text-gray-800">{item.title}</span>
-                      </div>
+          {/* 학부모 안내멘트 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-2">💬 학부모 안내멘트</h2>
+            <p className="text-sm text-gray-500 mb-3">일일 메시지 생성 시 사용됩니다</p>
+            <textarea
+              value={formData.parent_message_template}
+              onChange={(e) => setFormData(prev => ({ ...prev, parent_message_template: e.target.value }))}
+              placeholder="예: 오늘은 겨울 풍경을 수채화로 표현해보았습니다."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+            />
+          </div>
 
-                      {/* 상태 드롭다운 */}
-                      <select
-                        value={item.status}
-                        onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                        className={`px-2 py-1 text-xs rounded-lg border ${
-                          item.status === 'active' 
-                            ? 'bg-green-50 text-green-700 border-green-200'
-                            : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                        }`}
-                      >
-                        <option value="active">활성</option>
-                        <option value="draft">임시저장</option>
-                      </select>
+          {/* 지도 포인트 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-gray-800">📌 지도 포인트</h2>
+              <button
+                onClick={addTeachingPoint}
+                className="px-3 py-1 bg-teal-100 text-teal-700 rounded-lg text-sm"
+              >
+                + 추가
+              </button>
+            </div>
 
-                      {/* 수정 버튼 */}
+            {formData.teaching_points.length === 0 ? (
+              <p className="text-gray-400 text-sm text-center py-4">지도 포인트를 추가해주세요</p>
+            ) : (
+              <div className="space-y-4">
+                {formData.teaching_points.map((point, idx) => (
+                  <div key={idx} className="bg-gray-50 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-gray-700">포인트 {idx + 1}</span>
                       <button
-                        onClick={() => router.push(`/admin/curriculum/${item.id}/edit`)}
-                        className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200"
+                        onClick={() => removeTeachingPoint(idx)}
+                        className="text-red-500 text-sm"
                       >
-                        수정
-                      </button>
-
-                      {/* 삭제 버튼 */}
-                      <button
-                        onClick={() => handleDelete(item.id, item.title)}
-                        disabled={deleting === item.id}
-                        className="px-3 py-1.5 bg-red-50 text-red-500 rounded-lg text-xs hover:bg-red-100 disabled:opacity-50"
-                      >
-                        {deleting === item.id ? '...' : '삭제'}
+                        삭제
                       </button>
                     </div>
-                  ))}
-                </div>
+
+                    <textarea
+                      value={point.description}
+                      onChange={(e) => updateTeachingPoint(idx, 'description', e.target.value)}
+                      placeholder="설명을 입력해주세요"
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg mb-3"
+                    />
+
+                    {/* 복수 이미지 영역 */}
+                    <div
+                      className={`grid grid-cols-4 gap-2 p-2 rounded-lg border-2 border-dashed transition-colors ${
+                        dragOverPointIndex === idx ? 'border-teal-400 bg-teal-50' : 'border-gray-200'
+                      }`}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverPointIndex(idx) }}
+                      onDragLeave={() => setDragOverPointIndex(null)}
+                      onDrop={(e) => handleTeachingPointImageDrop(e, idx)}
+                    >
+                      {point.image_urls.map((url, imgIdx) => (
+                        <div key={imgIdx} className="relative aspect-square">
+                          <img src={url} alt="" className="w-full h-full object-cover rounded-lg" />
+                          <button
+                            onClick={() => removeTeachingPointImage(idx, imgIdx)}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <label className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-white transition">
+                        <span className="text-lg text-gray-300">+</span>
+                        <span className="text-xs text-gray-400">사진</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => handleTeachingPointImageUpload(e, idx)}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    {point.image_urls.length === 0 && (
+                      <p className="text-xs text-gray-400 mt-1 text-center">이미지를 끌어다 놓거나 + 버튼으로 추가</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 유의사항 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">⚠️ 유의사항</h2>
+            <textarea
+              value={formData.cautions}
+              onChange={(e) => setFormData(prev => ({ ...prev, cautions: e.target.value }))}
+              placeholder="예: 물감 농도가 너무 진하지 않도록 주의"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+            />
+          </div>
+
+          {/* 재료 구입처 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">🛒 재료 구입처</h2>
+            <textarea
+              value={formData.material_sources}
+              onChange={(e) => setFormData(prev => ({ ...prev, material_sources: e.target.value }))}
+              placeholder="예: 화방넷 www.hwabang.net"
+              rows={2}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl"
+            />
+          </div>
+
+          {/* Variation Guide */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-4">💡 Variation Guide</h2>
+            
+            <textarea
+              value={formData.variation_description}
+              onChange={(e) => setFormData(prev => ({ ...prev, variation_description: e.target.value }))}
+              placeholder="예: 배경색을 바꿔서 봄/여름 버전으로 응용 가능"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl mb-4"
+            />
+
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-gray-600">참고 자료</span>
+              <button
+                onClick={addVariationReference}
+                className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm"
+              >
+                + 추가
+              </button>
+            </div>
+
+            {formData.variation_references.map((ref, idx) => (
+              <div key={idx} className="flex items-center gap-3 mb-3 bg-gray-50 p-3 rounded-xl">
+                {ref.image_url ? (
+                  <img src={ref.image_url} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                ) : (
+                  <label className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer">
+                    <span className="text-gray-400 text-xs">사진</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleVariationImage(e, idx)}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+                <input
+                  type="text"
+                  value={ref.title}
+                  onChange={(e) => updateVariationReference(idx, 'title', e.target.value)}
+                  placeholder="제목 (예: 모네의 수련)"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg"
+                />
+                <button
+                  onClick={() => removeVariationReference(idx)}
+                  className="text-red-500"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
-        )}
+
+          {/* 저장 버튼 */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleSubmit('draft')}
+              disabled={saving}
+              className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-xl font-medium"
+            >
+              {saving ? '저장 중...' : '임시저장'}
+            </button>
+            <button
+              onClick={() => handleSubmit('active')}
+              disabled={saving}
+              className="flex-1 py-3 bg-teal-500 text-white rounded-xl font-medium"
+            >
+              {saving ? '저장 중...' : '저장하기'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -38,6 +38,10 @@ export default function AdminCurriculumPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [expandedMonths, setExpandedMonths] = useState<number[]>([])
 
+  // 일괄 삭제 관련 state
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
   const years = [2024, 2025, 2026]
   const months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -191,6 +195,65 @@ export default function AdminCurriculumPage() {
     }
   }
 
+  // === 일괄 삭제 기능 ===
+  function toggleBulkMode() {
+    if (bulkMode) {
+      setSelectedIds(new Set())
+    }
+    setBulkMode(!bulkMode)
+  }
+
+  function handleSelectOne(id: string) {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+    setSelectedIds(newSet)
+  }
+
+  function handleSelectAll() {
+    const allVisibleIds = groupedData.flatMap(mg =>
+      mg.weeks.flatMap(wg => wg.items.map(item => item.id))
+    )
+    if (selectedIds.size === allVisibleIds.length && allVisibleIds.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(allVisibleIds))
+    }
+  }
+
+  function getVisibleCount() {
+    return groupedData.reduce((total, month) =>
+      total + month.weeks.reduce((wt, week) => wt + week.items.length, 0)
+    , 0)
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) {
+      alert('삭제할 콘텐츠를 선택해주세요.')
+      return
+    }
+    const count = selectedIds.size
+    if (!confirm(`선택한 ${count}개의 콘텐츠를 삭제하시겠습니까?\n\n⚠️ 삭제된 콘텐츠는 복구할 수 없습니다.`)) return
+
+    const ids = Array.from(selectedIds)
+    const { error } = await supabase
+      .from('monthly_curriculum')
+      .delete()
+      .in('id', ids)
+
+    if (error) {
+      alert('삭제에 실패했습니다: ' + error.message)
+    } else {
+      setCurriculums(prev => prev.filter(c => !selectedIds.has(c.id)))
+      setSelectedIds(new Set())
+      setBulkMode(false)
+      alert(`${count}개의 콘텐츠가 삭제되었습니다.`)
+    }
+  }
+
   // 총 콘텐츠 수 계산
   function getTotalCount() {
     return groupedData.reduce((total, month) => 
@@ -231,17 +294,51 @@ export default function AdminCurriculumPage() {
               ← 뒤로
             </button>
             <h1 className="text-lg font-bold text-gray-800">콘텐츠 관리</h1>
-            <button
-              onClick={() => router.push('/admin/curriculum/new')}
-              className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium"
-            >
-              + 등록
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleBulkMode}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                  bulkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {bulkMode ? '취소' : '선택'}
+              </button>
+              {!bulkMode && (
+                <button
+                  onClick={() => router.push('/admin/curriculum/new')}
+                  className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium"
+                >
+                  + 등록
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
+        {/* 일괄 삭제 바 */}
+        {bulkMode && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSelectAll}
+                className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition"
+              >
+                {selectedIds.size === getVisibleCount() && getVisibleCount() > 0 ? '전체 해제' : '전체 선택'}
+              </button>
+              <span className="text-sm text-gray-500">{selectedIds.size}개 선택됨</span>
+            </div>
+            <button
+              onClick={handleBulkDelete}
+              disabled={selectedIds.size === 0}
+              className="px-4 py-1.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              선택 삭제 ({selectedIds.size})
+            </button>
+          </div>
+        )}
+
         {/* 필터 영역 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
           <div className="flex flex-wrap items-center gap-4">
@@ -330,11 +427,23 @@ export default function AdminCurriculumPage() {
                         {/* 주차 콘텐츠 */}
                         <div className="divide-y divide-gray-50">
                           {weekGroup.items.map(item => (
-                            <div key={item.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
+                            <div key={item.id} className={`px-4 py-3 flex items-center gap-3 hover:bg-gray-50 ${
+                              selectedIds.has(item.id) ? 'bg-teal-50/50' : ''
+                            }`}>
+                              {/* 체크박스 (일괄 모드일 때만) */}
+                              {bulkMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(item.id)}
+                                  onChange={() => handleSelectOne(item.id)}
+                                  className="w-5 h-5 text-teal-500 rounded shrink-0"
+                                />
+                              )}
+
                               {/* 썸네일 */}
                               <div 
                                 className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0 cursor-pointer"
-                                onClick={() => router.push(`/curriculum/${item.id}`)}
+                                onClick={() => !bulkMode && router.push(`/curriculum/${item.id}`)}
                               >
                                 {item.thumbnail_url ? (
                                   <img
@@ -360,42 +469,47 @@ export default function AdminCurriculumPage() {
 
                               {/* 제목 */}
                               <div 
-                                className="flex-1 cursor-pointer hover:text-teal-600 min-w-0"
-                                onClick={() => router.push(`/curriculum/${item.id}`)}
+                                className={`flex-1 min-w-0 ${bulkMode ? 'cursor-pointer' : 'cursor-pointer hover:text-teal-600'}`}
+                                onClick={() => bulkMode ? handleSelectOne(item.id) : router.push(`/curriculum/${item.id}`)}
                               >
                                 <span className="font-medium text-gray-800 truncate block">{item.title}</span>
                               </div>
 
-                              {/* 상태 드롭다운 */}
-                              <select
-                                value={item.status}
-                                onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                                className={`px-2 py-1 text-xs rounded-lg border shrink-0 ${
-                                  item.status === 'active' 
-                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                                }`}
-                              >
-                                <option value="active">활성</option>
-                                <option value="draft">임시저장</option>
-                              </select>
+                              {/* 일괄 모드가 아닐 때만 기존 버튼들 표시 */}
+                              {!bulkMode && (
+                                <>
+                                  {/* 상태 드롭다운 */}
+                                  <select
+                                    value={item.status}
+                                    onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                                    className={`px-2 py-1 text-xs rounded-lg border shrink-0 ${
+                                      item.status === 'active' 
+                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                        : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                    }`}
+                                  >
+                                    <option value="active">활성</option>
+                                    <option value="draft">임시저장</option>
+                                  </select>
 
-                              {/* 수정 버튼 */}
-                              <button
-                                onClick={() => router.push(`/admin/curriculum/${item.id}/edit`)}
-                                className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200 shrink-0"
-                              >
-                                수정
-                              </button>
+                                  {/* 수정 버튼 */}
+                                  <button
+                                    onClick={() => router.push(`/admin/curriculum/${item.id}/edit`)}
+                                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200 shrink-0"
+                                  >
+                                    수정
+                                  </button>
 
-                              {/* 삭제 버튼 */}
-                              <button
-                                onClick={() => handleDelete(item.id, item.title)}
-                                disabled={deleting === item.id}
-                                className="px-3 py-1.5 bg-red-50 text-red-500 rounded-lg text-xs hover:bg-red-100 disabled:opacity-50 shrink-0"
-                              >
-                                {deleting === item.id ? '...' : '삭제'}
-                              </button>
+                                  {/* 삭제 버튼 */}
+                                  <button
+                                    onClick={() => handleDelete(item.id, item.title)}
+                                    disabled={deleting === item.id}
+                                    className="px-3 py-1.5 bg-red-50 text-red-500 rounded-lg text-xs hover:bg-red-100 disabled:opacity-50 shrink-0"
+                                  >
+                                    {deleting === item.id ? '...' : '삭제'}
+                                  </button>
+                                </>
+                              )}
                             </div>
                           ))}
                         </div>
