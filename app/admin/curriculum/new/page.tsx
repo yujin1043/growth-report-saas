@@ -33,6 +33,7 @@ export default function NewCurriculumPage() {
   const [formData, setFormData] = useState({
     year: currentYear,
     month: currentMonth,
+    week: 1,
     target_group: '유치부',
     title: '',
     parent_message_template: '',
@@ -364,6 +365,7 @@ export default function NewCurriculumPage() {
       const insertData = {
         year: formData.year,
         month: formData.month,
+        week: formData.week,
         target_group: formData.target_group,
         title: formData.title,
         thumbnail_url: formData.main_images[0] || null,
@@ -468,6 +470,18 @@ export default function NewCurriculumPage() {
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                     <option key={m} value={m}>{m}월</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">주차</label>
+                <select
+                  value={formData.week}
+                  onChange={(e) => setFormData(prev => ({ ...prev, week: Number(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl"
+                >
+                  {[1,2,3,4,5].map(w => (
+                    <option key={w} value={w}>{w}주차</option>
                   ))}
                 </select>
               </div>
