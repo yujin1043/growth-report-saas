@@ -79,7 +79,7 @@ export default function EditCurriculumPage() {
       target_group: data.target_group,
       title: data.title,
       main_images: data.main_images || [],
-      main_materials: data.teaching_points: [...prev.teaching_points, { title: '', description: '', image_url: '' }] || '',
+      main_materials: data.main_materials || '',
       teaching_points: (data.teaching_points || []).map((p: any) => ({
         title: p.title || '',
         description: p.description || '',
