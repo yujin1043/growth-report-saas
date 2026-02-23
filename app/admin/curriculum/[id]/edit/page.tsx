@@ -9,6 +9,7 @@ interface TeachingPoint {
   title: string
   description: string
   image_url: string
+  image_urls: string[]
 }
 
 interface VariationReference {
@@ -78,8 +79,13 @@ export default function EditCurriculumPage() {
       target_group: data.target_group,
       title: data.title,
       main_images: data.main_images || [],
-      main_materials: data.main_materials || '',
-      teaching_points: data.teaching_points || [],
+      main_materials: data.teaching_points: [...prev.teaching_points, { title: '', description: '', image_url: '' }] || '',
+      teaching_points: (data.teaching_points || []).map((p: any) => ({
+        title: p.title || '',
+        description: p.description || '',
+        image_url: p.image_url || '',
+        image_urls: p.image_urls && p.image_urls.length > 0 ? p.image_urls : (p.image_url ? [p.image_url] : [])
+      })),
       cautions: data.cautions || '',
       material_sources: data.material_sources || '',
       variation_description: data.variation_guide?.description || '',
@@ -170,7 +176,7 @@ export default function EditCurriculumPage() {
   const addTeachingPoint = () => {
     setFormData(prev => ({
       ...prev,
-      teaching_points: [...prev.teaching_points, { title: '', description: '', image_url: '' }]
+      teaching_points: [...prev.teaching_points, { title: '', description: '', image_url: '', image_urls: [] }]
     }))
   }
 
@@ -183,14 +189,30 @@ export default function EditCurriculumPage() {
     }))
   }
 
-  const handleTeachingPointImage = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleTeachingPointImages = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const files = e.target.files
+    if (!files) return
 
-    const url = await uploadImage(file, `points/${formData.year}/${formData.month}`)
-    if (url) {
-      updateTeachingPoint(index, 'image_url', url)
+    for (const file of Array.from(files)) {
+      const url = await uploadImage(file, `points/${formData.year}/${formData.month}`)
+      if (url) {
+        setFormData(prev => ({
+          ...prev,
+          teaching_points: prev.teaching_points.map((point, i) =>
+            i === index ? { ...point, image_urls: [...point.image_urls, url] } : point
+          )
+        }))
+      }
     }
+  }
+
+  const removeTeachingPointImage = (pointIndex: number, imageIndex: number) => {
+    setFormData(prev => ({
+      ...prev,
+      teaching_points: prev.teaching_points.map((point, i) =>
+        i === pointIndex ? { ...point, image_urls: point.image_urls.filter((_, j) => j !== imageIndex) } : point
+      )
+    }))
   }
 
   const removeTeachingPoint = (index: number) => {
@@ -256,7 +278,14 @@ export default function EditCurriculumPage() {
         thumbnail_url: formData.main_images[0] || null,
         main_images: formData.main_images,
         main_materials: formData.main_materials || null,
-        teaching_points: formData.teaching_points.filter(p => p.title.trim()),
+        teaching_points: formData.teaching_points
+          .filter(p => p.title.trim() || p.description.trim() || p.image_urls.length > 0)
+          .map(p => ({
+            title: p.title,
+            description: p.description,
+            image_url: p.image_urls[0] || '',
+            image_urls: p.image_urls
+          })),
         cautions: formData.cautions || null,
         material_sources: formData.material_sources || null,
         variation_guide: {
@@ -491,16 +520,26 @@ export default function EditCurriculumPage() {
                       rows={2}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg mb-2"
                     />
-                    <div className="flex items-center gap-2">
-                      {point.image_url ? (
-                        <img src={point.image_url} alt="" className="w-16 h-16 object-cover rounded-lg" />
-                      ) : null}
-                      <label className="px-3 py-2 bg-gray-200 text-gray-600 rounded-lg text-sm cursor-pointer">
-                        {point.image_url ? '이미지 변경' : '과정 사진 추가'}
+                    <div className="grid grid-cols-4 gap-2">
+                      {point.image_urls.map((url, imgIdx) => (
+                        <div key={imgIdx} className="relative aspect-square">
+                          <img src={url} alt="" className="w-full h-full object-cover rounded-lg" />
+                          <button
+                            onClick={() => removeTeachingPointImage(idx, imgIdx)}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <label className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-white transition">
+                        <span className="text-lg text-gray-300">+</span>
+                        <span className="text-xs text-gray-400">사진</span>
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={(e) => handleTeachingPointImage(e, idx)}
+                          multiple
+                          onChange={(e) => handleTeachingPointImages(e, idx)}
                           className="hidden"
                         />
                       </label>

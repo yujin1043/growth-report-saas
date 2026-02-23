@@ -7,7 +7,8 @@ import { supabase } from '@/lib/supabase'
 interface TeachingPoint {
   title: string
   description: string
-  image_url?: string
+  image_url: string
+  image_urls?: string[]
 }
 
 interface VariationGuide {
@@ -469,14 +470,25 @@ export default function CurriculumPage() {
                       {point.description && (
                         <p className="text-gray-600 text-sm whitespace-pre-wrap">{point.description}</p>
                       )}
-                      {point.image_url && (
-                        <img 
-                          src={point.image_url} 
-                          alt={point.title}
-                          className="mt-3 rounded-lg max-w-xs cursor-pointer"
-                          onClick={() => setSelectedImage(point.image_url!)}
-                        />
-                      )}
+                      {(() => {
+                        const images = point.image_urls && point.image_urls.length > 0
+                          ? point.image_urls
+                          : (point.image_url ? [point.image_url] : [])
+                        if (images.length === 0) return null
+                        return (
+                          <div className={`mt-3 grid gap-2 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                            {images.map((url, imgIdx) => (
+                              <img
+                                key={imgIdx}
+                                src={url}
+                                alt={`포인트 ${index + 1} 이미지 ${imgIdx + 1}`}
+                                className="rounded-lg max-w-xs cursor-pointer"
+                                onClick={() => setSelectedImage(url)}
+                              />
+                            ))}
+                          </div>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>

@@ -8,6 +8,7 @@ interface TeachingPoint {
   title: string
   description: string
   image_url: string
+  image_urls?: string[]
 }
 
 interface VariationReference {
@@ -211,14 +212,25 @@ export default function CurriculumDetailPage() {
                     {point.description && (
                       <p className="text-gray-600 text-sm mb-3">{point.description}</p>
                     )}
-                    {point.image_url && (
-                      <img
-                        src={point.image_url}
-                        alt={point.title}
-                        className="w-full max-w-xs max-h-64 md:max-h-96 object-contain rounded-lg cursor-pointer"
-                        onClick={() => setSelectedImage(point.image_url)}
-                      />
-                    )}
+                    {(() => {
+                      const images = point.image_urls && point.image_urls.length > 0
+                        ? point.image_urls
+                        : (point.image_url ? [point.image_url] : [])
+                      if (images.length === 0) return null
+                      return (
+                        <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {images.map((url, imgIdx) => (
+                            <img
+                              key={imgIdx}
+                              src={url}
+                              alt={`포인트 ${idx + 1} 이미지 ${imgIdx + 1}`}
+                              className="w-full rounded-lg cursor-pointer hover:opacity-90"
+                              onClick={() => setSelectedImage(url)}
+                            />
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
                 ))}
               </div>
