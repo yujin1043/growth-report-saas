@@ -380,7 +380,6 @@ export default function DailyMessagePage() {
     if (lessonType === 'curriculum' && selectedTopic) {
       topicTitle = selectedTopic.title
       const template = selectedTopic.parent_message_template || ''
-      const materials = selectedTopic.main_materials || '다양한 재료'
 
       const templateSentences = template
         .replace(/합니다\./g, '해요.')
@@ -394,7 +393,7 @@ export default function DailyMessagePage() {
         .slice(0, 3)
         .join('. ')
 
-      const sentence1 = `오늘 ${nameNun} ${topicTitle}을 ${materials}로 ${endingStyle.doing}.`
+      const sentence1 = `오늘 ${nameNun} '${topicTitle}' 수업을 ${endingStyle.doing}.`
       
       const sentence2to4 = templateSentences
         .replace(/이번 작품은/g, '')
@@ -406,56 +405,122 @@ export default function DailyMessagePage() {
         .replace(/느낌을 줘요/g, `느낌을 살려${endingStyle.did}`)
         .trim()
 
-      let progressText = ''
+      const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]
+
+      let progressOpening = ''
+      let progressDetail = ''
+      let progressClosing = ''
+
       if (progressStatus === 'started') {
-        progressText = '오늘 처음 시작한 작품이에요.'
+        progressOpening = pick([
+          '오늘 새로운 작품을 시작했어요.',
+          '새 작품의 밑그림을 그리며 구상을 시작했어요.',
+          '오늘부터 새 작품에 들어갔어요.',
+        ])
+        progressDetail = pick([
+          '어떤 구도로 표현할지 고민하며 스케치하는 모습이 진지했어요.',
+          '밑그림 단계에서부터 자신만의 아이디어를 담아내고 있어요.',
+          '전체 구성을 계획하며 차근차근 작업을 시작했어요.',
+        ])
+        progressClosing = pick([
+          '어떤 작품이 완성될지 기대해주세요!',
+          '앞으로 완성되어갈 모습이 기대돼요!',
+          '멋진 작품이 될 것 같아요!',
+        ])
       } else if (progressStatus === 'none') {
-        progressText = '작품을 열심히 진행하고 있어요.'
+        progressOpening = pick([
+          '지난 시간에 이어 작품을 발전시켜 나갔어요.',
+          '작품에 계속 집중하며 작업을 이어갔어요.',
+          '작품을 이어서 작업하고 있어요.',
+        ])
+        progressDetail = pick([
+          '세부 표현을 더하며 작품의 완성도를 높이고 있어요.',
+          '색감을 입히며 작품이 한층 풍성해지고 있어요.',
+          '디테일을 하나씩 채워가며 몰입하는 모습이 멋졌어요.',
+        ])
+        progressClosing = pick([
+          '완성이 점점 가까워지고 있어요!',
+          '작품이 점점 완성되어 가고 있어요!',
+          '곧 멋진 작품이 완성될 거예요!',
+        ])
       } else if (progressStatus === 'completed') {
-        progressText = '오늘 작품을 멋지게 완성했어요!'
+        progressOpening = pick([
+          '오늘 작품을 멋지게 완성했어요!',
+          '끝까지 집중해서 작품을 완성했어요!',
+          '드디어 작품이 완성되었어요!',
+        ])
+        progressDetail = pick([
+          '완성된 작품에서 아이만의 개성이 잘 드러나요.',
+          '마무리까지 꼼꼼하게 신경 쓴 모습이 대견해요.',
+          '포기하지 않고 끝까지 완성한 모습이 보기 좋았어요.',
+        ])
+        progressClosing = pick([
+          '완성작을 함께 감상해보세요!',
+          '아이의 멋진 작품을 칭찬해주세요!',
+          '뿌듯해하는 모습이 인상적이었어요!',
+        ])
       }
 
-      const memoText = teacherMemo ? teacherMemo : `집중하며 작업하는 모습이 ${endingStyle.great}`
-      const sentence5 = `${progressText} ${memoText}. ${nameMan} 멋진 작품이에요! ${randomEmoji}`
-
-      message = `${sentence1} ${sentence2to4}. ${sentence5}`
+      const memoText = teacherMemo ? ` ${teacherMemo}.` : ''
+      message = `${sentence1} ${sentence2to4}. ${progressOpening} ${progressDetail}${memoText} ${progressClosing} ${randomEmoji}`
 
     } else {
+      // ✅ 자율 메시지: GPT API 호출
       topicTitle = freeSubject
       const materials = selectedMaterials.join(', ') || '다양한 재료'
 
-      const materialTechniques: { [key: string]: string } = {
-        '연필': '선의 강약을 조절하며 형태를 잡아',
-        '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
-        '매직': '선명한 색감으로 또렷하게 표현하며',
-        '사인펜': '깔끔한 선으로 윤곽을 잡고',
-        '수채화': '물의 양을 조절하며 부드러운 색감을 만들어',
-        '아크릴': '선명하고 강렬한 색감으로',
-        '파스텔': '부드러운 색감과 그라데이션을 활용하여',
-        '점토': '손으로 형태를 만들며 입체감을 살려',
-        '스티커': '다양한 스티커로 작품을 꾸며',
-        '기타': '다양한 재료를 활용하여'
+      try {
+        const res = await fetch('/api/generate-daily-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentName: student.name,
+            studentAge,
+            subject: freeSubject,
+            materials,
+            progressStatus,
+            teacherMemo
+          })
+        })
+
+        const data = await res.json()
+        if (data.message) {
+          message = data.message
+        } else {
+          throw new Error(data.error || 'GPT 응답 없음')
+        }
+      } catch (e) {
+        console.error('GPT 호출 실패, fallback 사용:', e)
+        
+        // fallback: 기존 템플릿 방식
+        const materialTechniques: { [key: string]: string } = {
+          '연필': '선의 강약을 조절하며 형태를 잡아',
+          '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
+          '매직': '선명한 색감으로 또렷하게 표현하며',
+          '사인펜': '깔끔한 선으로 윤곽을 잡고',
+          '수채화': '물의 양을 조절하며 부드러운 색감을 만들어',
+          '아크릴': '선명하고 강렬한 색감으로',
+          '파스텔': '부드러운 색감과 그라데이션을 활용하여',
+          '점토': '손으로 형태를 만들며 입체감을 살려',
+          '스티커': '다양한 스티커로 작품을 꾸며',
+          '기타': '다양한 재료를 활용하여'
+        }
+
+        const mainMaterial = selectedMaterials[0] || '기타'
+        const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
+        const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
+
+        let progressText = ''
+        if (progressStatus === 'started') {
+          progressText = '오늘 처음 시작한 작품이에요.'
+        } else if (progressStatus === 'none') {
+          progressText = '작품을 열심히 진행하고 있어요.'
+        } else if (progressStatus === 'completed') {
+          progressText = '오늘 작품을 멋지게 완성했어요!'
+        }
+
+        message = `오늘 ${nameNun} '${freeSubject}'를 주제로 자유화를 ${endingStyle.doing}. ${materials}를 사용하여 ${technique} ${endingStyle.did}. 자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}. ${memoText}. ${progressText} ${nameMan} 멋진 작품이에요! ${randomEmoji}`
       }
-
-      const mainMaterial = selectedMaterials[0] || '기타'
-      const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
-
-      let progressText = ''
-      if (progressStatus === 'started') {
-        progressText = '오늘 처음 시작한 작품이에요.'
-      } else if (progressStatus === 'none') {
-        progressText = '작품을 열심히 진행하고 있어요.'
-      } else if (progressStatus === 'completed') {
-        progressText = '오늘 작품을 멋지게 완성했어요!'
-      }
-
-      const sentence1 = `오늘 ${nameNun} ${freeSubject}를 주제로 자유화를 ${endingStyle.doing}.`
-      const sentence2 = `${materials}를 사용하여 ${technique} ${endingStyle.did}.`
-      const sentence3 = `자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}.`
-      const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
-      const sentence5 = `${nameMan} 멋진 작품이에요! ${randomEmoji}`
-
-      message = `${sentence1} ${sentence2} ${sentence3} ${memoText}. ${progressText} ${sentence5}`
     }
 
     try {
@@ -811,7 +876,7 @@ export default function DailyMessagePage() {
               {generating ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  생성 중...
+                  {lessonType === 'free' ? 'AI 생성 중...' : '생성 중...'}
                 </>
               ) : (
                 `✨ ${selectedStudent.name} 문구 생성`
