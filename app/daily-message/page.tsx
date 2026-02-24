@@ -1045,15 +1045,15 @@ export default function DailyMessagePage() {
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-semibold text-gray-800 mb-3">
-                📝 한줄 메모
+                📝 메모
                 <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
               </h2>
-              <input
-                type="text"
+              <textarea
                 value={teacherMemo}
                 onChange={(e) => setTeacherMemo(e.target.value)}
-                placeholder="예: 색 조합이 예뻤어요"
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                placeholder="예: 색 조합이 예뻤어요, 집중력이 좋았어요"
+                rows={3}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-y"
               />
             </div>
 
