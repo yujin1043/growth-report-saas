@@ -76,6 +76,77 @@ export default function DailyMessagePage() {
   const [showCurriculumModal, setShowCurriculumModal] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
 
+  // ✅ IndexedDB 이미지 저장 (앱 전환/화면 꺼짐 대응)
+  const DB_NAME = 'daily-message-db'
+  const DB_STORE = 'images'
+
+  const openImageDB = (): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1)
+      req.onupgradeneeded = () => {
+        const db = req.result
+        if (!db.objectStoreNames.contains(DB_STORE)) {
+          db.createObjectStore(DB_STORE, { keyPath: 'index' })
+        }
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+  }
+
+  const saveImagesToDB = async (files: File[]) => {
+    try {
+      const db = await openImageDB()
+      const tx = db.transaction(DB_STORE, 'readwrite')
+      const store = tx.objectStore(DB_STORE)
+      store.clear()
+      for (let i = 0; i < files.length; i++) {
+        const buffer = await files[i].arrayBuffer()
+        store.put({ index: i, name: files[i].name, type: files[i].type, data: buffer })
+      }
+      db.close()
+    } catch {}
+  }
+
+  const loadImagesFromDB = async (): Promise<{ files: File[]; urls: string[] }> => {
+    try {
+      const db = await openImageDB()
+      const tx = db.transaction(DB_STORE, 'readonly')
+      const store = tx.objectStore(DB_STORE)
+      const allReq = store.getAll()
+      return new Promise((resolve) => {
+        allReq.onsuccess = () => {
+          const records = allReq.result || []
+          const files: File[] = []
+          const urls: string[] = []
+          records.sort((a: any, b: any) => a.index - b.index)
+          for (const rec of records) {
+            const file = new File([rec.data], rec.name, { type: rec.type })
+            files.push(file)
+            urls.push(URL.createObjectURL(file))
+          }
+          db.close()
+          resolve({ files, urls })
+        }
+        allReq.onerror = () => {
+          db.close()
+          resolve({ files: [], urls: [] })
+        }
+      })
+    } catch {
+      return { files: [], urls: [] }
+    }
+  }
+
+  const clearImageDB = async () => {
+    try {
+      const db = await openImageDB()
+      const tx = db.transaction(DB_STORE, 'readwrite')
+      tx.objectStore(DB_STORE).clear()
+      db.close()
+    } catch {}
+  }
+
   // ✅ 폼 상태를 sessionStorage에 저장 (앱 전환/화면 꺼짐 대응)
   const STORAGE_KEY = 'daily-message-form'
 
@@ -108,6 +179,15 @@ export default function DailyMessagePage() {
       saveFormState()
     }
   }, [selectedClassId, selectedStudentId, lessonType, selectedTopicId, freeSubject, selectedMaterials, progressStatus, teacherMemo, selectedBranchId])
+
+  // ✅ 이미지 변경 시 IndexedDB에 자동 저장
+  useEffect(() => {
+    if (!loading && images.length > 0) {
+      saveImagesToDB(images)
+    } else if (!loading && images.length === 0) {
+      clearImageDB()
+    }
+  }, [images, loading])
 
   useEffect(() => {
     if (showCurriculumModal) {
@@ -237,6 +317,15 @@ export default function DailyMessagePage() {
     if (existingMsgResult.data) {
       setGeneratedStudentIds(existingMsgResult.data.map(m => m.student_id))
     }
+
+    // ✅ IndexedDB에서 이미지 복원
+    try {
+      const { files, urls } = await loadImagesFromDB()
+      if (files.length > 0) {
+        setImages(files)
+        setImageUrls(urls)
+      }
+    } catch {}
 
     // ✅ sessionStorage에서 폼 상태 복원
     const saved = restoreFormState()
@@ -628,6 +717,7 @@ export default function DailyMessagePage() {
 
       // ✅ 상태 초기화 + 메모리 해제
       clearFormState()
+      clearImageDB()
       imageUrls.forEach(url => URL.revokeObjectURL(url))
       setImages([])
       setImageUrls([])
@@ -746,32 +836,61 @@ export default function DailyMessagePage() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
-          <input
-            type="text"
-            value={studentSearch}
-            onChange={(e) => setStudentSearch(e.target.value)}
-            placeholder="🔍 이름 검색..."
-            className="w-full px-4 py-2.5 mb-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-          />
-          <select
-            value={selectedStudentId}
-            onChange={(e) => setSelectedStudentId(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-          >
-            <option value="">학생을 선택해주세요</option>
-            {students
-              .filter(s => !studentSearch || s.name.includes(studentSearch))
-              .map(student => {
-              const age = new Date().getFullYear() - student.birth_year + 1
-              return (
-                <option key={student.id} value={student.id}>
-                  {student.name} ({age}세)
-                </option>
-              )
-            })}
-          </select>
-          {students.length === 0 && (
-            <p className="text-gray-400 text-center py-4">해당 반에 학생이 없습니다</p>
+          <div className="relative">
+            <input
+              type="text"
+              value={studentSearch}
+              onChange={(e) => {
+                setStudentSearch(e.target.value)
+                if (selectedStudentId) {
+                  setSelectedStudentId('')
+                }
+              }}
+              onFocus={() => setStudentSearch('')}
+              placeholder={selectedStudent ? `${selectedStudent.name} (${new Date().getFullYear() - selectedStudent.birth_year + 1}세)` : '🔍 이름을 검색하세요'}
+              className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent ${
+                selectedStudentId ? 'bg-teal-50 border-teal-300 font-medium text-teal-800' : 'bg-gray-50 border-gray-200'
+              }`}
+            />
+            {selectedStudentId && (
+              <button
+                onClick={() => {
+                  setSelectedStudentId('')
+                  setStudentSearch('')
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs hover:bg-gray-300"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          
+          {!selectedStudentId && (
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+              {students
+                .filter(s => !studentSearch || s.name.includes(studentSearch))
+                .map(student => {
+                  const age = new Date().getFullYear() - student.birth_year + 1
+                  const isGenerated = generatedStudentIds.includes(student.id)
+                  return (
+                    <button
+                      key={student.id}
+                      onClick={() => {
+                        setSelectedStudentId(student.id)
+                        setStudentSearch(student.name)
+                      }}
+                      className="w-full px-4 py-3 text-left hover:bg-teal-50 transition border-b border-gray-100 last:border-b-0"
+                    >
+                      <span className="font-medium text-gray-800">{student.name} <span className="text-gray-400 font-normal text-sm">({age}세)</span></span>
+                    </button>
+                  )
+                })}
+              {students.filter(s => !studentSearch || s.name.includes(studentSearch)).length === 0 && (
+                <p className="text-gray-400 text-center py-4 text-sm">
+                  {students.length === 0 ? '해당 반에 학생이 없습니다' : '검색 결과가 없습니다'}
+                </p>
+              )}
+            </div>
           )}
         </div>
 
