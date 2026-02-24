@@ -33,10 +33,6 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
-  
-  // 문구 복사/이미지 다운로드 완료 추적
-  const [messageCopied, setMessageCopied] = useState(false)
-  const [imageDownloaded, setImageDownloaded] = useState(false)
 
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
@@ -85,19 +81,6 @@ export default function ResultPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedId('message')
-      setMessageCopied(true)
-      
-      // 이미지가 있는 경우: 이미지 다운로드도 완료됐으면 발송완료
-      if (result && result.imageUrls.length > 0) {
-        if (imageDownloaded) {
-          await markAsSent()
-        }
-      } else {
-        // 이미지가 없는 경우: 바로 발송완료
-        await markAsSent()
-      }
-      
-      setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
     }
@@ -205,14 +188,6 @@ export default function ResultPage() {
         URL.revokeObjectURL(url)
       }
       setCopiedId('download')
-      setImageDownloaded(true)
-      
-      // 문구 복사도 완료됐으면 발송완료
-      if (messageCopied) {
-        await markAsSent()
-      }
-      
-      setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Download failed:', error)
     }
@@ -222,10 +197,18 @@ export default function ResultPage() {
     if (!result) return
     
     try {
-      await supabase
+      const { data, error } = await supabase
         .from('daily_messages')
         .update({ is_sent: true, sent_at: new Date().toISOString() })
         .eq('id', result.id)
+        .select()
+
+      console.log('markAsSent result:', { id: result.id, data, error })
+      
+      if (error) {
+        console.error('DB update failed:', error)
+        return
+      }
 
       setResult({ ...result, isSent: true })
     } catch (error) {
@@ -405,40 +388,73 @@ export default function ResultPage() {
                 )}
               </button>
             ) : (
-              <>
-                {result.imageUrls.length > 0 && (
-                  <button
-                    onClick={downloadImages}
-                    className={`w-full py-4 rounded-2xl text-base font-medium transition ${
-                      copiedId === 'download'
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {copiedId === 'download' ? '✓ 저장됨' : '📥 이미지 모두 저장'}
-                  </button>
-                )}
-                <button
-                  onClick={() => copyToClipboard(result.message)}
-                  className={`w-full py-4 rounded-2xl text-base font-medium transition ${
-                    copiedId === 'message'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-teal-500 text-white hover:bg-teal-600'
-                  }`}
-                >
-                  {copiedId === 'message' ? '✓ 복사됨' : '📋 문구 복사하기'}
-                </button>
-              </>
-            )}
-
-            {!result.isSent && (
               <button
-                onClick={markAsSent}
-                className="w-full py-3 rounded-2xl text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition"
+                onClick={async () => {
+                  if (result.isSent) return
+                  console.log('=== PC 공유 버튼 클릭 ===')
+                  
+                  // 1. 문구 복사
+                  try {
+                    await navigator.clipboard.writeText(result.message)
+                    console.log('문구 복사 완료')
+                  } catch (e) {
+                    console.error('문구 복사 실패:', e)
+                  }
+                  
+                  // 2. 이미지 다운로드
+                  if (result.imageUrls.length > 0) {
+                    for (let i = 0; i < result.imageUrls.length; i++) {
+                      try {
+                        const res = await fetch(result.imageUrls[i])
+                        const blob = await res.blob()
+                        const url = URL.createObjectURL(blob)
+                        const link = document.createElement('a')
+                        link.href = url
+                        link.download = `${result.studentName}_작품_${i + 1}.jpg`
+                        document.body.appendChild(link)
+                        link.click()
+                        document.body.removeChild(link)
+                        URL.revokeObjectURL(url)
+                        console.log(`이미지 ${i + 1} 다운로드 완료`)
+                      } catch (e) {
+                        console.error(`이미지 ${i + 1} 다운로드 실패:`, e)
+                      }
+                    }
+                  }
+                  
+                  // 3. 발송완료 DB 업데이트
+                  try {
+                    const { data, error } = await supabase
+                      .from('daily_messages')
+                      .update({ is_sent: true, sent_at: new Date().toISOString() })
+                      .eq('id', result.id)
+                      .select()
+                    console.log('DB 업데이트 결과:', { data, error })
+                    
+                    if (!error) {
+                      setResult({ ...result, isSent: true })
+                      console.log('state 업데이트 완료')
+                    }
+                  } catch (e) {
+                    console.error('DB 업데이트 실패:', e)
+                  }
+                }}
+                disabled={result.isSent}
+                className={`w-full py-4 rounded-2xl text-base font-medium transition ${
+                  result.isSent
+                    ? 'bg-green-500 text-white'
+                    : 'bg-teal-500 text-white hover:bg-teal-600'
+                }`}
               >
-                ✓ 발송 완료로 표시
+                {result.isSent
+                  ? '✓ 문구 복사 + 이미지 저장 완료'
+                  : result.imageUrls.length > 0
+                    ? '📋 문구 복사 + 이미지 저장'
+                    : '📋 문구 복사하기'
+                }
               </button>
             )}
+
           </div>
         )}
 

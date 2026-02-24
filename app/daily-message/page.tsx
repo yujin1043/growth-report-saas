@@ -74,6 +74,40 @@ export default function DailyMessagePage() {
   const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
 
   const [showCurriculumModal, setShowCurriculumModal] = useState(false)
+  const [studentSearch, setStudentSearch] = useState('')
+
+  // ✅ 폼 상태를 sessionStorage에 저장 (앱 전환/화면 꺼짐 대응)
+  const STORAGE_KEY = 'daily-message-form'
+
+  const saveFormState = () => {
+    try {
+      const state = {
+        selectedClassId, selectedStudentId, lessonType,
+        selectedTopicId, freeSubject, selectedMaterials,
+        progressStatus, teacherMemo, selectedBranchId
+      }
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch {}
+  }
+
+  const restoreFormState = () => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY)
+      if (!saved) return null
+      return JSON.parse(saved)
+    } catch { return null }
+  }
+
+  const clearFormState = () => {
+    try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+  }
+
+  // 폼 값 변경 시마다 자동 저장
+  useEffect(() => {
+    if (!loading && selectedStudentId) {
+      saveFormState()
+    }
+  }, [selectedClassId, selectedStudentId, lessonType, selectedTopicId, freeSubject, selectedMaterials, progressStatus, teacherMemo, selectedBranchId])
 
   useEffect(() => {
     if (showCurriculumModal) {
@@ -86,6 +120,10 @@ export default function DailyMessagePage() {
 
   useEffect(() => {
     loadInitialData()
+    return () => {
+      // ✅ 언마운트 시 blob URL 메모리 정리
+      imageUrls.forEach(url => URL.revokeObjectURL(url))
+    }
   }, [])
 
   useEffect(() => {
@@ -198,6 +236,23 @@ export default function DailyMessagePage() {
     setAllResultsCount(existingMsgResult.count || 0)
     if (existingMsgResult.data) {
       setGeneratedStudentIds(existingMsgResult.data.map(m => m.student_id))
+    }
+
+    // ✅ sessionStorage에서 폼 상태 복원
+    const saved = restoreFormState()
+    if (saved) {
+      if (saved.selectedBranchId && profile?.role === 'admin') {
+        setSelectedBranchId(saved.selectedBranchId)
+      }
+      if (saved.lessonType) setLessonType(saved.lessonType)
+      if (saved.selectedTopicId) setSelectedTopicId(saved.selectedTopicId)
+      if (saved.freeSubject) setFreeSubject(saved.freeSubject)
+      if (saved.selectedMaterials) setSelectedMaterials(saved.selectedMaterials)
+      if (saved.progressStatus) setProgressStatus(saved.progressStatus)
+      if (saved.teacherMemo) setTeacherMemo(saved.teacherMemo)
+      if (saved.selectedStudentId) {
+        setTimeout(() => setSelectedStudentId(saved.selectedStudentId), 500)
+      }
     }
 
     setLoading(false)
@@ -571,6 +626,12 @@ export default function DailyMessagePage() {
         }
       }
 
+      // ✅ 상태 초기화 + 메모리 해제
+      clearFormState()
+      imageUrls.forEach(url => URL.revokeObjectURL(url))
+      setImages([])
+      setImageUrls([])
+
       router.push(`/daily-message/result/${student.id}`)
     } catch (error) {
       console.error('Error:', error)
@@ -685,13 +746,22 @@ export default function DailyMessagePage() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
+          <input
+            type="text"
+            value={studentSearch}
+            onChange={(e) => setStudentSearch(e.target.value)}
+            placeholder="🔍 이름 검색..."
+            className="w-full px-4 py-2.5 mb-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+          />
           <select
             value={selectedStudentId}
             onChange={(e) => setSelectedStudentId(e.target.value)}
             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           >
             <option value="">학생을 선택해주세요</option>
-            {students.map(student => {
+            {students
+              .filter(s => !studentSearch || s.name.includes(studentSearch))
+              .map(student => {
               const age = new Date().getFullYear() - student.birth_year + 1
               return (
                 <option key={student.id} value={student.id}>

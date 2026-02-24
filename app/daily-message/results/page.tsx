@@ -25,9 +25,6 @@ export default function AllResultsPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
   
-  // 문구 복사/이미지 다운로드 완료 추적
-  const [copiedMessageIds, setCopiedMessageIds] = useState<Set<string>>(new Set())
-  const [downloadedImageIds, setDownloadedImageIds] = useState<Set<string>>(new Set())
 
   const filteredResults = useMemo(() => {
     if (searchQuery.trim() === '') {
@@ -115,22 +112,7 @@ export default function AllResultsPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedId(id)
-      
-      // 해당 result 찾기
-      const result = results.find(r => r.id === id)
-      
-      if (result && result.imageUrls.length > 0) {
-        // 이미지가 있는 경우: 문구 복사 완료 표시
-        setCopiedMessageIds(prev => new Set(prev).add(id))
-        // 이미지 다운로드도 완료됐으면 발송완료
-        if (downloadedImageIds.has(id)) {
-          await markAsSent(id)
-        }
-      } else {
-        // 이미지가 없는 경우: 바로 발송완료
-        await markAsSent(id)
-      }
-      
+      await markAsSent(id)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
@@ -258,10 +240,7 @@ export default function AllResultsPage() {
       }
       
       setCopiedId(`download-${result.id}`)
-      setDownloadedImageIds(prev => new Set(prev).add(result.id))
-      if (copiedMessageIds.has(result.id)) {
-        await markAsSent(result.id)
-      }
+      await markAsSent(result.id)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -416,25 +395,22 @@ export default function AllResultsPage() {
                           </td>
                           <td className="px-5 py-4">
                             <div className="flex items-center justify-center gap-1">
-                              {result.imageUrls.length > 0 && (
-                                <button
-                                  onClick={() => downloadImages(result)}
-                                  className={`px-2 py-1 rounded text-xs font-medium ${
-                                    copiedId === `download-${result.id}`
-                                      ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                  }`}
-                                >
-                                  {copiedId === `download-${result.id}` ? '✓' : '📥'}
-                                </button>
-                              )}
                               <button
-                                onClick={() => copyToClipboard(result.message, result.id)}
+                                onClick={async () => {
+                                  await Promise.all([
+                                    copyToClipboard(result.message, result.id),
+                                    result.imageUrls.length > 0 ? downloadImages(result) : Promise.resolve()
+                                  ])
+                                  setCopiedId(`all-${result.id}`)
+                                  setTimeout(() => setCopiedId(null), 2000)
+                                }}
                                 className={`px-2 py-1 rounded text-xs font-medium ${
-                                  copiedId === result.id
+                                  copiedId === result.id || copiedId === `download-${result.id}` || copiedId === `all-${result.id}`
                                     ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
                                 }`}
                               >
-                                {copiedId === result.id ? '✓' : '복사'}
+                                {copiedId === result.id || copiedId === `download-${result.id}` || copiedId === `all-${result.id}`
+                                  ? '✓ 완료' : result.imageUrls.length > 0 ? '📋+📥' : '📋 복사'}
                               </button>
                               <button
                                 onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
