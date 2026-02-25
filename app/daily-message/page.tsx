@@ -75,6 +75,7 @@ export default function DailyMessagePage() {
 
   const [showCurriculumModal, setShowCurriculumModal] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
+  const [curriculumSearch, setCurriculumSearch] = useState('')
 
   // ✅ IndexedDB 이미지 저장 (앱 전환/화면 꺼짐 대응)
   const DB_NAME = 'daily-message-db'
@@ -971,18 +972,78 @@ export default function DailyMessagePage() {
             {lessonType === 'curriculum' && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
                 <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
-                <button
-                  onClick={() => setShowCurriculumModal(true)}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition"
-                >
-                  <span className={selectedTopicData ? 'text-gray-800' : 'text-gray-400'}>
-                    {selectedTopicData 
-                        ? `${selectedTopicData.week ? selectedTopicData.week + '주 ' : ''}${selectedTopicData.title} ${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}`
-                        : '선택해주세요'
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={curriculumSearch}
+                    onChange={(e) => {
+                      setCurriculumSearch(e.target.value)
+                      if (selectedTopicId) setSelectedTopicId('')
+                    }}
+                    onFocus={() => setCurriculumSearch('')}
+                    placeholder={selectedTopicData 
+                      ? `${selectedTopicData.week ? selectedTopicData.week + '주 ' : ''}${selectedTopicData.title} ${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}`
+                      : '🔍 주제명을 검색하세요'
                     }
-                  </span>
-                  <span className="text-gray-400">▼</span>
-                </button>
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent ${
+                      selectedTopicId ? 'bg-teal-50 border-teal-300 font-medium text-teal-800' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  />
+                  {selectedTopicId && (
+                    <button
+                      onClick={() => {
+                        setSelectedTopicId('')
+                        setCurriculumSearch('')
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs hover:bg-gray-300"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {!selectedTopicId && (
+                  <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+                    {Object.values(groupedTopics)
+                      .map(group => ({
+                        ...group,
+                        topics: group.topics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch))
+                      }))
+                      .filter(group => group.topics.length > 0)
+                      .map(group => (
+                        <div key={`${group.year}-${group.month}`}>
+                          <div className="sticky top-0 bg-gray-50 px-4 py-1.5 border-b border-gray-100">
+                            <span className="font-semibold text-gray-500 text-xs">{group.year}년 {group.month}월</span>
+                          </div>
+                          {group.topics.map(topic => (
+                            <button
+                              key={topic.id}
+                              onClick={() => {
+                                setSelectedTopicId(topic.id)
+                                setCurriculumSearch(topic.title)
+                              }}
+                              className="w-full px-4 py-3 text-left hover:bg-teal-50 transition border-b border-gray-100 last:border-b-0 flex items-center gap-2"
+                            >
+                              {topic.week && <span className="text-xs font-bold text-teal-600">{topic.week}주</span>}
+                              <span className="font-medium text-gray-800">{topic.title}</span>
+                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                topic.age_group === 'kindergarten' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'
+                              }`}>
+                                {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    {Object.values(groupedTopics).every(group => 
+                      group.topics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch)).length === 0
+                    ) && (
+                      <p className="text-gray-400 text-center py-4 text-sm">
+                        {curriculumTopics.length === 0 ? '등록된 커리큘럼이 없습니다' : '검색 결과가 없습니다'}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1074,67 +1135,6 @@ export default function DailyMessagePage() {
           </>
         )}
       </div>
-
-      {showCurriculumModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
-          <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-t-3xl md:rounded-2xl overflow-hidden">
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between z-10">
-              <h3 className="font-bold text-gray-800 text-lg">주제 선택</h3>
-              <button 
-                onClick={() => setShowCurriculumModal(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="overflow-y-auto max-h-[calc(80vh-60px)]">
-              {Object.values(groupedTopics).map(group => (
-                <div key={`${group.year}-${group.month}`}>
-                  <div className="sticky top-0 bg-gray-50 px-4 py-2 border-b border-gray-100">
-                    <span className="font-semibold text-gray-700">{group.year}년 {group.month}월</span>
-                  </div>
-                  <div className="divide-y divide-gray-100">
-                    {group.topics.map(topic => (
-                      <button
-                        key={topic.id}
-                        onClick={() => {
-                          setSelectedTopicId(topic.id)
-                          setShowCurriculumModal(false)
-                        }}
-                        className={`w-full px-4 py-4 text-left hover:bg-teal-50 transition flex items-center justify-between ${
-                          selectedTopicId === topic.id ? 'bg-teal-50' : ''
-                        }`}
-                      >
-                        <div className="flex-1 flex items-center gap-3">
-                          {topic.week && <span className="text-sm font-bold text-teal-600 whitespace-nowrap">{topic.week}주</span>}
-                          <p className="font-medium text-gray-800">{topic.title}</p>
-                          <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                            topic.age_group === 'kindergarten' 
-                              ? 'bg-pink-100 text-pink-600' 
-                              : 'bg-blue-100 text-blue-600'
-                          }`}>
-                            {topic.age_group === 'kindergarten' ? '유치' : '초등'}
-                          </span>
-                        </div>
-                        {selectedTopicId === topic.id && (
-                          <span className="text-teal-500 text-xl">✓</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              
-              {curriculumTopics.length === 0 && (
-                <div className="text-center py-12 text-gray-500">
-                  <p>등록된 커리큘럼이 없습니다</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
