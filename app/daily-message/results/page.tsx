@@ -131,43 +131,10 @@ export default function AllResultsPage() {
             // fetch로 가져오면 CORS 문제 없음 (같은 도메인 스토리지)
             const response = await fetch(url)
             const blob = await response.blob()
-            const bitmap = await createImageBitmap(blob)
-            
-            const canvas = document.createElement('canvas')
-            const maxSize = 600
-            let { width, height } = bitmap
-
-            if (width > maxSize || height > maxSize) {
-              if (width > height) {
-                height = Math.round((height / width) * maxSize)
-                width = maxSize
-              } else {
-                width = Math.round((width / height) * maxSize)
-                height = maxSize
-              }
-            }
-
-            canvas.width = width
-            canvas.height = height
-            const ctx = canvas.getContext('2d')!
-            ctx.drawImage(bitmap, 0, 0, width, height)
-            bitmap.close()
-
-            const compressedBlob = await new Promise<Blob>((resolve) => {
-              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.7)
-            })
-
-            return new File([compressedBlob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })
+            return new File([blob], `image_${i + 1}.jpg`, { type: 'image/jpeg' })
           } catch (e) {
             console.error('이미지 처리 실패:', e)
-            // 폴백: 원본 이미지 그대로 사용
-            try {
-              const response = await fetch(url)
-              const blob = await response.blob()
-              return new File([blob], `image_${i + 1}.jpg`, { type: blob.type })
-            } catch {
-              return null
-            }
+            return null
           }
         })
 

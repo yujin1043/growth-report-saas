@@ -99,40 +99,8 @@ export default function ResultPage() {
       if (result.imageUrls.length > 0) {
         const filePromises = result.imageUrls.map(async (url, i) => {
           try {
-            // 이미지 로드
-            const img = new Image()
-            img.crossOrigin = 'anonymous'
-            await new Promise((resolve, reject) => {
-              img.onload = resolve
-              img.onerror = reject
-              img.src = url
-            })
-            
-            // 압축: 최대 800px, 품질 70%
-            const canvas = document.createElement('canvas')
-            const maxSize = 600
-            let { width, height } = img
-            
-            if (width > maxSize || height > maxSize) {
-              if (width > height) {
-                height = (height / width) * maxSize
-                width = maxSize
-              } else {
-                width = (width / height) * maxSize
-                height = maxSize
-              }
-            }
-            
-            canvas.width = width
-            canvas.height = height
-            const ctx = canvas.getContext('2d')
-            ctx?.drawImage(img, 0, 0, width, height)
-            
-            // Blob으로 변환
-            const blob = await new Promise<Blob>((resolve) => {
-              canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.6)
-            })
-            
+            const response = await fetch(url)
+            const blob = await response.blob()
             return new File([blob], `${result.studentName}_작품_${i + 1}.jpg`, { type: 'image/jpeg' })
           } catch (e) {
             console.error('이미지 처리 실패:', e)
