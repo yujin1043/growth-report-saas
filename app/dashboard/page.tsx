@@ -11,6 +11,7 @@ interface UserProfile {
   branch_id: string | null
   branch_name: string | null
   class_names: string[]
+  class_ids: string[]
 }
 
 interface CurriculumItem {
@@ -20,13 +21,28 @@ interface CurriculumItem {
   title: string
 }
 
-interface AttentionStudent {
+interface ProgressAlertStudent {
   id: string
   name: string
   class_name: string
-  no_message_days: number | null
-  need_report: boolean
-  report_months: number
+  session_count: number
+  work_title: string
+}
+
+interface CompletedSketchbookStudent {
+  id: string
+  name: string
+  class_name: string
+  book_number: number
+  completed_at: string
+}
+
+interface ClassStat {
+  id: string
+  name: string
+  total_students: number
+  avg_sessions: number
+  completion_rate: number
 }
 
 interface BranchStats {
@@ -50,18 +66,33 @@ interface BillingTier {
   amount: number
 }
 
+// ── 헬퍼 ────────────────────────────────────────────────
+function sessionBadge(sessions: number) {
+  if (sessions >= 4) return { bg: '#fef2f2', border: '#fecaca', color: '#dc2626', dot: '#ef4444', label: '관리 필요' }
+  return { bg: '#fffbeb', border: '#fde68a', color: '#d97706', dot: '#f59e0b', label: '주의' }
+}
+
+function completionColor(rate: number) {
+  if (rate >= 80) return '#16a34a'
+  if (rate >= 60) return '#d97706'
+  return '#dc2626'
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState('')
 
   const [user, setUser] = useState<UserProfile | null>(null)
-  // 지점 계정용
   const [activeStudents, setActiveStudents] = useState(0)
   const [pendingReports, setPendingReports] = useState(0)
   const [randomCurriculum, setRandomCurriculum] = useState<CurriculumItem | null>(null)
-  const [attentionStudents, setAttentionStudents] = useState<AttentionStudent[]>([])
-  const [attentionFilter, setAttentionFilter] = useState('all')
+
+  // 신규 섹션 상태
+  const [classStats, setClassStats] = useState<ClassStat[]>([])
+  const [progressAlerts, setProgressAlerts] = useState<ProgressAlertStudent[]>([])
+  const [completedSketchbooks, setCompletedSketchbooks] = useState<CompletedSketchbookStudent[]>([])
+  const [mgmtFilter, setMgmtFilter] = useState<'all' | 'attention' | 'critical' | 'completed'>('all')
 
   // 본사 admin용
   const [totalBranches, setTotalBranches] = useState(0)
@@ -73,21 +104,18 @@ export default function DashboardPage() {
   const [branchStats, setBranchStats] = useState<BranchStats[]>([])
   const [billingByTier, setBillingByTier] = useState<BillingTier[]>([])
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
-  function getBillingInfo(activeCount: number): { tier: string, amount: number } {
+  function getBillingInfo(activeCount: number): { tier: string; amount: number } {
     if (activeCount <= 30) return { tier: '~30명', amount: 30000 }
     if (activeCount <= 50) return { tier: '31~50명', amount: 40000 }
     if (activeCount <= 80) return { tier: '51~80명', amount: 60000 }
     if (activeCount <= 120) return { tier: '81~120명', amount: 80000 }
     if (activeCount <= 150) return { tier: '121~150명', amount: 100000 }
-    const extra = (activeCount - 150) * 500
-    return { tier: '150명+', amount: 100000 + extra }
+    return { tier: '150명+', amount: 100000 + (activeCount - 150) * 500 }
   }
 
-  function getStatusFromRates(messageRate: number, reportRate: number): { status: 'green' | 'yellow' | 'red', reason: string } {
+  function getStatusFromRates(messageRate: number, reportRate: number): { status: 'green' | 'yellow' | 'red'; reason: string } {
     if (messageRate < 50 || reportRate < 50) {
       const reasons: string[] = []
       if (messageRate < 50) reasons.push('메시지')
@@ -102,28 +130,7 @@ export default function DashboardPage() {
     return { status: 'green', reason: '양호' }
   }
 
-  function getStatus(
-    lastMessageDays: number | null, 
-    lastReportDays: number | null
-  ): { status: 'green' | 'yellow' | 'red', reason: string } {
-    if (lastMessageDays === null || lastMessageDays > 7) {
-      return { 
-        status: 'red', 
-        reason: lastMessageDays === null ? '메시지 없음' : `메시지 ${lastMessageDays}일 전` 
-      }
-    }
-    if (lastReportDays !== null && lastReportDays > 90) {
-      return { status: 'red', reason: `리포트 ${lastReportDays}일 전` }
-    }
-    if (lastMessageDays >= 4) {
-      return { status: 'yellow', reason: `메시지 ${lastMessageDays}일 전` }
-    }
-    return { status: 'green', reason: '정상' }
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ko-KR').format(amount) + '원'
-  }
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('ko-KR').format(amount) + '원'
 
   async function loadData() {
     try {
@@ -131,22 +138,15 @@ export default function DashboardPage() {
       if (!authUser) { router.push('/login'); return }
 
       const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('name, role, branch_id')
-        .eq('id', authUser.id)
-        .single()
+        .from('user_profiles').select('name, role, branch_id').eq('id', authUser.id).single()
 
       if (!profile) { router.push('/login'); return }
-
       setUserRole(profile.role)
 
-      if (profile.role === 'staff') {
-        router.push('/admin/curriculum')
-        return
-      }
+      if (profile.role === 'staff') { router.push('/admin/curriculum'); return }
 
       if (profile.role === 'admin') {
-        setUser({ name: profile.name, role: profile.role, branch_id: null, branch_name: null, class_names: [] })
+        setUser({ name: profile.name, role: profile.role, branch_id: null, branch_name: null, class_names: [], class_ids: [] })
         await loadAdminData()
       } else {
         await loadBranchData(authUser.id, profile)
@@ -158,13 +158,12 @@ export default function DashboardPage() {
     }
   }
 
-  // ===== 본사 데이터 =====
+  // ===== 본사 데이터 (기존과 동일) =====
   async function loadAdminData() {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
 
-    // 이번 달 수업일 수 계산 (월~금)
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     let businessDaysSoFar = 0
     for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
@@ -172,21 +171,17 @@ export default function DashboardPage() {
       if (day !== 0 && day !== 6) businessDaysSoFar++
     }
 
-    const [branchesResult, studentsResult, activityResult, messagesResult, reportsResult] = await Promise.all([
+    const [branchesResult, studentsResult, activityResult, messagesResult] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
       supabase.from('students').select('id, branch_id, status, enrolled_at, last_report_at'),
       supabase.rpc('get_branch_last_activity'),
       supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
-      supabase.from('reports').select('id, branch_id, created_at')
     ])
 
     const branches = branchesResult.data || []
     const students = studentsResult.data || []
     const messages = messagesResult.data || []
-
-    const activityMap = new Map<string, any>(
-      activityResult.data?.map((a: any) => [a.branch_id, a]) || []
-    )
+    const activityMap = new Map<string, any>(activityResult.data?.map((a: any) => [a.branch_id, a]) || [])
 
     setTotalBranches(branches.length)
 
@@ -194,56 +189,19 @@ export default function DashboardPage() {
       const branchStudents = students.filter(s => s.branch_id === branch.id)
       const activeStudentsList = branchStudents.filter(s => s.status === 'active')
       const activeCount = activeStudentsList.length
-
-      const newThisMonth = branchStudents.filter(s => {
-        if (!s.enrolled_at) return false
-        return new Date(s.enrolled_at) >= startOfMonth && s.status === 'active'
-      }).length
-
+      const newThisMonth = branchStudents.filter(s => s.enrolled_at && new Date(s.enrolled_at) >= startOfMonth && s.status === 'active').length
       const billing = getBillingInfo(activeCount)
-
       const activity = activityMap.get(branch.id)
       const lastMessageDays = activity?.last_message_at
-        ? Math.floor((now.getTime() - new Date(activity.last_message_at).getTime()) / (1000 * 60 * 60 * 24))
-        : null
+        ? Math.floor((now.getTime() - new Date(activity.last_message_at).getTime()) / (1000 * 60 * 60 * 24)) : null
       const lastReportDays = activity?.last_report_at
-        ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24))
-        : null
-
-      const branchMessageDates = new Set(
-        messages
-          .filter(m => m.branch_id === branch.id)
-          .map(m => new Date(m.created_at).toDateString())
-      )
-      const messageRate = businessDaysSoFar > 0
-        ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100)
-        : 0
-
-      const studentsWithReport = activeStudentsList.filter(s => {
-        const student = s as any
-        if (!student.last_report_at) return false
-        return new Date(student.last_report_at) >= twoMonthsAgo
-      }).length
-      const reportRate = activeCount > 0
-        ? Math.round((studentsWithReport / activeCount) * 100)
-        : 0
-
+        ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24)) : null
+      const branchMessageDates = new Set(messages.filter(m => m.branch_id === branch.id).map(m => new Date(m.created_at).toDateString()))
+      const messageRate = businessDaysSoFar > 0 ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100) : 0
+      const studentsWithReport = activeStudentsList.filter(s => (s as any).last_report_at && new Date((s as any).last_report_at) >= twoMonthsAgo).length
+      const reportRate = activeCount > 0 ? Math.round((studentsWithReport / activeCount) * 100) : 0
       const statusInfo = getStatusFromRates(messageRate, reportRate)
-
-      return {
-        id: branch.id,
-        name: branch.name,
-        active_count: activeCount,
-        change_this_month: newThisMonth,
-        billing_tier: billing.tier,
-        billing_amount: billing.amount,
-        last_message_days: lastMessageDays,
-        last_report_days: lastReportDays,
-        message_rate: messageRate,
-        report_rate: reportRate,
-        status: statusInfo.status,
-        status_reason: statusInfo.reason
-      }
+      return { id: branch.id, name: branch.name, active_count: activeCount, change_this_month: newThisMonth, billing_tier: billing.tier, billing_amount: billing.amount, last_message_days: lastMessageDays, last_report_days: lastReportDays, message_rate: messageRate, report_rate: reportRate, status: statusInfo.status, status_reason: statusInfo.reason }
     })
 
     setBranchStats(stats)
@@ -253,7 +211,7 @@ export default function DashboardPage() {
     setYellowCount(stats.filter(b => b.status === 'yellow').length)
     setRedCount(stats.filter(b => b.status === 'red').length)
 
-    const tierMap = new Map<string, { count: number, amount: number }>()
+    const tierMap = new Map<string, { count: number; amount: number }>()
     stats.forEach(b => {
       const existing = tierMap.get(b.billing_tier) || { count: 0, amount: 0 }
       tierMap.set(b.billing_tier, { count: existing.count + 1, amount: existing.amount + b.billing_amount })
@@ -266,15 +224,13 @@ export default function DashboardPage() {
     setBillingByTier(tiers)
   }
 
-  // ===== 지점 계정 데이터 (최적화: 6개 쿼리 → Promise.all 1번 + 메시지 1번) =====
+  // ===== 지점 계정 데이터 =====
   async function loadBranchData(authUserId: string, profile: any) {
     const now = new Date()
     const currentMonth = now.getMonth() + 1
     const currentYear = now.getFullYear()
-    const twoMonthsAgo = new Date(currentYear, now.getMonth() - 2, now.getDate())
     const startOfMonth = new Date(currentYear, now.getMonth(), 1)
 
-    // ★ 1단계: 모든 기본 데이터를 한번에 병렬로 가져오기
     let studentsQuery = supabase.from('students').select('id, name, class_id, last_report_at, status')
     if (profile.branch_id) studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
 
@@ -283,28 +239,27 @@ export default function DashboardPage() {
 
     const [branchesResult, classesResult, teacherClassesResult, studentsResult, reportsResult, curriculumResult] = await Promise.all([
       supabase.from('branches').select('id, name'),
-      supabase.from('classes').select('id, name'),
+      supabase.from('classes').select('id, name').eq('branch_id', profile.branch_id),
       profile.role === 'teacher'
         ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', authUserId)
         : Promise.resolve({ data: null }),
       studentsQuery,
       reportsQuery,
-      supabase.from('monthly_curriculum').select('id, month, target_group, title').eq('status', 'active').eq('year', currentYear).eq('month', currentMonth)
+      supabase.from('monthly_curriculum').select('id, month, target_group, title').eq('status', 'active').eq('year', currentYear).eq('month', currentMonth),
     ])
 
-    // 맵 생성
     const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
-    const classMap = new Map(classesResult.data?.map(c => [c.id, c.name]) || [])
+    const classMap = new Map(classesResult.data?.map((c: any) => [c.id, c.name]) || [])
 
-    // 유저 프로필 설정
     const branchName = profile.branch_id ? (branchMap.get(profile.branch_id) || null) : null
+    let classIds: string[] = []
     let classNames: string[] = []
     if (profile.role === 'teacher' && teacherClassesResult.data) {
-      classNames = teacherClassesResult.data.map((tc: any) => classMap.get(tc.class_id)).filter((name: any): name is string => !!name)
+      classIds = teacherClassesResult.data.map((tc: any) => tc.class_id)
+      classNames = classIds.map((id: string) => classMap.get(id)).filter((n: any): n is string => !!n)
     }
-    setUser({ name: profile.name, role: profile.role, branch_id: profile.branch_id, branch_name: branchName, class_names: classNames })
+    setUser({ name: profile.name, role: profile.role, branch_id: profile.branch_id, branch_name: branchName, class_names: classNames, class_ids: classIds })
 
-    // 재원학생 + 리포트 미작성
     const allStudents = studentsResult.data || []
     const activeStudentsList = allStudents.filter(s => s.status === 'active')
     setActiveStudents(activeStudentsList.length)
@@ -312,57 +267,145 @@ export default function DashboardPage() {
     const reportedIds = new Set(reportsResult.data?.map(r => r.student_id) || [])
     setPendingReports(activeStudentsList.filter(s => !reportedIds.has(s.id)).length)
 
-    // 커리큘럼 랜덤 1개
-    if (curriculumResult.data && curriculumResult.data.length > 0) {
+    if (curriculumResult.data?.length) {
       setRandomCurriculum(curriculumResult.data[Math.floor(Math.random() * curriculumResult.data.length)])
     }
 
-    // ★ 2단계: 메시지 데이터 (학생 ID가 필요하므로 1단계 이후 실행)
-    if (activeStudentsList.length > 0) {
-      const studentIds = activeStudentsList.map(s => s.id)
-      const { data: messagesData } = await supabase
-        .from('daily_messages')
-        .select('student_id, created_at')
-        .in('student_id', studentIds)
-        .order('created_at', { ascending: false })
+    if (activeStudentsList.length === 0) return
 
-      const lastMessageMap = new Map<string, string>()
-      messagesData?.forEach(m => {
-        if (!lastMessageMap.has(m.student_id)) lastMessageMap.set(m.student_id, m.created_at)
-      })
+    const studentIds = activeStudentsList.map(s => s.id)
+    // O(1) 학생 조회용 Map
+    const studentMap = new Map(activeStudentsList.map(s => [s.id, s]))
 
-      const attentionList: AttentionStudent[] = []
+    // ── 2단계: 스케치북 조회 (studentIds 필요) ──────────────
+    const { data: sketchbooks } = await supabase
+      .from('sketchbooks')
+      .select('id, student_id, book_number, status, completed_at')
+      .in('student_id', studentIds)
 
-      for (const student of activeStudentsList) {
-        const lastMsgDate = lastMessageMap.get(student.id)
-        const noMessageDays = lastMsgDate
-          ? Math.floor((now.getTime() - new Date(lastMsgDate).getTime()) / (1000 * 60 * 60 * 24))
-          : null
+    // 맵 구성
+    const activeSketchbookMap = new Map<string, string>()   // student_id → active sketchbook_id
+    const completedSketchbookMap = new Map<string, { book_number: number; completed_at: string }>()
+    const sbToStudent = new Map<string, string>()           // sketchbook_id → student_id (전체)
 
-        const needReport = !student.last_report_at || new Date(student.last_report_at) < twoMonthsAgo
-        const reportMonths = student.last_report_at
-          ? Math.floor((now.getTime() - new Date(student.last_report_at).getTime()) / (1000 * 60 * 60 * 24 * 30))
-          : 0
-
-        const isMessageAlert = noMessageDays === null || noMessageDays >= 7
-        const isReportAlert = needReport
-
-        if (isMessageAlert || isReportAlert) {
-          attentionList.push({
-            id: student.id, name: student.name,
-            class_name: student.class_id ? (classMap.get(student.class_id) || '-') : '-',
-            no_message_days: noMessageDays, need_report: isReportAlert, report_months: reportMonths
-          })
+    sketchbooks?.forEach((sk: any) => {
+      sbToStudent.set(sk.id, sk.student_id)
+      if (sk.status === 'active') {
+        activeSketchbookMap.set(sk.student_id, sk.id)
+      } else if (sk.status === 'completed' && sk.completed_at) {
+        const existing = completedSketchbookMap.get(sk.student_id)
+        if (!existing || new Date(sk.completed_at) > new Date(existing.completed_at)) {
+          completedSketchbookMap.set(sk.student_id, { book_number: sk.book_number, completed_at: sk.completed_at })
         }
       }
+    })
 
-      attentionList.sort((a, b) => {
-        const score = (s: AttentionStudent) => ((s.no_message_days === null || s.no_message_days >= 7) ? 2 : 0) + (s.need_report ? 1 : 0)
-        return score(b) - score(a)
-      })
+    const activeSketchbookIds = [...activeSketchbookMap.values()]
+    const allSketchbookIds = sketchbooks?.map((sk: any) => sk.id) || []
 
-      setAttentionStudents(attentionList)
+    // ── 3단계: works 2종 병렬 조회 (sketchbookIds 필요) ─────
+    const [inProgressWorksResult, completedWorksResult] = await Promise.all([
+      activeSketchbookIds.length > 0
+        ? supabase
+            .from('sketchbook_works')
+            .select('id, sketchbook_id, curriculum_id, custom_title, is_custom, session_count')
+            .in('sketchbook_id', activeSketchbookIds)
+            .eq('status', 'in_progress')
+            .gte('session_count', 3)
+        : Promise.resolve({ data: [] }),
+      allSketchbookIds.length > 0
+        ? supabase
+            .from('sketchbook_works')
+            .select('sketchbook_id, session_count')
+            .in('sketchbook_id', allSketchbookIds)
+            .eq('status', 'completed')
+        : Promise.resolve({ data: [] }),
+    ])
+
+    const worksData = inProgressWorksResult.data || []
+    const completedWorksData = completedWorksResult.data || []
+
+    // ── 4단계: 커리큘럼 제목 조회 (curriculumIds 필요) ──────
+    let curriculumTitleMap: Record<string, string> = {}
+    const curriculumIds = [...new Set(
+      worksData.filter(w => !w.is_custom && w.curriculum_id).map(w => w.curriculum_id)
+    )]
+    if (curriculumIds.length > 0) {
+      const { data: currs } = await supabase
+        .from('monthly_curriculum').select('id, title').in('id', curriculumIds)
+      currs?.forEach((c: any) => { curriculumTitleMap[c.id] = c.title })
     }
+
+    // ── 진도 경고 목록 구성 ──────────────────────────────────
+    const progressAlertList: ProgressAlertStudent[] = []
+    worksData.forEach(w => {
+      const studentId = sbToStudent.get(w.sketchbook_id)
+      if (!studentId) return
+      const student = studentMap.get(studentId)
+      if (!student) return
+      if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(student.class_id || '')) return
+      progressAlertList.push({
+        id: studentId,
+        name: student.name,
+        class_name: student.class_id ? (classMap.get(student.class_id) || '-') : '-',
+        session_count: w.session_count,
+        work_title: w.is_custom ? (w.custom_title || '') : (curriculumTitleMap[w.curriculum_id] || ''),
+      })
+    })
+    progressAlertList.sort((a, b) => b.session_count - a.session_count)
+    setProgressAlerts(progressAlertList)
+
+    // ── 스케치북 완료 학생 목록 ──────────────────────────────
+    const completedList: CompletedSketchbookStudent[] = []
+    activeStudentsList.forEach(s => {
+      const completed = completedSketchbookMap.get(s.id)
+      if (!completed) return
+      if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(s.class_id || '')) return
+      completedList.push({
+        id: s.id,
+        name: s.name,
+        class_name: s.class_id ? (classMap.get(s.class_id) || '-') : '-',
+        book_number: completed.book_number,
+        completed_at: completed.completed_at.split('T')[0],
+      })
+    })
+    setCompletedSketchbooks(completedList)
+
+    // ── 반별 통계 ────────────────────────────────────────────
+    // student_id → min session_count of completed works (5회 이내 완료율용)
+    const completedWorksMap: Record<string, number> = {}
+    completedWorksData.forEach((w: any) => {
+      const sid = sbToStudent.get(w.sketchbook_id)
+      if (!sid) return
+      if (completedWorksMap[sid] === undefined || w.session_count < completedWorksMap[sid]) {
+        completedWorksMap[sid] = w.session_count
+      }
+    })
+
+    const allClasses = classesResult.data || []
+    const targetClasses = profile.role === 'teacher' && classIds.length > 0
+      ? allClasses.filter((c: any) => classIds.includes(c.id))
+      : allClasses
+
+    // 진도 경고 학생 Set (반별 평균 계산용)
+    const progressAlertStudentIds = new Set(progressAlertList.map(p => p.id))
+
+    const statsArr: ClassStat[] = targetClasses.map((cls: any) => {
+      const classStudents = activeStudentsList.filter(s => s.class_id === cls.id)
+      const total = classStudents.length
+      if (total === 0) return { id: cls.id, name: cls.name, total_students: 0, avg_sessions: 0, completion_rate: 0 }
+
+      const classAlerts = progressAlertList.filter(p => progressAlertStudentIds.has(p.id) && classStudents.some(s => s.id === p.id))
+      const avgSessions = classAlerts.length > 0
+        ? Math.round((classAlerts.reduce((sum, p) => sum + p.session_count, 0) / classAlerts.length) * 10) / 10
+        : 0
+
+      const completedWithin5 = classStudents.filter(s => completedWorksMap[s.id] !== undefined && completedWorksMap[s.id] <= 5).length
+      const completionRate = Math.round((completedWithin5 / total) * 100)
+
+      return { id: cls.id, name: cls.name, total_students: total, avg_sessions: avgSessions, completion_rate: completionRate }
+    })
+    setClassStats(statsArr)
   }
 
   async function handleLogout() {
@@ -385,19 +428,28 @@ export default function DashboardPage() {
     return `${user.class_names.slice(0, 2).join(', ')} 외 ${user.class_names.length - 2}개`
   }
 
-  const filteredAttention = attentionFilter === 'all' ? attentionStudents
-    : attentionFilter === 'message' ? attentionStudents.filter(s => s.no_message_days === null || s.no_message_days >= 7)
-    : attentionStudents.filter(s => s.need_report)
+  // 관리 필요 원생 파생값
+  const progressAttentionCount = progressAlerts.filter(s => s.session_count >= 3 && s.session_count < 4).length
+  const progressCriticalCount = progressAlerts.filter(s => s.session_count >= 4).length
+  const completedCount = completedSketchbooks.length
+  const totalMgmt = progressAlerts.length + completedSketchbooks.length
 
-  const messageAlertCount = attentionStudents.filter(s => s.no_message_days === null || s.no_message_days >= 7).length
-  const reportAlertCount = attentionStudents.filter(s => s.need_report).length
+  const filteredProgress = mgmtFilter === 'attention'
+    ? progressAlerts.filter(s => s.session_count >= 3 && s.session_count < 4)
+    : mgmtFilter === 'critical'
+    ? progressAlerts.filter(s => s.session_count >= 4)
+    : mgmtFilter === 'completed' ? []
+    : progressAlerts
+
+  const showProgress = mgmtFilter === 'all' || mgmtFilter === 'attention' || mgmtFilter === 'critical'
+  const showCompleted = mgmtFilter === 'all' || mgmtFilter === 'completed'
 
   // ===== 로딩 =====
   if (loading) {
     return userRole === 'admin' ? <DashboardAdminSkeleton /> : <DashboardBranchSkeleton />
   }
 
-  // ===== 본사 관리자 =====
+  // ===== 본사 관리자 (기존과 동일) =====
   if (userRole === 'admin') {
     const sortedStats = [...branchStats].sort((a, b) => {
       const order = { red: 0, yellow: 1, green: 2 }
@@ -458,12 +510,8 @@ export default function DashboardPage() {
                     <span className="text-sm text-slate-500">원생 <strong className="text-slate-800">{branch.active_count}</strong>명</span>
                   </div>
                   <div className="flex gap-4 ml-5 text-xs">
-                    <span className={branch.message_rate < 50 ? 'text-red-500 font-semibold' : branch.message_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>
-                      메시지 {branch.message_rate}%
-                    </span>
-                    <span className={branch.report_rate < 50 ? 'text-red-500 font-semibold' : branch.report_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>
-                      리포트 {branch.report_rate}%
-                    </span>
+                    <span className={branch.message_rate < 50 ? 'text-red-500 font-semibold' : branch.message_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>메시지 {branch.message_rate}%</span>
+                    <span className={branch.report_rate < 50 ? 'text-red-500 font-semibold' : branch.report_rate < 80 ? 'text-amber-500 font-semibold' : 'text-slate-400'}>리포트 {branch.report_rate}%</span>
                   </div>
                 </div>
               ))}
@@ -481,9 +529,7 @@ export default function DashboardPage() {
                       <span className="text-slate-600">[{tier.tier}] {tier.count}개 지점</span>
                       <span className="text-slate-800">{formatCurrency(tier.amount)}</span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 pl-1">
-                      {tierBranches.map(b => `${b.name}(${b.active_count}명)`).join(', ')}
-                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5 pl-1">{tierBranches.map(b => `${b.name}(${b.active_count}명)`).join(', ')}</p>
                   </div>
                 )
               })}
@@ -501,7 +547,6 @@ export default function DashboardPage() {
   // ===== 지점 계정 대시보드 =====
   return (
     <div className="min-h-screen" style={{ background: '#F8FAFB' }}>
-
       <div className="max-w-3xl mx-auto px-4 py-5 md:py-7 space-y-5">
 
         {/* ① 인사 헤더 */}
@@ -540,7 +585,6 @@ export default function DashboardPage() {
             <span className="w-1 h-4 rounded-sm inline-block" style={{ background: 'linear-gradient(180deg, #F7D85C 0%, #E8A0B4 100%)' }}></span>
             오늘의 할 일
           </h3>
-
           <button onClick={() => router.push('/daily-message')} className="w-full rounded-xl p-4 md:p-5 mb-3 flex items-center gap-3.5 text-left transition active:scale-[0.98]" style={{ background: 'linear-gradient(135deg, #F7D85C 0%, #F5C842 100%)', boxShadow: '0 4px 16px rgba(247,216,92,0.25)' }}>
             <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0" style={{ background: 'rgba(255,255,255,0.4)' }}>💬</div>
             <div className="flex-1">
@@ -549,7 +593,6 @@ export default function DashboardPage() {
             </div>
             <span className="text-xl" style={{ color: '#5D4E00' }}>→</span>
           </button>
-
           <div className="grid grid-cols-2 gap-2.5">
             <button onClick={() => router.push('/reports')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#E8F8F5' }}>📝</div>
@@ -568,70 +611,156 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ④ 관리 필요 원생 */}
+        {/* ④ 반별 진도 현황 [신규] */}
+        {classStats.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <span className="w-1 h-4 rounded-sm inline-block" style={{ background: 'linear-gradient(180deg, #5BB5C5 0%, #06b6d4 100%)' }}></span>
+                반별 진도 현황
+              </h3>
+              {user?.role === 'teacher' && (
+                <span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">내 반만 표시</span>
+              )}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {classStats.map(cls => (
+                <div key={cls.id} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                  <div className="flex justify-between items-center mb-2.5">
+                    <span className="text-sm font-bold text-gray-800">{cls.name}</span>
+                    <span className="text-xs text-gray-400">재원 {cls.total_students}명</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* 평균 진도 회차 */}
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-100">
+                      <div className="text-xs text-gray-400 mb-1">평균 진도 회차</div>
+                      <div className="flex items-baseline gap-0.5">
+                        <span className="text-xl font-extrabold" style={{ color: cls.avg_sessions >= 3.5 ? '#dc2626' : cls.avg_sessions >= 2.5 ? '#d97706' : '#0d9488' }}>
+                          {cls.avg_sessions.toFixed(1)}
+                        </span>
+                        <span className="text-xs text-gray-400">회</span>
+                      </div>
+                    </div>
+                    {/* 5회 이내 완료율 */}
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-100">
+                      <div className="text-xs text-gray-400 mb-1">5회 이내 완료율</div>
+                      <div className="flex items-baseline gap-0.5 mb-1.5">
+                        <span className="text-xl font-extrabold" style={{ color: completionColor(cls.completion_rate) }}>
+                          {cls.completion_rate}
+                        </span>
+                        <span className="text-xs text-gray-400">%</span>
+                      </div>
+                      <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${cls.completion_rate}%`, background: completionColor(cls.completion_rate) }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ⑤ 관리 필요 원생 [신규] */}
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
               <span className="w-1 h-4 rounded-sm inline-block" style={{ background: 'linear-gradient(180deg, #FF6B6B 0%, #FFB4B4 100%)' }}></span>
               관리 필요 원생
             </h3>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${attentionStudents.length > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-              {attentionStudents.length}명
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${totalMgmt > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+              {totalMgmt}명
             </span>
           </div>
 
-          {attentionStudents.length > 0 ? (
+          {totalMgmt > 0 ? (
             <>
-              <div className="flex gap-1.5 mb-3.5">
+              {/* 필터 탭 */}
+              <div className="flex gap-1.5 mb-3.5 overflow-x-auto pb-0.5">
                 {[
-                  { id: 'all', label: '전체', count: attentionStudents.length },
-                  { id: 'message', label: '메시지 미발송', count: messageAlertCount },
-                  { id: 'report', label: '리포트 필요', count: reportAlertCount },
+                  { key: 'all', label: `전체 ${totalMgmt}` },
+                  { key: 'attention', label: `⚠️ 주의 ${progressAttentionCount}` },
+                  { key: 'critical', label: `🚨 관리필요 ${progressCriticalCount}` },
+                  { key: 'completed', label: `📚 스케치북완료 ${completedCount}` },
                 ].map(tab => (
-                  <button key={tab.id} onClick={() => setAttentionFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${attentionFilter === tab.id ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                    {tab.label} {tab.count}
+                  <button
+                    key={tab.key}
+                    onClick={() => setMgmtFilter(tab.key as any)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap flex-shrink-0 ${mgmtFilter === tab.key ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    {tab.label}
                   </button>
                 ))}
               </div>
 
               <div className="space-y-1.5">
-                {filteredAttention.map(student => {
-                  const isMsgAlert = student.no_message_days === null || student.no_message_days >= 7
-                  return (
-                    <div key={student.id} onClick={() => router.push(`/students/${student.id}`)} className="flex items-center p-3.5 rounded-xl bg-gray-50 border border-gray-100 cursor-pointer hover:bg-teal-50/30 transition">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-gray-800 mb-1">
-                          {student.name}
-                          <span className="text-xs font-normal text-gray-400 ml-1.5">{student.class_name}</span>
+                {/* 진도 경고 */}
+                {showProgress && (
+                  <>
+                    {mgmtFilter === 'all' && filteredProgress.length > 0 && (
+                      <p className="text-xs font-semibold text-gray-400 pt-1 pb-0.5 px-1">진도 경고</p>
+                    )}
+                    {filteredProgress.map(s => {
+                      const badge = sessionBadge(s.session_count)
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => router.push(`/students/${s.id}`)}
+                          className="flex items-center p-3.5 rounded-xl cursor-pointer transition"
+                          style={{ background: '#f9fafb', border: `1.5px solid ${badge.border}` }}
+                        >
+                          <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3" style={{ background: badge.dot, boxShadow: `0 0 5px ${badge.dot}99` }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold text-gray-800 mb-0.5">
+                              {s.name}
+                              <span className="text-xs font-normal text-gray-400 ml-1.5">{s.class_name}</span>
+                            </div>
+                            <div className="text-xs text-gray-500">{s.work_title}</div>
+                          </div>
+                          <div className="flex-shrink-0 ml-2 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                            {s.session_count}회차 · {badge.label}
+                          </div>
                         </div>
-                        <div className="flex gap-1.5 flex-wrap">
-                          {isMsgAlert && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">메시지 {student.no_message_days === null ? '없음' : `${student.no_message_days}일 전`}</span>}
-                          {student.need_report && <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">리포트 {student.report_months > 0 ? `${student.report_months}개월 경과` : '없음'}</span>}
+                      )
+                    })}
+                  </>
+                )}
+
+                {/* 스케치북 완료 */}
+                {showCompleted && (
+                  <>
+                    {mgmtFilter === 'all' && completedSketchbooks.length > 0 && (
+                      <p className="text-xs font-semibold text-gray-400 pt-1 pb-0.5 px-1">스케치북 완료 — 성장리포트 필요</p>
+                    )}
+                    {completedSketchbooks.map(s => (
+                      <div
+                        key={s.id}
+                        onClick={() => router.push(`/students/${s.id}`)}
+                        className="flex items-center p-3.5 rounded-xl cursor-pointer transition"
+                        style={{ background: '#f9fafb', border: '1.5px solid #e0e7ff' }}
+                      >
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 mr-3" style={{ background: '#6366f1', boxShadow: '0 0 5px #6366f199' }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-800 mb-0.5">
+                            {s.name}
+                            <span className="text-xs font-normal text-gray-400 ml-1.5">{s.class_name}</span>
+                          </div>
+                          <div className="text-xs text-gray-500">스케치북 {s.book_number}권 · {s.completed_at} 완료</div>
+                        </div>
+                        <div className="flex-shrink-0 ml-2 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe' }}>
+                          리포트 필요
                         </div>
                       </div>
-                      <div className="flex gap-1.5 flex-shrink-0 ml-2">
-                        {isMsgAlert && (
-                          <button onClick={(e) => { e.stopPropagation(); router.push('/daily-message') }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-amber-50"
-                            style={{ background: '#FFFBEB', borderColor: '#F5D565', color: '#92400E' }}>메시지</button>
-                        )}
-                        {student.need_report && (
-                          <button onClick={(e) => { e.stopPropagation(); router.push(`/students/${student.id}`) }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition hover:bg-teal-50"
-                            style={{ background: '#F0FDFA', borderColor: '#5BB5C5', color: '#0F766E' }}>리포트</button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                    ))}
+                  </>
+                )}
               </div>
             </>
           ) : (
             <div className="text-center py-8">
               <p className="text-3xl mb-2">🎉</p>
               <p className="font-semibold text-gray-700">모든 원생이 잘 관리되고 있어요!</p>
-              <p className="text-xs text-gray-400 mt-1">메시지 발송과 리포트 작성이 모두 정상입니다</p>
+              <p className="text-xs text-gray-400 mt-1">진도 관리와 스케치북이 모두 정상입니다</p>
             </div>
           )}
         </div>
