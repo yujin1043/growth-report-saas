@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { DailyMessageSkeleton } from '@/components/Skeleton'
@@ -35,313 +35,175 @@ interface CurriculumTopic {
   age_group: string | null
 }
 
-const MATERIAL_OPTIONS = [
-  '연필', '색연필', '매직', '사인펜',
-  '수채화', '아크릴', '파스텔', '점토',
-  '스티커', '기타'
-]
+// 진행 중 작품 (DB 실제 컬럼 기준)
+interface InProgressWork {
+  id: string
+  sketchbook_id: string
+  curriculum_id: string | null
+  custom_title: string | null
+  is_custom: boolean
+  session_count: number
+  status: string
+  work_date: string
+  // UI용 파생 필드
+  title: string
+  type: 'curriculum' | 'free'
+  sessions: number
+}
+
+const MATERIAL_OPTIONS = ['연필', '색연필', '매직', '사인펜', '수채화', '아크릴', '파스텔', '점토', '스티커', '기타']
 
 export default function DailyMessagePage() {
   const router = useRouter()
-  
-  const [userId, setUserId] = useState<string>('')
-  const [userBranchId, setUserBranchId] = useState<string>('')
-  const [userRole, setUserRole] = useState<string>('')
-  
-  const [classes, setClasses] = useState<ClassOption[]>([])
+
+  const [userId, setUserId] = useState('')
+  const [userBranchId, setUserBranchId] = useState('')
+  const [userRole, setUserRole] = useState('')
+
   const [branches, setBranches] = useState<Branch[]>([])
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('')
+  const [selectedBranchId, setSelectedBranchId] = useState('')
+  const [classes, setClasses] = useState<ClassOption[]>([])
+  const [selectedClassId, setSelectedClassId] = useState('')
   const [students, setStudents] = useState<Student[]>([])
+  const [selectedStudentId, setSelectedStudentId] = useState('')
+  const [studentSearch, setStudentSearch] = useState('')
+
   const [curriculumTopics, setCurriculumTopics] = useState<CurriculumTopic[]>([])
-  
-  const [selectedClassId, setSelectedClassId] = useState<string>('')
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('')
-  
-  const [images, setImages] = useState<File[]>([])
-  const [imageUrls, setImageUrls] = useState<string[]>([])
-  
+  const [allResultsCount, setAllResultsCount] = useState(0)
+  const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
+
+  // v4 UI 상태
+  const [inProgressList, setInProgressList] = useState<InProgressWork[]>([])
+  const [selectedWork, setSelectedWork] = useState<any>(null)
+  const [isNewWork, setIsNewWork] = useState(false)
+  const [showCurriculumModal, setShowCurriculumModal] = useState(false)
+
   const [lessonType, setLessonType] = useState<'curriculum' | 'free'>('curriculum')
-  const [selectedTopicId, setSelectedTopicId] = useState<string>('')
+  const [selectedTopicId, setSelectedTopicId] = useState('')
   const [freeSubject, setFreeSubject] = useState('')
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
   const [progressStatus, setProgressStatus] = useState<'none' | 'started' | 'completed'>('none')
   const [teacherMemo, setTeacherMemo] = useState('')
-  
+
+  const [images, setImages] = useState<File[]>([])
+  const [imageUrls, setImageUrls] = useState<string[]>([])
+  const [compressing, setCompressing] = useState(false)
+  const MAX_IMAGES = 4
+
   const [generating, setGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
-  
-  const [allResultsCount, setAllResultsCount] = useState(0)
-  const [generatedStudentIds, setGeneratedStudentIds] = useState<string[]>([])
 
-  const [showCurriculumModal, setShowCurriculumModal] = useState(false)
-  const [studentSearch, setStudentSearch] = useState('')
-  const [curriculumSearch, setCurriculumSearch] = useState('')
+  // ── 파생값 ──────────────────────────────────────────
+  const student = students.find(s => s.id === selectedStudentId)
+  const hasInProgress = inProgressList.length > 0
+  const currentYear = new Date().getFullYear()
+  const getAge = (birthYear: number) => currentYear - birthYear + 1
 
-  // ✅ IndexedDB 이미지 저장 (앱 전환/화면 꺼짐 대응)
-  const DB_NAME = 'daily-message-db'
-  const DB_STORE = 'images'
-
-  const openImageDB = (): Promise<IDBDatabase> => {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(DB_STORE)) {
-          db.createObjectStore(DB_STORE, { keyPath: 'index' })
-        }
+  const groupedCurriculum = useMemo(() => {
+    const map: Record<string, { year: number; month: number; label: string; topics: CurriculumTopic[] }> = {}
+    curriculumTopics.forEach(t => {
+      const key = `${t.year}-${t.month}`
+      if (!map[key]) {
+        const now = new Date()
+        const isCurrent = t.year === now.getFullYear() && t.month === now.getMonth() + 1
+        map[key] = { year: t.year, month: t.month, label: `${t.month}월${isCurrent ? ' (당월)' : ''}`, topics: [] }
       }
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
+      map[key].topics.push(t)
     })
+    return Object.values(map).sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)
+  }, [curriculumTopics])
+
+  // ── 초기화 ──────────────────────────────────────────
+  const resetSelection = () => {
+    setSelectedWork(null)
+    setIsNewWork(false)
+    setLessonType('curriculum')
+    setSelectedTopicId('')
+    setFreeSubject('')
+    setSelectedMaterials([])
+    setProgressStatus('none')
+    setTeacherMemo('')
+    setShowCurriculumModal(false)
   }
 
-  const saveImagesToDB = async (files: File[]) => {
-    try {
-      const db = await openImageDB()
-      const tx = db.transaction(DB_STORE, 'readwrite')
-      const store = tx.objectStore(DB_STORE)
-      store.clear()
-      for (let i = 0; i < files.length; i++) {
-        const buffer = await files[i].arrayBuffer()
-        store.put({ index: i, name: files[i].name, type: files[i].type, data: buffer })
-      }
-      db.close()
-    } catch {}
+  const clearStudent = () => {
+    setSelectedStudentId('')
+    setStudentSearch('')
+    setInProgressList([])
+    resetSelection()
   }
 
-  const loadImagesFromDB = async (): Promise<{ files: File[]; urls: string[] }> => {
-    try {
-      const db = await openImageDB()
-      const tx = db.transaction(DB_STORE, 'readonly')
-      const store = tx.objectStore(DB_STORE)
-      const allReq = store.getAll()
-      return new Promise((resolve) => {
-        allReq.onsuccess = () => {
-          const records = allReq.result || []
-          const files: File[] = []
-          const urls: string[] = []
-          records.sort((a: any, b: any) => a.index - b.index)
-          for (const rec of records) {
-            const file = new File([rec.data], rec.name, { type: rec.type })
-            files.push(file)
-            urls.push(URL.createObjectURL(file))
-          }
-          db.close()
-          resolve({ files, urls })
-        }
-        allReq.onerror = () => {
-          db.close()
-          resolve({ files: [], urls: [] })
-        }
-      })
-    } catch {
-      return { files: [], urls: [] }
-    }
+  const toggleMaterial = (m: string) => {
+    setSelectedMaterials(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])
   }
 
-  const clearImageDB = async () => {
-    try {
-      const db = await openImageDB()
-      const tx = db.transaction(DB_STORE, 'readwrite')
-      tx.objectStore(DB_STORE).clear()
-      db.close()
-    } catch {}
-  }
-
-  // ✅ 폼 상태를 sessionStorage에 저장 (앱 전환/화면 꺼짐 대응)
-  const STORAGE_KEY = 'daily-message-form'
-
-  const saveFormState = () => {
-    try {
-      const state = {
-        selectedClassId, selectedStudentId, lessonType,
-        selectedTopicId, freeSubject, selectedMaterials,
-        progressStatus, teacherMemo, selectedBranchId
-      }
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch {}
-  }
-
-  const restoreFormState = () => {
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY)
-      if (!saved) return null
-      return JSON.parse(saved)
-    } catch { return null }
-  }
-
-  const clearFormState = () => {
-    try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
-  }
-
-  // 폼 값 변경 시마다 자동 저장
-  useEffect(() => {
-    if (!loading && selectedStudentId) {
-      saveFormState()
-    }
-  }, [selectedClassId, selectedStudentId, lessonType, selectedTopicId, freeSubject, selectedMaterials, progressStatus, teacherMemo, selectedBranchId])
-
-  // ✅ 이미지 변경 시 IndexedDB에 자동 저장
-  useEffect(() => {
-    if (!loading && images.length > 0) {
-      saveImagesToDB(images)
-    } else if (!loading && images.length === 0) {
-      clearImageDB()
-    }
-  }, [images, loading])
-
-  useEffect(() => {
-    if (showCurriculumModal) {
-      document.body.classList.add('modal-open')
-    } else {
-      document.body.classList.remove('modal-open')
-    }
-    return () => document.body.classList.remove('modal-open')
-  }, [showCurriculumModal])
-
-  useEffect(() => {
-    loadInitialData()
-    return () => {
-      // ✅ 언마운트 시 blob URL 메모리 정리
-      imageUrls.forEach(url => URL.revokeObjectURL(url))
-    }
-  }, [])
+  // ── lifecycle ────────────────────────────────────────
+  useEffect(() => { loadInitialData() }, [])
 
   useEffect(() => {
     if (selectedClassId) {
       loadStudentsByClass(selectedClassId)
-      setSelectedStudentId('')
+      clearStudent()
     }
   }, [selectedClassId])
 
-  // ✅ 최적화: 순차 쿼리 → 병렬 쿼리
+  useEffect(() => {
+    if (selectedStudentId) loadInProgressList(selectedStudentId)
+    else setInProgressList([])
+  }, [selectedStudentId])
+
+  // ── 데이터 로드 ──────────────────────────────────────
   async function loadInitialData() {
     const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
+    if (!user) { router.push('/login'); return }
     setUserId(user.id)
 
-    // 1단계: 프로필 먼저 (다른 쿼리의 조건으로 필요)
     const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role, branch_id')
-      .eq('id', user.id)
-      .single()
+      .from('user_profiles').select('role, branch_id').eq('id', user.id).single()
 
-    if (profile?.branch_id) {
-      setUserBranchId(profile.branch_id)
-    }
-
+    if (profile?.branch_id) setUserBranchId(profile.branch_id)
     setUserRole(profile?.role || '')
 
-    // 2단계: 나머지 전부 병렬 실행 ✅
     const now = new Date()
-    const currentYear = now.getFullYear()
-    const currentMonth = now.getMonth() + 1
-    let prevYear = currentYear
-    let prevMonth = currentMonth - 1
-    if (prevMonth === 0) {
-      prevMonth = 12
-      prevYear = currentYear - 1
-    }
+    const cy = now.getFullYear(), cm = now.getMonth() + 1
+    const py = cm === 1 ? cy - 1 : cy, pm = cm === 1 ? 12 : cm - 1
 
-    // 지점 쿼리 구성
-    let branchQuery = supabase.from('branches').select('id, name').order('name')
-    if (profile?.role !== 'admin' && profile?.branch_id) {
-      branchQuery = branchQuery.eq('id', profile.branch_id)
-    }
+    let branchQ = supabase.from('branches').select('id, name').order('name')
+    if (profile?.role !== 'admin' && profile?.branch_id) branchQ = branchQ.eq('id', profile.branch_id)
 
-    // 커리큘럼 쿼리 구성
-    let topicsQuery = supabase.from('monthly_curriculum')
+    let topicQ = supabase.from('monthly_curriculum')
       .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group')
       .eq('status', 'active')
-
     if (profile?.role !== 'admin') {
-      topicsQuery = topicsQuery.or(
-        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${prevYear},month.eq.${prevMonth})`
-      )
+      topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm})`)
     }
 
-    // ✅ 5개 쿼리를 동시에 실행 (기존: 순차 5회 → 최적화: 병렬 1회)
-    const [
-      teacherClassesResult,
-      branchesResult,
-      topicsResult,
-      existingMsgResult
-    ] = await Promise.all([
+    const [teacherClassRes, branchRes, topicRes, msgRes] = await Promise.all([
       supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id),
-      branchQuery,
-      topicsQuery.order('year', { ascending: false }).order('month', { ascending: false }).order('created_at'),
-      // ✅ 카운트 + 학생 ID를 하나의 쿼리로 합침
-      supabase.from('daily_messages')
-        .select('student_id', { count: 'exact' })
-        .gte('expires_at', now.toISOString())
+      branchQ,
+      topicQ.order('year', { ascending: false }).order('month', { ascending: false }).order('created_at'),
+      supabase.from('daily_messages').select('student_id', { count: 'exact' }).gte('expires_at', now.toISOString()),
     ])
 
-    // 지점 반영
-    if (branchesResult.data) setBranches(branchesResult.data)
+    if (branchRes.data) setBranches(branchRes.data)
+    if (topicRes.data) setCurriculumTopics(topicRes.data)
+    setAllResultsCount(msgRes.count || 0)
+    if (msgRes.data) setGeneratedStudentIds(msgRes.data.map((m: any) => m.student_id))
 
-    // 반 목록 조회 (teacherClasses 결과 활용)
-    const classIds = teacherClassesResult.data?.map(tc => tc.class_id) || []
-    let classQuery = supabase.from('classes').select('id, name, branch_id')
-    
-    if (profile?.role === 'teacher' && classIds.length > 0) {
-      classQuery = classQuery.in('id', classIds)
-    } else if (profile?.role !== 'admin' && profile?.branch_id) {
-      classQuery = classQuery.eq('branch_id', profile.branch_id)
-    }
-
-    const { data: classesData } = await classQuery.order('name')
+    const classIds = teacherClassRes.data?.map((tc: any) => tc.class_id) || []
+    let classQ = supabase.from('classes').select('id, name, branch_id')
+    if (profile?.role === 'teacher' && classIds.length > 0) classQ = classQ.in('id', classIds)
+    else if (profile?.role !== 'admin' && profile?.branch_id) classQ = classQ.eq('branch_id', profile.branch_id)
+    const { data: classesData } = await classQ.order('name')
 
     if (classesData) {
       setClasses(classesData)
-      if (profile?.role === 'admin' && branchesResult.data && branchesResult.data.length > 0) {
-        setSelectedBranchId(branchesResult.data[0].id)
-        const firstBranchClasses = classesData.filter((c: any) => c.branch_id === branchesResult.data![0].id)
-        if (firstBranchClasses.length > 0) {
-          setSelectedClassId(firstBranchClasses[0].id)
-        }
-      } else if (classesData.length > 0) {
+      if (profile?.role === 'admin' && branchRes.data?.length) {
+        setSelectedBranchId(branchRes.data[0].id)
+        const first = classesData.filter((c: any) => c.branch_id === branchRes.data![0].id)
+        if (first.length) setSelectedClassId(first[0].id)
+      } else if (classesData.length) {
         setSelectedClassId(classesData[0].id)
-      }
-    }
-
-    // 커리큘럼 반영
-    if (topicsResult.data) setCurriculumTopics(topicsResult.data)
-
-    // ✅ 카운트 + 학생 ID 한 번에 처리 (기존: 2개 쿼리 → 1개 쿼리)
-    setAllResultsCount(existingMsgResult.count || 0)
-    if (existingMsgResult.data) {
-      setGeneratedStudentIds(existingMsgResult.data.map(m => m.student_id))
-    }
-
-    // ✅ IndexedDB에서 이미지 복원
-    try {
-      const { files, urls } = await loadImagesFromDB()
-      if (files.length > 0) {
-        setImages(files)
-        setImageUrls(urls)
-      }
-    } catch {}
-
-    // ✅ sessionStorage에서 폼 상태 복원
-    const saved = restoreFormState()
-    if (saved) {
-      if (saved.selectedBranchId && profile?.role === 'admin') {
-        setSelectedBranchId(saved.selectedBranchId)
-      }
-      if (saved.lessonType) setLessonType(saved.lessonType)
-      if (saved.selectedTopicId) setSelectedTopicId(saved.selectedTopicId)
-      if (saved.freeSubject) setFreeSubject(saved.freeSubject)
-      if (saved.selectedMaterials) setSelectedMaterials(saved.selectedMaterials)
-      if (saved.progressStatus) setProgressStatus(saved.progressStatus)
-      if (saved.teacherMemo) setTeacherMemo(saved.teacherMemo)
-      if (saved.selectedStudentId) {
-        setTimeout(() => setSelectedStudentId(saved.selectedStudentId), 500)
       }
     }
 
@@ -350,791 +212,621 @@ export default function DailyMessagePage() {
 
   async function loadStudentsByClass(classId: string) {
     const { data } = await supabase
-      .from('students')
-      .select('id, name, birth_year, class_id')
-      .eq('class_id', classId)
-      .eq('status', 'active')
-      .order('name')
-
-    if (data) {
-      setStudents(data)
-    }
+      .from('students').select('id, name, birth_year, class_id')
+      .eq('class_id', classId).eq('status', 'active').order('name')
+    if (data) setStudents(data)
   }
 
-  const MAX_IMAGES = 4
+  async function loadInProgressList(studentId: string) {
+    const { data: sketchbooks } = await supabase
+      .from('sketchbooks').select('id')
+      .eq('student_id', studentId).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(1)
 
-  const [compressing, setCompressing] = useState(false)
+    if (!sketchbooks?.length) { setInProgressList([]); return }
 
-  const compressSingleImage = async (file: File): Promise<{ file: File; url: string }> => {
-    try {
-      // createImageBitmap은 Image보다 빠름 (특히 모바일)
-      const bitmap = await createImageBitmap(file)
-      
-      const canvas = document.createElement('canvas')
-      const maxSize = 1200
-      let { width, height } = bitmap
-      
-      if (width > maxSize || height > maxSize) {
-        if (width > height) {
-          height = Math.round((height / width) * maxSize)
-          width = maxSize
-        } else {
-          width = Math.round((width / height) * maxSize)
-          height = maxSize
-        }
+    const { data: works } = await supabase
+      .from('sketchbook_works')
+      .select('id, sketchbook_id, curriculum_id, custom_title, is_custom, session_count, status, work_date')
+      .eq('sketchbook_id', sketchbooks[0].id)
+      .eq('status', 'in_progress')
+      .order('created_at', { ascending: false })
+
+    if (!works?.length) { setInProgressList([]); return }
+
+    // curriculum_id → title 조회
+    const curriculumIds = works.filter(w => !w.is_custom && w.curriculum_id).map(w => w.curriculum_id)
+    let curriculumTitleMap: Record<string, string> = {}
+    if (curriculumIds.length) {
+      const { data: currs } = await supabase
+        .from('monthly_curriculum').select('id, title').in('id', curriculumIds)
+      if (currs) currs.forEach((c: any) => { curriculumTitleMap[c.id] = c.title })
+    }
+
+    setInProgressList(works.map(w => ({
+      ...w,
+      title: w.is_custom ? (w.custom_title || '') : (curriculumTitleMap[w.curriculum_id] || ''),
+      type: w.is_custom ? 'free' : 'curriculum',
+      sessions: w.session_count,
+    })))
+  }
+
+  // ── 스케치북 동기화 ───────────────────────────────────
+  async function ensureSketchbook(studentId: string): Promise<string> {
+    const { data: existing } = await supabase
+      .from('sketchbooks').select('id').eq('student_id', studentId).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(1)
+    if (existing?.length) return existing[0].id
+
+    const { data: allBooks } = await supabase
+      .from('sketchbooks').select('book_number').eq('student_id', studentId)
+      .order('book_number', { ascending: false }).limit(1)
+
+    const nextNum = allBooks?.length ? allBooks[0].book_number + 1 : 1
+    const { data: created, error } = await supabase
+      .from('sketchbooks')
+      .insert({ student_id: studentId, book_number: nextNum, started_at: new Date().toISOString().split('T')[0], status: 'active' })
+      .select('id').single()
+    if (error || !created) throw new Error('스케치북 생성 실패: ' + error?.message)
+    return created.id
+  }
+
+  async function syncSketchbookWork(studentId: string, topicTitle: string, topicId?: string) {
+    if (progressStatus === 'started') {
+      const sketchbookId = await ensureSketchbook(studentId)
+      const insertData: any = {
+        sketchbook_id: sketchbookId,
+        work_date: new Date().toISOString().split('T')[0],
+        status: 'in_progress',
+        session_count: 1,
       }
-      
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(bitmap, 0, 0, width, height)
-      bitmap.close()
-      
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85)
-      })
-      
-      const compressedFile = new File(
-        [blob], 
-        file.name.replace(/\.[^.]+$/, '.jpg'), 
-        { type: 'image/jpeg' }
-      )
-      
-      return { file: compressedFile, url: URL.createObjectURL(compressedFile) }
-    } catch (e) {
-      console.error('이미지 압축 실패:', e)
-      return { file, url: URL.createObjectURL(file) }
-    }
-  }
-
-  const handleImageUpload = async (files: FileList) => {
-    if (images.length >= MAX_IMAGES) {
-      alert(`사진은 최대 ${MAX_IMAGES}장까지 첨부할 수 있습니다.`)
+      if (topicId) { insertData.curriculum_id = topicId; insertData.is_custom = false }
+      else { insertData.is_custom = true; insertData.custom_title = topicTitle }
+      const { error } = await supabase.from('sketchbook_works').insert(insertData)
+      if (error) throw new Error('sketchbook_works insert 실패: ' + error.message)
       return
     }
 
-    const remaining = MAX_IMAGES - images.length
-    const fileArray = Array.from(files).slice(0, remaining)
-    
-    if (files.length > remaining) {
-      alert(`${remaining}장만 추가할 수 있어서 처음 ${remaining}장만 첨부됩니다.`)
-    }
+    if (!selectedWork || selectedWork.sessions === 0) return
 
+    const workId = selectedWork.id
+    if (progressStatus === 'none') {
+      const { error } = await supabase.from('sketchbook_works')
+        .update({ session_count: selectedWork.sessions + 1 }).eq('id', workId)
+      if (error) throw new Error('session_count 업데이트 실패: ' + error.message)
+    } else if (progressStatus === 'completed') {
+      const { error } = await supabase.from('sketchbook_works')
+        .update({ status: 'completed' }).eq('id', workId)
+      if (error) throw new Error('completed 업데이트 실패: ' + error.message)
+    }
+  }
+
+  // ── 이미지 ────────────────────────────────────────────
+  const compressSingleImage = async (file: File): Promise<{ file: File; url: string }> => {
+    try {
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      const maxSize = 1200
+      let { width, height } = bitmap
+      if (width > maxSize || height > maxSize) {
+        if (width > height) { height = Math.round(height / width * maxSize); width = maxSize }
+        else { width = Math.round(width / height * maxSize); height = maxSize }
+      }
+      canvas.width = width; canvas.height = height
+      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+      const blob = await new Promise<Blob>(res => canvas.toBlob(b => res(b!), 'image/jpeg', 0.85))
+      const f = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+      return { file: f, url: URL.createObjectURL(f) }
+    } catch { return { file, url: URL.createObjectURL(file) } }
+  }
+
+  const handleImageUpload = async (files: FileList) => {
+    if (images.length >= MAX_IMAGES) { alert(`사진은 최대 ${MAX_IMAGES}장까지 첨부할 수 있습니다.`); return }
+    const remaining = MAX_IMAGES - images.length
+    const arr = Array.from(files).slice(0, remaining)
+    if (files.length > remaining) alert(`처음 ${remaining}장만 첨부됩니다.`)
     setCompressing(true)
-    
-    // 모든 이미지를 병렬로 압축
-    const results = await Promise.all(fileArray.map(f => compressSingleImage(f)))
-    
+    const results = await Promise.all(arr.map(compressSingleImage))
     setImages(prev => [...prev, ...results.map(r => r.file)])
     setImageUrls(prev => [...prev, ...results.map(r => r.url)])
     setCompressing(false)
   }
 
-  const removeImage = (index: number) => {
-    URL.revokeObjectURL(imageUrls[index])
-    setImages(prev => prev.filter((_, i) => i !== index))
-    setImageUrls(prev => prev.filter((_, i) => i !== index))
+  const removeImage = (i: number) => {
+    URL.revokeObjectURL(imageUrls[i])
+    setImages(prev => prev.filter((_, j) => j !== i))
+    setImageUrls(prev => prev.filter((_, j) => j !== i))
   }
 
-  const toggleMaterial = (material: string) => {
-    setSelectedMaterials(prev => 
-      prev.includes(material)
-        ? prev.filter(m => m !== material)
-        : [...prev, material]
-    )
-  }
-
-  // ✅ 최적화: 이미지 병렬 업로드 (기존: 순차 1장씩 → 최적화: 동시 전부)
   const uploadImages = async (messageId: string): Promise<string[]> => {
-    const uploadPromises = images.map(async (file, i) => {
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${messageId}/${i}.${fileExt}`
-      
-      const { error: uploadError } = await supabase.storage
-        .from('daily-message-images')
-        .upload(fileName, file)
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
-        return null
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('daily-message-images')
-        .getPublicUrl(fileName)
-      
-      return publicUrl
-    })
-    
-    const results = await Promise.all(uploadPromises)
-    return results.filter((url): url is string => url !== null)
+    const results = await Promise.all(images.map(async (file, i) => {
+      const ext = file.name.split('.').pop()
+      const { error } = await supabase.storage.from('daily-message-images').upload(`${messageId}/${i}.${ext}`, file)
+      if (error) { console.error('Upload error:', error); return null }
+      return supabase.storage.from('daily-message-images').getPublicUrl(`${messageId}/${i}.${ext}`).data.publicUrl
+    }))
+    return results.filter((u): u is string => u !== null)
   }
 
+  // ── 메시지 생성 ───────────────────────────────────────
   const generateMessage = async () => {
-    if (!selectedStudentId) {
-      alert('학생을 선택해주세요')
-      return
-    }
-
-    // 이미지 최대 4장 이중 검증
-    if (images.length > MAX_IMAGES) {
-      alert(`사진은 최대 ${MAX_IMAGES}장까지만 첨부 가능합니다.`)
-      return
-    }
-    
+    if (!selectedStudentId) { alert('학생을 선택해주세요'); return }
+    if (!selectedWork) { alert('작품을 선택해주세요'); return }
     setGenerating(true)
-    
-    const student = students.find(s => s.id === selectedStudentId)
-    if (!student) {
-      setGenerating(false)
-      return
-    }
 
+    const s = students.find(s => s.id === selectedStudentId)!
     const selectedTopic = curriculumTopics.find(t => t.id === selectedTopicId)
-    
-    const firstName = student.name.length >= 3 ? student.name.slice(1) : student.name
-    const hasFinalConsonant = (str: string) => {
-      const lastChar = str.charAt(str.length - 1)
-      const code = lastChar.charCodeAt(0)
-      if (code >= 0xAC00 && code <= 0xD7A3) {
-        return (code - 0xAC00) % 28 !== 0
-      }
-      return false
-    }
-    const hasJongseong = hasFinalConsonant(firstName)
+
+    const firstName = s.name.length >= 3 ? s.name.slice(1) : s.name
+    const hasJongseong = (() => {
+      const code = firstName.charCodeAt(firstName.length - 1)
+      return code >= 0xAC00 && code <= 0xD7A3 && (code - 0xAC00) % 28 !== 0
+    })()
     const nameNun = firstName + (hasJongseong ? '이는' : '는')
     const nameMan = firstName + (hasJongseong ? '이만의' : '만의')
-
-    const currentYear = new Date().getFullYear()
-    const studentAge = currentYear - student.birth_year + 1
-
-    let message = ''
-    let topicTitle = ''
-    
-    const isKindergarten = lessonType === 'curriculum' 
-      ? selectedTopic?.age_group === 'kindergarten'
-      : studentAge <= 7
-
-    const endingStyle = isKindergarten 
-      ? { doing: '해보았어요', did: '해주었답니다', nice: '예뻐요', great: '기특했어요' }
-      : { doing: '표현해주었습니다', did: '해보았습니다', nice: '인상적이에요', great: '훌륭했습니다' }
-
+    const studentAge = currentYear - s.birth_year + 1
+    const isKindergarten = lessonType === 'curriculum' ? selectedTopic?.age_group === 'kindergarten' : studentAge <= 7
+    const end = isKindergarten
+      ? { doing: '해보았어요', did: '해주었답니다', great: '기특했어요' }
+      : { doing: '표현해주었습니다', did: '해보았습니다', great: '훌륭했습니다' }
     const emojis = ['🎨', '🖌️', '✨', '🌟', '💫', '🖼️', '👏', '😊']
-    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)]
+    const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]
+    const emoji = pick(emojis)
 
-    if (lessonType === 'curriculum' && selectedTopic) {
-      topicTitle = selectedTopic.title
-      const template = selectedTopic.parent_message_template || ''
+    let message = '', topicTitle = ''
 
-      const templateSentences = template
-        .replace(/합니다\./g, '해요.')
-        .replace(/합니다/g, '해요')
-        .replace(/줍니다\./g, '줘요.')
-        .replace(/줍니다/g, '줘요')
-        .replace(/됩니다\./g, '돼요.')
-        .replace(/됩니다/g, '돼요')
-        .split(/[.]\s*/)
-        .filter(s => s.trim().length > 10)
-        .slice(0, 3)
-        .join('. ')
+    // 기존 진행 중 작품 선택 시 해당 작품의 title/type 사용
+    const effectiveLessonType = selectedWork?.sessions > 0 ? selectedWork.type : lessonType
+    // curriculum_id로 curriculumTopics에서 템플릿 포함 전체 데이터 조회
+    const effectiveTopic = selectedWork?.sessions > 0
+      ? (curriculumTopics.find(t => t.id === selectedWork.curriculum_id) ?? selectedTopic)
+      : selectedTopic
+    const effectiveTopicTitle = selectedWork?.sessions > 0 ? selectedWork.title : (lessonType === 'curriculum' ? (selectedTopic?.title || '') : freeSubject)
 
-      const sentence1 = `오늘 ${nameNun} '${topicTitle}' 수업을 ${endingStyle.doing}.`
-      
-      const sentence2to4 = templateSentences
+    if (effectiveLessonType === 'curriculum') {
+      topicTitle = effectiveTopicTitle
+      const template = (effectiveTopic?.parent_message_template || '')
+        .replace(/합니다/g, '해요').replace(/줍니다/g, '줘요').replace(/됩니다/g, '돼요')
+        .split(/\.\s*/).filter(s => s.trim().length > 10).slice(0, 3).join('. ')
         .replace(/이번 작품은/g, '')
-        .replace(/표현합니다/g, `표현${endingStyle.did}`)
-        .replace(/그려줍니다/g, `그려${endingStyle.did}`)
-        .replace(/그려요/g, `그려${endingStyle.did}`)
-        .replace(/묘사하여/g, '묘사하며')
-        .replace(/느낌을 줍니다/g, `느낌을 살려${endingStyle.did}`)
-        .replace(/느낌을 줘요/g, `느낌을 살려${endingStyle.did}`)
-        .trim()
+        .replace(/표현합니다/g, `표현${end.did}`).replace(/그려줍니다/g, `그려${end.did}`)
+        .replace(/그려요/g, `그려${end.did}`).replace(/묘사하여/g, '묘사하며')
+        .replace(/느낌을 줍니다/g, `느낌을 살려${end.did}`).replace(/느낌을 줘요/g, `느낌을 살려${end.did}`)
 
-      const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)]
-
-      let progressOpening = ''
-      let progressDetail = ''
-      let progressClosing = ''
-
+      let open = '', detail = '', close = ''
       if (progressStatus === 'started') {
-        progressOpening = pick([
-          '오늘 새로운 작품을 시작했어요.',
-          '새 작품의 밑그림을 그리며 구상을 시작했어요.',
-          '오늘부터 새 작품에 들어갔어요.',
-        ])
-        progressDetail = pick([
-          '어떤 구도로 표현할지 고민하며 스케치하는 모습이 진지했어요.',
-          '밑그림 단계에서부터 자신만의 아이디어를 담아내고 있어요.',
-          '전체 구성을 계획하며 차근차근 작업을 시작했어요.',
-        ])
-        progressClosing = pick([
-          '어떤 작품이 완성될지 기대해주세요!',
-          '앞으로 완성되어갈 모습이 기대돼요!',
-          '멋진 작품이 될 것 같아요!',
-        ])
+        open = pick(['오늘 새로운 작품을 시작했어요.', '새 작품의 밑그림을 그리며 구상을 시작했어요.', '오늘부터 새 작품에 들어갔어요.'])
+        detail = pick(['어떤 구도로 표현할지 고민하며 스케치하는 모습이 진지했어요.', '밑그림 단계에서부터 자신만의 아이디어를 담아내고 있어요.', '전체 구성을 계획하며 차근차근 작업을 시작했어요.'])
+        close = pick(['어떤 작품이 완성될지 기대해주세요!', '앞으로 완성되어갈 모습이 기대돼요!', '멋진 작품이 될 것 같아요!'])
       } else if (progressStatus === 'none') {
-        progressOpening = pick([
-          '지난 시간에 이어 작품을 발전시켜 나갔어요.',
-          '작품에 계속 집중하며 작업을 이어갔어요.',
-          '작품을 이어서 작업하고 있어요.',
-        ])
-        progressDetail = pick([
-          '세부 표현을 더하며 작품의 완성도를 높이고 있어요.',
-          '색감을 입히며 작품이 한층 풍성해지고 있어요.',
-          '디테일을 하나씩 채워가며 몰입하는 모습이 멋졌어요.',
-        ])
-        progressClosing = pick([
-          '완성이 점점 가까워지고 있어요!',
-          '작품이 점점 완성되어 가고 있어요!',
-          '곧 멋진 작품이 완성될 거예요!',
-        ])
-      } else if (progressStatus === 'completed') {
-        progressOpening = pick([
-          '오늘 작품을 멋지게 완성했어요!',
-          '끝까지 집중해서 작품을 완성했어요!',
-          '드디어 작품이 완성되었어요!',
-        ])
-        progressDetail = pick([
-          '완성된 작품에서 아이만의 개성이 잘 드러나요.',
-          '마무리까지 꼼꼼하게 신경 쓴 모습이 대견해요.',
-          '포기하지 않고 끝까지 완성한 모습이 보기 좋았어요.',
-        ])
-        progressClosing = pick([
-          '완성작을 함께 감상해보세요!',
-          '아이의 멋진 작품을 칭찬해주세요!',
-          '뿌듯해하는 모습이 인상적이었어요!',
-        ])
+        open = pick(['지난 시간에 이어 작품을 발전시켜 나갔어요.', '작품에 계속 집중하며 작업을 이어갔어요.', '작품을 이어서 작업하고 있어요.'])
+        detail = pick(['세부 표현을 더하며 작품의 완성도를 높이고 있어요.', '색감을 입히며 작품이 한층 풍성해지고 있어요.', '디테일을 하나씩 채워가며 몰입하는 모습이 멋졌어요.'])
+        close = pick(['완성이 점점 가까워지고 있어요!', '작품이 점점 완성되어 가고 있어요!', '곧 멋진 작품이 완성될 거예요!'])
+      } else {
+        open = pick(['오늘 작품을 멋지게 완성했어요!', '끝까지 집중해서 작품을 완성했어요!', '드디어 작품이 완성되었어요!'])
+        detail = pick(['완성된 작품에서 아이만의 개성이 잘 드러나요.', '마무리까지 꼼꼼하게 신경 쓴 모습이 대견해요.', '포기하지 않고 끝까지 완성한 모습이 보기 좋았어요.'])
+        close = pick(['완성작을 함께 감상해보세요!', '아이의 멋진 작품을 칭찬해주세요!', '뿌듯해하는 모습이 인상적이었어요!'])
       }
-
-      const memoText = teacherMemo ? ` ${teacherMemo}.` : ''
-      message = `${sentence1} ${sentence2to4}. ${progressOpening} ${progressDetail}${memoText} ${progressClosing} ${randomEmoji}`
-
-    } else {
-      // ✅ 자율 메시지: GPT API 호출
-      topicTitle = freeSubject
+      const memo = teacherMemo ? ` ${teacherMemo}.` : ''
+      message = `오늘 ${nameNun} '${topicTitle}' 수업을 ${end.doing}. ${template}. ${open} ${detail}${memo} ${close} ${emoji}`
+    } else if (effectiveLessonType === 'free') {
+      topicTitle = effectiveTopicTitle
       const materials = selectedMaterials.join(', ') || '다양한 재료'
-
       try {
         const res = await fetch('/api/generate-daily-message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            studentName: student.name,
-            studentAge,
-            subject: freeSubject,
-            materials,
-            progressStatus,
-            teacherMemo
-          })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentName: s.name, studentAge, subject: effectiveTopicTitle, materials, progressStatus, teacherMemo })
         })
-
         const data = await res.json()
-        if (data.message) {
-          message = data.message
-        } else {
-          throw new Error(data.error || 'GPT 응답 없음')
-        }
+        if (data.message) message = data.message
+        else throw new Error(data.error || 'GPT 응답 없음')
       } catch (e) {
-        console.error('GPT 호출 실패, fallback 사용:', e)
-        
-        // fallback: 기존 템플릿 방식
-        const materialTechniques: { [key: string]: string } = {
-          '연필': '선의 강약을 조절하며 형태를 잡아',
-          '색연필': '색을 겹쳐 칠하며 다양한 색감을 만들어',
-          '매직': '선명한 색감으로 또렷하게 표현하며',
-          '사인펜': '깔끔한 선으로 윤곽을 잡고',
-          '수채화': '물의 양을 조절하며 부드러운 색감을 만들어',
-          '아크릴': '선명하고 강렬한 색감으로',
-          '파스텔': '부드러운 색감과 그라데이션을 활용하여',
-          '점토': '손으로 형태를 만들며 입체감을 살려',
-          '스티커': '다양한 스티커로 작품을 꾸며',
-          '기타': '다양한 재료를 활용하여'
+        console.error('GPT 실패, fallback:', e)
+        const techMap: Record<string, string> = {
+          '연필': '선의 강약을 조절하며', '색연필': '색을 겹쳐 칠하며', '매직': '선명한 색감으로',
+          '수채화': '물의 양을 조절하며', '아크릴': '선명하고 강렬한 색감으로',
+          '파스텔': '부드러운 색감을 활용하여', '점토': '손으로 형태를 만들며', '기타': '다양한 재료를 활용하여'
         }
-
-        const mainMaterial = selectedMaterials[0] || '기타'
-        const technique = materialTechniques[mainMaterial] || materialTechniques['기타']
-        const memoText = teacherMemo ? teacherMemo : `상상력을 발휘하며 집중하는 모습이 ${endingStyle.great}`
-
-        let progressText = ''
-        if (progressStatus === 'started') {
-          progressText = '오늘 처음 시작한 작품이에요.'
-        } else if (progressStatus === 'none') {
-          progressText = '작품을 열심히 진행하고 있어요.'
-        } else if (progressStatus === 'completed') {
-          progressText = '오늘 작품을 멋지게 완성했어요!'
-        }
-
-        message = `오늘 ${nameNun} '${freeSubject}'를 주제로 자유화를 ${endingStyle.doing}. ${materials}를 사용하여 ${technique} ${endingStyle.did}. 자신만의 시선으로 ${freeSubject}의 특징을 관찰하고 표현${endingStyle.did}. ${memoText}. ${progressText} ${nameMan} 멋진 작품이에요! ${randomEmoji}`
+        const tech = techMap[selectedMaterials[0]] || techMap['기타']
+        const memo = teacherMemo || `상상력을 발휘하며 집중하는 모습이 ${end.great}`
+        const prog = progressStatus === 'started' ? '오늘 처음 시작한 작품이에요.' : progressStatus === 'completed' ? '오늘 작품을 멋지게 완성했어요!' : '작품을 열심히 진행하고 있어요.'
+        message = `오늘 ${nameNun} '${effectiveTopicTitle}'를 주제로 자유화를 ${end.doing}. ${materials}를 사용하여 ${tech} ${end.did}. ${memo}. ${prog} ${nameMan} 멋진 작품이에요! ${emoji}`
       }
     }
 
     try {
-      // ✅ 최적화: 기존 메시지 삭제 + 학생 branch 조회를 병렬로
-      const [, studentDataResult] = await Promise.all([
-        supabase.from('daily_messages').delete()
-          .eq('student_id', student.id)
-          .eq('teacher_id', userId),
-        supabase.from('students').select('branch_id')
-          .eq('id', student.id)
-          .single()
+      const [, studentRes] = await Promise.all([
+        supabase.from('daily_messages').delete().eq('student_id', s.id).eq('teacher_id', userId),
+        supabase.from('students').select('branch_id').eq('id', s.id).single()
       ])
 
-      const { data: newMessage, error: insertError } = await supabase
-        .from('daily_messages')
-        .insert({
-          student_id: student.id,
-          teacher_id: userId,
-          branch_id: studentDataResult.data?.branch_id || userBranchId,
-          message: message,
-          lesson_type: lessonType,
-          topic_title: topicTitle,
-          progress_status: progressStatus
-        })
-        .select()
-        .single()
+      const { data: newMsg, error: insertErr } = await supabase.from('daily_messages').insert({
+        student_id: s.id, teacher_id: userId,
+        branch_id: studentRes.data?.branch_id || userBranchId,
+        message, lesson_type: lessonType, topic_title: topicTitle, progress_status: progressStatus
+      }).select().single()
 
-      if (insertError) {
-        console.error('Insert error:', insertError)
-        alert('메시지 저장에 실패했습니다')
+      if (insertErr) {
+        console.error('[daily_messages error]', JSON.stringify(insertErr))
+        alert('메시지 저장 실패: ' + insertErr.message)
         setGenerating(false)
         return
       }
 
-      // ✅ 최적화: 이미지 병렬 업로드 + 일괄 DB insert
-      if (images.length > 0 && newMessage) {
-        const uploadedUrls = await uploadImages(newMessage.id)
-        
-        // ✅ 일괄 insert (기존: for 루프로 1개씩 insert → 최적화: 한 번에 전부)
-        if (uploadedUrls.length > 0) {
-          const imageRecords = uploadedUrls.map((url, i) => ({
-            daily_message_id: newMessage.id,
-            image_url: url,
-            image_order: i
-          }))
-          
-          await supabase.from('daily_message_images').insert(imageRecords)
-        }
+      if (images.length > 0 && newMsg) {
+        const urls = await uploadImages(newMsg.id)
+        if (urls.length) await supabase.from('daily_message_images').insert(
+          urls.map((url, i) => ({ daily_message_id: newMsg.id, image_url: url, image_order: i }))
+        )
       }
 
-      // ✅ 상태 초기화 + 메모리 해제
-      clearFormState()
-      clearImageDB()
-      imageUrls.forEach(url => URL.revokeObjectURL(url))
-      setImages([])
-      setImageUrls([])
+      try {
+        await syncSketchbookWork(s.id, topicTitle, lessonType === 'curriculum' ? selectedTopicId : undefined)
+      } catch (e) {
+        console.warn('스케치북 동기화 실패 (무시):', e)
+      }
 
-      router.push(`/daily-message/result/${student.id}`)
-    } catch (error) {
-      console.error('Error:', error)
-      alert('메시지 저장에 실패했습니다.')
+      imageUrls.forEach(u => URL.revokeObjectURL(u))
+      setImages([]); setImageUrls([])
+      router.push(`/daily-message/result/${s.id}`)
+    } catch (e: any) {
+      console.error('[generateMessage catch]', e)
+      alert('오류: ' + (e?.message || JSON.stringify(e)))
     }
-    
     setGenerating(false)
   }
 
   const handleBranchChange = (branchId: string) => {
     setSelectedBranchId(branchId)
-    setSelectedStudentId('')
-    const branchClasses = classes.filter(c => c.branch_id === branchId)
-    if (branchClasses.length > 0) {
-      setSelectedClassId(branchClasses[0].id)
-    } else {
-      setSelectedClassId('')
-    }
+    const first = classes.filter(c => c.branch_id === branchId)
+    setSelectedClassId(first.length ? first[0].id : '')
+    clearStudent()
   }
 
-  const filteredClasses = selectedBranchId
-    ? classes.filter(c => c.branch_id === selectedBranchId)
-    : classes
+  const filteredClasses = selectedBranchId ? classes.filter(c => c.branch_id === selectedBranchId) : classes
 
-    const groupedTopics = curriculumTopics.reduce((acc, topic) => {
-      const key = `${topic.year}-${topic.month}`
-      if (!acc[key]) {
-        acc[key] = { year: topic.year, month: topic.month, topics: [] }
-      }
-      acc[key].topics.push(topic)
-      return acc
-    }, {} as {[key: string]: { year: number, month: number, topics: CurriculumTopic[] }})
-  
-    // 각 그룹 내에서 주차순 정렬
-    Object.values(groupedTopics).forEach(group => {
-      group.topics.sort((a, b) => (a.week || 99) - (b.week || 99))
-    })
+  if (loading) return <DailyMessageSkeleton />
 
-  const selectedStudent = students.find(s => s.id === selectedStudentId)
-  const selectedTopicData = curriculumTopics.find(t => t.id === selectedTopicId)
-
-  if (loading) {
-    return <DailyMessageSkeleton />
-  }
-
+  // ── 렌더 ─────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 pb-8">
-      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
-        <div className="max-w-5xl mx-auto px-4 py-3">
-          <div className="relative flex items-center justify-end min-h-[40px]">
-            <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold text-gray-800">💬 일일 메시지</h1>
-            <button
-              onClick={() => router.push('/daily-message/results')}
-              className="relative"
-            >
-              {allResultsCount > 0 && (
-                <span className="bg-teal-500 text-white text-xs px-2 py-1 rounded-full">
-                  {allResultsCount}
-                </span>
-              )}
-            </button>
-          </div>
+    <div style={{ fontFamily: "'Pretendard', -apple-system, sans-serif", background: "linear-gradient(160deg, #f8fafc 0%, #f0fdf4 50%, #f0f9ff 100%)", minHeight: "100vh" }}>
+      <div style={{ maxWidth: 440, margin: "0 auto", background: "#fff", minHeight: "100vh", boxShadow: "0 0 40px rgba(0,0,0,0.08)" }}>
+
+        {/* Header */}
+        <div style={{
+          background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)",
+          borderBottom: "1px solid rgba(0,0,0,0.06)", padding: "14px 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          position: "sticky", top: 0, zIndex: 40
+        }}>
+          <span style={{ color: "#6b7280", fontSize: 14, cursor: "pointer" }} onClick={() => router.back()}>← 뒤로</span>
+          <span style={{ fontWeight: 700, fontSize: 16, color: "#1f2937" }}>일일 수업 메시지</span>
+          {allResultsCount > 0
+            ? <span onClick={() => router.push('/daily-message/results')} style={{ fontSize: 12, background: "#0d9488", color: "#fff", padding: "2px 10px", borderRadius: 20, fontWeight: 600, cursor: "pointer" }}>{allResultsCount}</span>
+            : <span style={{ width: 40 }} />
+          }
         </div>
-      </header>
 
-      <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
-        {allResultsCount > 0 && (
-          <button
-            onClick={() => router.push('/daily-message/results')}
-            className="w-full bg-white rounded-2xl shadow-sm border border-teal-200 p-4 flex items-center justify-between hover:bg-teal-50 transition"
-          >
-            <span className="font-medium text-teal-700">📋 전체 결과 보기</span>
-            <span className="bg-teal-500 text-white text-sm px-3 py-1 rounded-full">
-              {allResultsCount}명
-            </span>
-          </button>
-        )}
+        <div style={{ padding: "16px 20px 32px" }}>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-          <h2 className="font-semibold text-gray-800 mb-3">📚 반 선택</h2>
-          <div className="flex flex-col gap-3">
+          {/* 반 선택 */}
+          <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>📚 반 선택</div>
             {userRole === 'admin' && (
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🏢</span>
-                <select
-                  value={selectedBranchId}
-                  onChange={(e) => handleBranchChange(e.target.value)}
-                  className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm text-gray-700 appearance-none cursor-pointer hover:bg-gray-100 transition"
-                >
-                  {branches.map(branch => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                  ))}
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#9ca3af", fontSize: 13 }}>🏢</span>
+                <select value={selectedBranchId} onChange={e => handleBranchChange(e.target.value)}
+                  style={{ width: "100%", padding: "11px 14px 11px 36px", background: "#f9fafb", borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 14, color: "#1f2937", appearance: "none", cursor: "pointer", outline: "none" }}>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">▼</span>
+                <span style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }}>▼</span>
               </div>
             )}
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">📚</span>
-              <select
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm text-gray-700 appearance-none cursor-pointer hover:bg-gray-100 transition"
-              >
-                {filteredClasses.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+            <div style={{ position: "relative" }}>
+              <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#9ca3af", fontSize: 13 }}>📚</span>
+              <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)}
+                style={{ width: "100%", padding: "11px 14px 11px 36px", background: "#f9fafb", borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 14, color: "#1f2937", appearance: "none", cursor: "pointer", outline: "none" }}>
+                {filteredClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">▼</span>
+              <span style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }}>▼</span>
             </div>
           </div>
-        </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-          <h2 className="font-semibold text-gray-800 mb-3">👤 학생 선택</h2>
-          <div className="relative">
-            <input
-              type="text"
-              value={studentSearch}
-              onChange={(e) => {
-                setStudentSearch(e.target.value)
-                if (selectedStudentId) {
-                  setSelectedStudentId('')
-                }
-              }}
-              onFocus={() => setStudentSearch('')}
-              placeholder={selectedStudent ? `${selectedStudent.name} (${new Date().getFullYear() - selectedStudent.birth_year + 1}세)` : '🔍 이름을 검색하세요'}
-              className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent ${
-                selectedStudentId ? 'bg-teal-50 border-teal-300 font-medium text-teal-800' : 'bg-gray-50 border-gray-200'
-              }`}
-            />
-            {selectedStudentId && (
-              <button
-                onClick={() => {
-                  setSelectedStudentId('')
-                  setStudentSearch('')
+          {/* 학생 선택 */}
+          <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>👤 학생 선택</div>
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                value={studentSearch}
+                onChange={e => { setStudentSearch(e.target.value); if (selectedStudentId) { setSelectedStudentId(''); resetSelection(); } }}
+                onFocus={() => { if (selectedStudentId) setStudentSearch('') }}
+                placeholder={student ? `${student.name} (${getAge(student.birth_year)}세)` : "🔍 이름을 검색하세요"}
+                style={{
+                  width: "100%", padding: "11px 36px 11px 14px", borderRadius: 12, fontSize: 14,
+                  outline: "none", boxSizing: "border-box",
+                  background: selectedStudentId ? "#f0fdfa" : "#f9fafb",
+                  border: selectedStudentId ? "2px solid #0d9488" : "1px solid #e5e7eb",
+                  color: selectedStudentId ? "#0f766e" : "#1f2937",
+                  fontWeight: selectedStudentId ? 600 : 400,
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs hover:bg-gray-300"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          
-          {!selectedStudentId && (
-            <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white">
-              {students
-                .filter(s => !studentSearch || s.name.includes(studentSearch))
-                .map(student => {
-                  const age = new Date().getFullYear() - student.birth_year + 1
-                  const isGenerated = generatedStudentIds.includes(student.id)
-                  return (
-                    <button
-                      key={student.id}
-                      onClick={() => {
-                        setSelectedStudentId(student.id)
-                        setStudentSearch(student.name)
-                      }}
-                      className="w-full px-4 py-3 text-left hover:bg-teal-50 transition border-b border-gray-100 last:border-b-0"
-                    >
-                      <span className="font-medium text-gray-800">{student.name} <span className="text-gray-400 font-normal text-sm">({age}세)</span></span>
-                    </button>
-                  )
-                })}
-              {students.filter(s => !studentSearch || s.name.includes(studentSearch)).length === 0 && (
-                <p className="text-gray-400 text-center py-4 text-sm">
-                  {students.length === 0 ? '해당 반에 학생이 없습니다' : '검색 결과가 없습니다'}
-                </p>
+              />
+              {selectedStudentId && (
+                <button onClick={clearStudent} style={{
+                  position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                  width: 22, height: 22, borderRadius: "50%", background: "#e5e7eb", border: "none",
+                  color: "#6b7280", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
+                }}>✕</button>
               )}
             </div>
-          )}
-        </div>
-
-        {selectedStudent && (
-          <>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <h2 className="font-semibold text-gray-800 mb-3">
-              📷 {selectedStudent.name} 작품 사진
-              <span className="text-gray-400 font-normal text-sm ml-1">
-                ({images.length}/{MAX_IMAGES}장)
-              </span>
-            </h2>
-              <div className="grid grid-cols-4 gap-2">
-                {imageUrls.map((url, index) => (
-                  <div key={index} className="relative aspect-square">
-                    <img src={url} alt="" className="w-full h-full object-cover rounded-xl" />
-                    <button
-                      onClick={() => removeImage(index)}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs"
-                    >
-                      ✕
-                    </button>
-                  </div>
+            {!selectedStudentId && (
+              <div style={{ marginTop: 8, maxHeight: 192, overflowY: "auto", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff" }}>
+                {students.filter(s => !studentSearch || s.name.includes(studentSearch)).map(s => (
+                  <button key={s.id}
+                    onClick={() => { setSelectedStudentId(s.id); setStudentSearch(s.name); resetSelection(); }}
+                    style={{ width: "100%", padding: "11px 16px", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid #f3f4f6", cursor: "pointer", fontSize: 14, color: "#1f2937" }}
+                    onMouseOver={e => (e.currentTarget.style.background = "#f0fdfa")}
+                    onMouseOut={e => (e.currentTarget.style.background = "none")}
+                  >
+                    <span style={{ fontWeight: 500 }}>{s.name}</span>
+                    <span style={{ color: "#9ca3af", fontSize: 13, marginLeft: 4 }}>({getAge(s.birth_year)}세)</span>
+                  </button>
                 ))}
-                
-                {images.length < MAX_IMAGES && (
-                  compressing ? (
-                    <div className="aspect-square border-2 border-dashed border-teal-300 rounded-xl flex flex-col items-center justify-center bg-teal-50">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500 mb-1"></div>
-                      <span className="text-[10px] text-teal-500">압축중...</span>
-                    </div>
-                  ) : (
-                    <label className="aspect-square border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50">
-                      <span className="text-2xl text-gray-300">+</span>
-                      <span className="text-[10px] text-gray-300 mt-0.5">{MAX_IMAGES - images.length}장 가능</span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/heic"
-                        multiple
-                        onChange={(e) => {
-                          e.target.files && handleImageUpload(e.target.files)
-                          e.target.value = ''
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                  )
+                {students.filter(s => !studentSearch || s.name.includes(studentSearch)).length === 0 && (
+                  <p style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 13 }}>
+                    {students.length === 0 ? '해당 반에 학생이 없습니다' : '검색 결과가 없습니다'}
+                  </p>
                 )}
               </div>
-            </div>
+            )}
+          </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-800 mb-3">📚 수업 유형</h2>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setLessonType('curriculum')}
-                  className={`py-3 rounded-xl font-medium transition ${
-                    lessonType === 'curriculum'
-                      ? 'bg-teal-500 text-white'
-                      : 'bg-gray-50 text-gray-600 border border-gray-200'
-                  }`}
-                >
-                  커리큘럼
-                </button>
-                <button
-                  onClick={() => setLessonType('free')}
-                  className={`py-3 rounded-xl font-medium transition ${
-                    lessonType === 'free'
-                      ? 'bg-teal-500 text-white'
-                      : 'bg-gray-50 text-gray-600 border border-gray-200'
-                  }`}
-                >
-                  자율
-                </button>
-              </div>
-            </div>
+          {/* ===== 학생 선택 후 ===== */}
+          {student && (
+            <>
+              {/* CASE 1: 진행 중 작품 있고 새 작품 모드 아닐 때 */}
+              {hasInProgress && !isNewWork && (
+                <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12, animation: "fadeIn 0.25s ease" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>🎨 진행 중인 작품</div>
+                    <span style={{ fontSize: 11, color: "#0d9488", background: "#f0fdfa", padding: "3px 10px", borderRadius: 8, fontWeight: 600 }}>{inProgressList.length}개</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {inProgressList.map(work => (
+                      <div key={work.id}
+                        onClick={() => { setSelectedWork(work); setIsNewWork(false); setProgressStatus('none') }}
+                        style={{
+                          padding: "12px 14px", borderRadius: 14, cursor: "pointer", transition: "all 0.15s",
+                          border: selectedWork?.id === work.id ? "2px solid #0d9488" : "1.5px solid #e5e7eb",
+                          background: selectedWork?.id === work.id ? "#f0fdfa" : "#fff",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6,
+                              background: work.type === 'curriculum' ? "#dbeafe" : "#fef3c7",
+                              color: work.type === 'curriculum' ? "#1d4ed8" : "#92400e", letterSpacing: -0.3
+                            }}>{work.type === 'curriculum' ? '커리큘럼' : '자율'}</span>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>{work.title}</span>
+                          </div>
+                          {selectedWork?.id === work.id && <span style={{ color: "#0d9488", fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#6b7280" }}>
+                          <span>📅 {work.work_date}~</span>
+                          <span style={{ fontWeight: 700, color: work.sessions >= 4 ? "#ef4444" : work.sessions >= 3 ? "#f59e0b" : "#6b7280" }}>
+                            {work.sessions >= 4 ? "🚨" : work.sessions >= 3 ? "⚠️" : "🔄"} {work.sessions}회차
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => { setIsNewWork(true); setSelectedWork(null); setProgressStatus('none') }}
+                    style={{ width: "100%", marginTop: 10, padding: "11px 0", borderRadius: 12, border: "1.5px dashed #d1d5db", background: "#fafafa", color: "#6b7280", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+                  >+ 새 작품 시작하기</button>
+                </div>
+              )}
 
-            {lessonType === 'curriculum' && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                <h2 className="font-semibold text-gray-800 mb-3">📖 주제 선택</h2>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={curriculumSearch}
-                    onChange={(e) => {
-                      setCurriculumSearch(e.target.value)
-                      if (selectedTopicId) setSelectedTopicId('')
-                    }}
-                    onFocus={() => setCurriculumSearch('')}
-                    placeholder={selectedTopicData 
-                      ? `${selectedTopicData.week ? selectedTopicData.week + '주 ' : ''}${selectedTopicData.title} ${selectedTopicData.age_group === 'kindergarten' ? '유치' : '초등'}`
-                      : '🔍 주제명을 검색하세요'
-                    }
-                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent ${
-                      selectedTopicId ? 'bg-teal-50 border-teal-300 font-medium text-teal-800' : 'bg-gray-50 border-gray-200'
-                    }`}
-                  />
-                  {selectedTopicId && (
-                    <button
-                      onClick={() => {
-                        setSelectedTopicId('')
-                        setCurriculumSearch('')
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs hover:bg-gray-300"
-                    >
-                      ✕
+              {/* CASE 2: 진행 중 없거나 새 작품 모드 */}
+              {(!hasInProgress || isNewWork) && (
+                <div style={{ animation: "fadeIn 0.25s ease" }}>
+                  {isNewWork && (
+                    <button onClick={() => { setIsNewWork(false); resetSelection() }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 10, padding: "6px 12px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 12, cursor: "pointer" }}>
+                      ← 진행 중 작품으로 돌아가기
                     </button>
                   )}
-                </div>
 
-                {!selectedTopicId && (
-                  <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white">
-                    {Object.values(groupedTopics)
-                      .map(group => ({
-                        ...group,
-                        topics: group.topics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch))
-                      }))
-                      .filter(group => group.topics.length > 0)
-                      .map(group => (
-                        <div key={`${group.year}-${group.month}`}>
-                          <div className="sticky top-0 bg-gray-50 px-4 py-1.5 border-b border-gray-100">
-                            <span className="font-semibold text-gray-500 text-xs">{group.year}년 {group.month}월</span>
-                          </div>
-                          {group.topics.map(topic => (
-                            <button
-                              key={topic.id}
-                              onClick={() => {
-                                setSelectedTopicId(topic.id)
-                                setCurriculumSearch(topic.title)
-                              }}
-                              className="w-full px-4 py-3 text-left hover:bg-teal-50 transition border-b border-gray-100 last:border-b-0 flex items-center gap-2"
-                            >
-                              {topic.week && <span className="text-xs font-bold text-teal-600">{topic.week}주</span>}
-                              <span className="font-medium text-gray-800">{topic.title}</span>
-                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                topic.age_group === 'kindergarten' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'
-                              }`}>
-                                {topic.age_group === 'kindergarten' ? '유치' : '초등'}
-                              </span>
+                  {/* 수업 유형 */}
+                  <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>📚 수업 유형</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {[{ key: 'curriculum', label: '커리큘럼' }, { key: 'free', label: '자율' }].map(t => (
+                        <button key={t.key}
+                          onClick={() => { setLessonType(t.key as any); setSelectedTopicId(''); setFreeSubject(''); setSelectedWork(null) }}
+                          style={{
+                            padding: "12px 0", borderRadius: 12, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, transition: "all 0.15s",
+                            background: lessonType === t.key ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb",
+                            color: lessonType === t.key ? "#fff" : "#6b7280",
+                            boxShadow: lessonType === t.key ? "0 2px 8px rgba(13,148,136,0.25)" : "none",
+                            outline: lessonType === t.key ? "none" : "1px solid #e5e7eb",
+                          }}
+                        >{t.label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 커리큘럼 주제 선택 */}
+                  {lessonType === 'curriculum' && (
+                    <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>📖 주제 선택</div>
+                      <button onClick={() => setShowCurriculumModal(!showCurriculumModal)}
+                        style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: 14, color: selectedTopicId ? "#1f2937" : "#9ca3af", display: "flex", justifyContent: "space-between", cursor: "pointer", textAlign: "left" }}>
+                        <span>{selectedTopicId ? curriculumTopics.find(c => c.id === selectedTopicId)?.title : "선택해주세요"}</span>
+                        <span style={{ color: "#9ca3af" }}>▼</span>
+                      </button>
+                      {showCurriculumModal && (
+                        <div style={{ marginTop: 10, background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+                          {groupedCurriculum.map((group, gi) => (
+                            <div key={gi}>
+                              <div style={{ padding: "8px 14px", background: gi === 0 ? "#f0fdfa" : "#f9fafb", fontSize: 12, fontWeight: 700, color: gi === 0 ? "#0d9488" : "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+                                {group.label}
+                              </div>
+                              {group.topics.map(topic => (
+                                <div key={topic.id}
+                                  onClick={() => {
+                                    setSelectedTopicId(topic.id)
+                                    setShowCurriculumModal(false)
+                                    setSelectedWork({ id: `new-${topic.id}`, title: topic.title, type: 'curriculum', sessions: 0, startedAt: '신규' })
+                                    setProgressStatus('started')
+                                  }}
+                                  style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, background: selectedTopicId === topic.id ? "#f0fdfa" : "#fff", transition: "background 0.1s" }}
+                                >
+                                  <span style={{ fontWeight: 500, color: "#1f2937" }}>
+                                    {topic.week ? <span style={{ color: "#0d9488", fontWeight: 700, marginRight: 4 }}>{topic.week}주</span> : null}
+                                    {topic.title}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6 }}>
+                                    {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 자율 주제 + 재료 */}
+                  {lessonType === 'free' && (
+                    <>
+                      <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>📝 주제</div>
+                        <input value={freeSubject}
+                          onChange={e => {
+                            setFreeSubject(e.target.value)
+                            if (e.target.value.trim()) {
+                              setSelectedWork({ id: 'new-free', title: e.target.value, type: 'free', sessions: 0, startedAt: '신규' })
+                              setProgressStatus('started')
+                            } else {
+                              setSelectedWork(null)
+                            }
+                          }}
+                          placeholder="예: 우리 강아지"
+                          style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>🎨 재료 (복수 선택)</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+                          {MATERIAL_OPTIONS.map(m => (
+                            <button key={m} onClick={() => toggleMaterial(m)}
+                              style={{ padding: "8px 0", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 500, transition: "all 0.1s", background: selectedMaterials.includes(m) ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb", color: selectedMaterials.includes(m) ? "#fff" : "#6b7280", border: selectedMaterials.includes(m) ? "none" : "1px solid #e5e7eb" }}>
+                              {m}
                             </button>
                           ))}
                         </div>
-                      ))}
-                    {Object.values(groupedTopics).every(group => 
-                      group.topics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch)).length === 0
-                    ) && (
-                      <p className="text-gray-400 text-center py-4 text-sm">
-                        {curriculumTopics.length === 0 ? '등록된 커리큘럼이 없습니다' : '검색 결과가 없습니다'}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {lessonType === 'free' && (
-              <>
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                  <h2 className="font-semibold text-gray-800 mb-3">📝 주제</h2>
-                  <input
-                    type="text"
-                    value={freeSubject}
-                    onChange={(e) => setFreeSubject(e.target.value)}
-                    placeholder="예: 우리 강아지"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  />
+                      </div>
+                    </>
+                  )}
                 </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                  <h2 className="font-semibold text-gray-800 mb-3">🎨 재료 (복수 선택)</h2>
-                  <div className="grid grid-cols-5 gap-2">
-                    {MATERIAL_OPTIONS.map(material => (
-                      <button
-                        key={material}
-                        onClick={() => toggleMaterial(material)}
-                        className={`py-2 px-2 rounded-xl text-xs font-medium transition ${
-                          selectedMaterials.includes(material)
-                            ? 'bg-teal-500 text-white'
-                            : 'bg-gray-50 text-gray-600 border border-gray-200'
-                        }`}
-                      >
-                        {material}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-800 mb-3">📊 진행 상태</h2>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { key: 'started', label: '시작' },
-                  { key: 'none', label: '진행중' },
-                  { key: 'completed', label: '완성' }
-                ].map(status => (
-                  <button
-                    key={status.key}
-                    onClick={() => setProgressStatus(status.key as 'none' | 'started' | 'completed')}
-                    className={`py-2.5 rounded-xl text-sm font-medium transition ${
-                      progressStatus === status.key
-                        ? 'bg-teal-500 text-white'
-                        : 'bg-gray-50 text-gray-600 border border-gray-200'
-                    }`}
-                  >
-                    {status.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-semibold text-gray-800 mb-3">
-                📝 메모
-                <span className="text-gray-400 font-normal text-sm ml-1">(선택)</span>
-              </h2>
-              <textarea
-                value={teacherMemo}
-                onChange={(e) => setTeacherMemo(e.target.value)}
-                placeholder="예: 색 조합이 예뻤어요, 집중력이 좋았어요"
-                rows={3}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-y"
-              />
-            </div>
-
-            <button
-              onClick={generateMessage}
-              disabled={generating || (lessonType === 'curriculum' && !selectedTopicId) || (lessonType === 'free' && !freeSubject)}
-              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white py-4 rounded-2xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {generating ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  {lessonType === 'free' ? 'AI 생성 중...' : '생성 중...'}
-                </>
-              ) : (
-                `✨ ${selectedStudent.name} 문구 생성`
               )}
-            </button>
-          </>
-        )}
+
+              {/* 진행 상태 + 사진 + 메모 + 생성 버튼 */}
+              {selectedWork && (
+                <div style={{ animation: "fadeIn 0.2s ease" }}>
+                  {/* 진행 상태: 새 작품(sessions===0)이면 '시작' 고정, 기존 작품이면 진행중/완성 선택 */}
+                  {selectedWork.sessions !== 0 && (
+                    <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>📊 오늘 진행 상태</div>
+                        <div style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, fontWeight: 700, background: "#f0fdfa", color: "#0d9488" }}>
+                          {selectedWork.sessions + 1}회차
+                        </div>
+                      </div>
+                      <div style={{ background: "#f0fdfa", borderRadius: 10, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, border: "1px solid #ccfbf1" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: selectedWork.type === 'curriculum' ? "#dbeafe" : "#fef3c7", color: selectedWork.type === 'curriculum' ? "#1d4ed8" : "#92400e" }}>
+                          {selectedWork.type === 'curriculum' ? '커리큘럼' : '자율'}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#0f766e" }}>{selectedWork.title}</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {['진행중', '완성'].map(label => {
+                          const key = label === '진행중' ? 'none' : 'completed'
+                          return (
+                            <button key={key} onClick={() => setProgressStatus(key as any)}
+                              style={{ padding: "11px 0", borderRadius: 12, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s", background: progressStatus === key ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb", color: progressStatus === key ? "#fff" : "#6b7280", boxShadow: progressStatus === key ? "0 2px 8px rgba(13,148,136,0.3)" : "none", outline: progressStatus === key ? "none" : "1px solid #e5e7eb" }}>
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 사진 */}
+                  <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>
+                      📷 작품 사진 <span style={{ color: "#9ca3af", fontWeight: 400, fontSize: 12 }}>(선택 · {images.length}/{MAX_IMAGES}장)</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {imageUrls.map((url, i) => (
+                        <div key={i} style={{ position: "relative", width: 60, height: 60 }}>
+                          <img src={url} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 10 }} />
+                          <button onClick={() => removeImage(i)} style={{ position: "absolute", top: -4, right: -4, width: 18, height: 18, borderRadius: "50%", background: "#ef4444", border: "none", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                        </div>
+                      ))}
+                      {images.length < MAX_IMAGES && (
+                        compressing
+                          ? <div style={{ width: 60, height: 60, border: "2px dashed #0d9488", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#0d9488" }}>압축중</div>
+                          : <label style={{ width: 60, height: 60, border: "2px dashed #d1d5db", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "#d1d5db", fontSize: 24, cursor: "pointer" }}>
+                              +
+                              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={e => { e.target.files && handleImageUpload(e.target.files); e.target.value = '' }} style={{ display: "none" }} />
+                            </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 메모 */}
+                  <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 16 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>
+                      📝 메모 <span style={{ color: "#9ca3af", fontWeight: 400, fontSize: 12 }}>(선택)</span>
+                    </div>
+                    <textarea value={teacherMemo} onChange={e => setTeacherMemo(e.target.value)}
+                      placeholder="예: 색 조합이 예뻤어요, 집중력이 좋았어요" rows={3}
+                      style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: 14, outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+                    />
+                  </div>
+
+                  {/* 생성 버튼 */}
+                  <button onClick={generateMessage} disabled={generating}
+                    style={{ width: "100%", padding: "15px 0", borderRadius: 16, border: "none", background: "linear-gradient(135deg, #0d9488, #06b6d4)", color: "#fff", fontSize: 15, fontWeight: 600, cursor: generating ? "not-allowed" : "pointer", boxShadow: "0 4px 16px rgba(13,148,136,0.35)", opacity: generating ? 0.7 : 1 }}>
+                    {generating ? '생성 중...' : `✨ ${student.name} 메시지 생성`}
+                  </button>
+                </div>
+              )}
+
+              {/* 빈 상태 힌트 */}
+              {!hasInProgress && !isNewWork && !selectedWork && (
+                <div style={{ textAlign: "center", padding: "24px 16px", color: "#9ca3af", fontSize: 13, background: "#f9fafb", borderRadius: 16, border: "1px dashed #e5e7eb" }}>
+                  진행 중인 작품이 없습니다.<br />
+                  위에서 수업 유형과 주제를 선택해 새 작품을 시작해주세요.
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        select:focus { border-color: #0d9488; box-shadow: 0 0 0 2px rgba(13,148,136,0.15); }
+        input:focus { border-color: #0d9488 !important; box-shadow: 0 0 0 2px rgba(13,148,136,0.15); }
+        button:hover { opacity: 0.92; }
+      `}</style>
     </div>
   )
 }
