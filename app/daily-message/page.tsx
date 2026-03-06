@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { DailyMessageSkeleton } from '@/components/Skeleton'
@@ -55,6 +55,7 @@ const MATERIAL_OPTIONS = ['연필', '색연필', '매직', '사인펜', '수채�
 
 export default function DailyMessagePage() {
   const router = useRouter()
+  const pendingStudentIdRef = useRef<string>('')  
 
   const [userId, setUserId] = useState('')
   const [userBranchId, setUserBranchId] = useState('')
@@ -142,8 +143,28 @@ export default function DailyMessagePage() {
 
   useEffect(() => {
     if (selectedClassId) {
-      loadStudentsByClass(selectedClassId)
-      clearStudent()
+      sessionStorage.setItem('dm_classId', selectedClassId)
+      loadStudentsByClass(selectedClassId).then(() => {
+        if (pendingStudentIdRef.current) {
+          const sid = pendingStudentIdRef.current
+          pendingStudentIdRef.current = ''
+          setSelectedStudentId(sid)
+          setStudentSearch(sessionStorage.getItem('dm_studentSearch') || '')
+          try {
+            const w = sessionStorage.getItem('dm_selectedWork')
+            if (w) setSelectedWork(JSON.parse(w))
+            setIsNewWork(sessionStorage.getItem('dm_isNewWork') === 'true')
+            setLessonType((sessionStorage.getItem('dm_lessonType') as any) || 'curriculum')
+            setSelectedTopicId(sessionStorage.getItem('dm_topicId') || '')
+            setFreeSubject(sessionStorage.getItem('dm_freeSubject') || '')
+            setSelectedMaterials(JSON.parse(sessionStorage.getItem('dm_materials') || '[]'))
+            setProgressStatus((sessionStorage.getItem('dm_progress') as any) || 'none')
+            setTeacherMemo(sessionStorage.getItem('dm_memo') || '')
+          } catch {}
+        } else {
+          clearStudent()
+        }
+      })
     }
   }, [selectedClassId])
 
@@ -151,6 +172,24 @@ export default function DailyMessagePage() {
     if (selectedStudentId) loadInProgressList(selectedStudentId)
     else setInProgressList([])
   }, [selectedStudentId])
+
+
+  // sessionStorage 저장 (iOS 사진 선택 후 리로드 복원용)
+  useEffect(() => { sessionStorage.setItem('dm_studentId', selectedStudentId) }, [selectedStudentId])
+  useEffect(() => { sessionStorage.setItem('dm_studentSearch', studentSearch) }, [studentSearch])
+  useEffect(() => { sessionStorage.setItem('dm_branchId', selectedBranchId) }, [selectedBranchId])
+  useEffect(() => {
+    if (selectedWork) sessionStorage.setItem('dm_selectedWork', JSON.stringify(selectedWork))
+    else sessionStorage.removeItem('dm_selectedWork')
+  }, [selectedWork])
+  useEffect(() => { sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork])
+  useEffect(() => { sessionStorage.setItem('dm_lessonType', lessonType) }, [lessonType])
+  useEffect(() => { sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId])
+  useEffect(() => { sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject])
+  useEffect(() => { sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials])
+  useEffect(() => { sessionStorage.setItem('dm_progress', progressStatus) }, [progressStatus])
+  useEffect(() => { sessionStorage.setItem('dm_memo', teacherMemo) }, [teacherMemo])
+
 
   // ── 데이터 로드 ──────────────────────────────────────
   async function loadInitialData() {
@@ -198,12 +237,23 @@ export default function DailyMessagePage() {
 
     if (classesData) {
       setClasses(classesData)
+      const savedClassId = sessionStorage.getItem('dm_classId')
+      const savedStudentId = sessionStorage.getItem('dm_studentId')
+      if (savedStudentId) pendingStudentIdRef.current = savedStudentId
+    
       if (profile?.role === 'admin' && branchRes.data?.length) {
-        setSelectedBranchId(branchRes.data[0].id)
-        const first = classesData.filter((c: any) => c.branch_id === branchRes.data![0].id)
-        if (first.length) setSelectedClassId(first[0].id)
+        const savedBranchId = sessionStorage.getItem('dm_branchId')
+        const targetBranch = (savedBranchId && branchRes.data.find((b: any) => b.id === savedBranchId))
+          ? savedBranchId : branchRes.data[0].id
+        setSelectedBranchId(targetBranch)
+        const branchClasses = classesData.filter((c: any) => c.branch_id === targetBranch)
+        const targetClass = (savedClassId && branchClasses.find((c: any) => c.id === savedClassId))
+          ? savedClassId : (branchClasses.length ? branchClasses[0].id : '')
+        if (targetClass) setSelectedClassId(targetClass)
       } else if (classesData.length) {
-        setSelectedClassId(classesData[0].id)
+        const targetClass = (savedClassId && classesData.find((c: any) => c.id === savedClassId))
+          ? savedClassId : classesData[0].id
+        setSelectedClassId(targetClass)
       }
     }
 
@@ -469,6 +519,9 @@ export default function DailyMessagePage() {
 
       imageUrls.forEach(u => URL.revokeObjectURL(u))
       setImages([]); setImageUrls([])
+      ;['dm_classId','dm_branchId','dm_studentId','dm_studentSearch','dm_selectedWork',
+        'dm_isNewWork','dm_lessonType','dm_topicId','dm_freeSubject','dm_materials','dm_progress','dm_memo']
+        .forEach(k => sessionStorage.removeItem(k))
       router.push(`/daily-message/result/${s.id}`)
     } catch (e: any) {
       console.error('[generateMessage catch]', e)
