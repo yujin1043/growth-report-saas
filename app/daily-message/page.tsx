@@ -77,7 +77,7 @@ export default function DailyMessagePage() {
   const [inProgressList, setInProgressList] = useState<InProgressWork[]>([])
   const [selectedWork, setSelectedWork] = useState<any>(null)
   const [isNewWork, setIsNewWork] = useState(false)
-  const [showCurriculumModal, setShowCurriculumModal] = useState(false)
+  const [curriculumSearch, setCurriculumSearch] = useState('')
 
   const [lessonType, setLessonType] = useState<'curriculum' | 'free'>('curriculum')
   const [selectedTopicId, setSelectedTopicId] = useState('')
@@ -120,11 +120,11 @@ export default function DailyMessagePage() {
     setIsNewWork(false)
     setLessonType('curriculum')
     setSelectedTopicId('')
+    setCurriculumSearch('')
     setFreeSubject('')
     setSelectedMaterials([])
     setProgressStatus('none')
     setTeacherMemo('')
-    setShowCurriculumModal(false)
   }
 
   const clearStudent = () => {
@@ -183,7 +183,7 @@ export default function DailyMessagePage() {
     else sessionStorage.removeItem('dm_selectedWork')
   }, [selectedWork])
   useEffect(() => { sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork])
-  useEffect(() => { sessionStorage.setItem('dm_lessonType', lessonType) }, [lessonType])
+  useEffect(() => { sessionStorage.setItem('dm_lessonType', lessonType); setCurriculumSearch('') }, [lessonType])
   useEffect(() => { sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId])
   useEffect(() => { sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject])
   useEffect(() => { sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials])
@@ -206,6 +206,7 @@ export default function DailyMessagePage() {
     const now = new Date()
     const cy = now.getFullYear(), cm = now.getMonth() + 1
     const py = cm === 1 ? cy - 1 : cy, pm = cm === 1 ? 12 : cm - 1
+    const p2y = cm <= 2 ? cy - 1 : cy, p2m = cm <= 2 ? cm + 10 : cm - 2
 
     let branchQ = supabase.from('branches').select('id, name').order('name')
     if (profile?.role !== 'admin' && profile?.branch_id) branchQ = branchQ.eq('id', profile.branch_id)
@@ -213,14 +214,12 @@ export default function DailyMessagePage() {
     let topicQ = supabase.from('monthly_curriculum')
       .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group')
       .eq('status', 'active')
-    if (profile?.role !== 'admin') {
-      topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm})`)
-    }
+    topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm}),and(year.eq.${p2y},month.eq.${p2m})`)
 
     const [teacherClassRes, branchRes, topicRes, msgRes] = await Promise.all([
       supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id),
       branchQ,
-      topicQ.order('year', { ascending: false }).order('month', { ascending: false }).order('created_at'),
+      topicQ.order('year', { ascending: false }).order('month', { ascending: false }).order('week', { ascending: true }).order('created_at'),
       supabase.from('daily_messages').select('student_id', { count: 'exact' }).gte('expires_at', now.toISOString()),
     ])
 
@@ -715,39 +714,59 @@ export default function DailyMessagePage() {
                   {lessonType === 'curriculum' && (
                     <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 10 }}>📖 주제 선택</div>
-                      <button onClick={() => setShowCurriculumModal(!showCurriculumModal)}
-                        style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: 14, color: selectedTopicId ? "#1f2937" : "#9ca3af", display: "flex", justifyContent: "space-between", cursor: "pointer", textAlign: "left" }}>
-                        <span>{selectedTopicId ? curriculumTopics.find(c => c.id === selectedTopicId)?.title : "선택해주세요"}</span>
-                        <span style={{ color: "#9ca3af" }}>▼</span>
-                      </button>
-                      {showCurriculumModal && (
-                        <div style={{ marginTop: 10, background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", overflow: "hidden" }}>
-                          {groupedCurriculum.map((group, gi) => (
-                            <div key={gi}>
-                              <div style={{ padding: "8px 14px", background: gi === 0 ? "#f0fdfa" : "#f9fafb", fontSize: 12, fontWeight: 700, color: gi === 0 ? "#0d9488" : "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
-                                {group.label}
-                              </div>
-                              {group.topics.map(topic => (
-                                <div key={topic.id}
-                                  onClick={() => {
-                                    setSelectedTopicId(topic.id)
-                                    setShowCurriculumModal(false)
-                                    setSelectedWork({ id: `new-${topic.id}`, title: topic.title, type: 'curriculum', sessions: 0, startedAt: '신규' })
-                                    setProgressStatus('started')
-                                  }}
-                                  style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, background: selectedTopicId === topic.id ? "#f0fdfa" : "#fff", transition: "background 0.1s" }}
-                                >
-                                  <span style={{ fontWeight: 500, color: "#1f2937" }}>
-                                    {topic.week ? <span style={{ color: "#0d9488", fontWeight: 700, marginRight: 4 }}>{topic.week}주</span> : null}
-                                    {topic.title}
-                                  </span>
-                                  <span style={{ fontSize: 11, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6 }}>
-                                    {topic.age_group === 'kindergarten' ? '유치' : '초등'}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          ))}
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="text"
+                          value={curriculumSearch}
+                          onChange={e => { setCurriculumSearch(e.target.value); if (selectedTopicId) { setSelectedTopicId(''); setSelectedWork(null); } }}
+                          onFocus={() => { if (selectedTopicId) setCurriculumSearch('') }}
+                          placeholder={selectedTopicId ? curriculumTopics.find(c => c.id === selectedTopicId)?.title || "🔍 주제를 검색하세요" : "🔍 주제를 검색하세요"}
+                          style={{
+                            width: "100%", padding: "11px 36px 11px 14px", borderRadius: 12, fontSize: 14,
+                            outline: "none", boxSizing: "border-box",
+                            background: selectedTopicId ? "#f0fdfa" : "#f9fafb",
+                            border: selectedTopicId ? "2px solid #0d9488" : "1px solid #e5e7eb",
+                            color: selectedTopicId ? "#0f766e" : "#1f2937",
+                            fontWeight: selectedTopicId ? 600 : 400,
+                          }}
+                        />
+                        {selectedTopicId && (
+                          <button onClick={() => { setSelectedTopicId(''); setCurriculumSearch(''); setSelectedWork(null); }}
+                            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 22, height: 22, borderRadius: "50%", background: "#e5e7eb", border: "none", color: "#6b7280", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                        )}
+                      </div>
+                      {!selectedTopicId && (
+                        <div style={{ marginTop: 8, maxHeight: 220, overflowY: "auto", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff" }}>
+                          {curriculumTopics
+                            .filter(t => !curriculumSearch || t.title.includes(curriculumSearch))
+                            .map(topic => (
+                              <button key={topic.id}
+                                onClick={() => {
+                                  setSelectedTopicId(topic.id)
+                                  setCurriculumSearch(topic.month && topic.week ? `[${topic.month}-${topic.week}] ${topic.title}` : topic.title)
+                                  setSelectedWork({ id: `new-${topic.id}`, title: topic.title, type: 'curriculum', sessions: 0, startedAt: '신규' })
+                                  setProgressStatus('started')
+                                }}
+                                style={{ width: "100%", padding: "11px 16px", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid #f3f4f6", cursor: "pointer", fontSize: 14, color: "#1f2937", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                                onMouseOver={e => (e.currentTarget.style.background = "#f0fdfa")}
+                                onMouseOut={e => (e.currentTarget.style.background = "none")}
+                              >
+                                <span>
+                                  {topic.month && topic.week
+                                    ? <span style={{ color: "#0d9488", fontWeight: 700, marginRight: 6, background: "#f0fdfa", padding: "1px 6px", borderRadius: 6, fontSize: 12 }}>{topic.month}-{topic.week}</span>
+                                    : topic.week
+                                    ? <span style={{ color: "#0d9488", fontWeight: 700, marginRight: 4 }}>{topic.week}주</span>
+                                    : null}
+                                  <span style={{ fontWeight: 500 }}>{topic.title}</span>
+                                </span>
+                                <span style={{ fontSize: 11, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6, flexShrink: 0 }}>
+                                  {topic.age_group === 'kindergarten' ? '유치' : '초등'}
+                                </span>
+                              </button>
+                            ))}
+                          {curriculumTopics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch)).length === 0 && (
+                            <p style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 13 }}>검색 결과가 없습니다</p>
+                          )}
                         </div>
                       )}
                     </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useUserContext } from '@/lib/UserContext'
@@ -26,6 +26,7 @@ export default function EditCurriculumPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const formChangedRef = useRef(false)
 
   const [formData, setFormData] = useState({
     year: 2025,
@@ -57,6 +58,24 @@ export default function EditCurriculumPage() {
       loadCurriculum()
     }
   }, [userLoading, userRole, curriculumId])
+
+  // formData 변경 추적
+  useEffect(() => {
+    formChangedRef.current = true
+  }, [formData])
+
+  // 페이지 이탈 경고
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (formChangedRef.current) {
+        e.preventDefault()
+        e.returnValue = '작성 중인 내용이 있습니다. 페이지를 떠나시겠습니까?'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   async function loadCurriculum() {
     // 기존 데이터 로드
@@ -261,7 +280,7 @@ export default function EditCurriculumPage() {
       return
     }
 
-    if (formData.main_images.length === 0) {
+    if (status === 'active' && formData.main_images.length === 0) {
       alert('완성작품 사진을 1장 이상 등록해주세요.')
       return
     }
@@ -506,13 +525,6 @@ export default function EditCurriculumPage() {
                         삭제
                       </button>
                     </div>
-                    <input
-                      type="text"
-                      value={point.title}
-                      onChange={(e) => updateTeachingPoint(idx, 'title', e.target.value)}
-                      placeholder="제목 (예: 1. 큰 붓으로 배경 채우기)"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg mb-2"
-                    />
                     <textarea
                       value={point.description}
                       onChange={(e) => updateTeachingPoint(idx, 'description', e.target.value)}
@@ -599,7 +611,18 @@ export default function EditCurriculumPage() {
             {formData.variation_references.map((ref, idx) => (
               <div key={idx} className="flex items-center gap-3 mb-3 bg-gray-50 p-3 rounded-xl">
                 {ref.image_url ? (
-                  <img src={ref.image_url} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                  <div className="relative">
+                    <img src={ref.image_url} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                    <label className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg cursor-pointer opacity-0 hover:opacity-100 transition">
+                      <span className="text-white text-xs">변경</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleVariationImage(e, idx)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 ) : (
                   <label className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer">
                     <span className="text-gray-400 text-xs">사진</span>
@@ -611,13 +634,7 @@ export default function EditCurriculumPage() {
                     />
                   </label>
                 )}
-                <input
-                  type="text"
-                  value={ref.title}
-                  onChange={(e) => updateVariationReference(idx, 'title', e.target.value)}
-                  placeholder="제목 (예: 모네의 수련)"
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg"
-                />
+                <span className="flex-1 text-sm text-gray-400">참고 이미지 {idx + 1}</span>
                 <button
                   onClick={() => removeVariationReference(idx)}
                   className="text-red-500"

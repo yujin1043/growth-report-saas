@@ -52,6 +52,7 @@ export default function CurriculumPage() {
   const [selectedCurriculum, setSelectedCurriculum] = useState<Curriculum | null>(null)
   const [userRole, setUserRole] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // 현재 월과 다음 월 계산
   const now = new Date()
@@ -304,13 +305,28 @@ export default function CurriculumPage() {
         {/* 콘텐츠 목록 또는 상세 */}
         {!selectedCurriculum ? (
           <div className="space-y-6">
+            <div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="🔍 커리큘럼 검색"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none shadow-sm"
+              />
+            </div>
             {groupedData.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
                 <p className="text-4xl mb-3">📚</p>
                 <p className="text-gray-500">등록된 콘텐츠가 없습니다.</p>
               </div>
             ) : (
-              groupedData.map(group => (
+              groupedData
+                .map(group => ({
+                  ...group,
+                  items: group.items.filter(item => !searchQuery || item.title.includes(searchQuery))
+                }))
+                .filter(group => group.items.length > 0)
+                .map(group => (
                 <div key={`${group.year}-${group.month}-${group.week}`} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                   {/* 주차 헤더 */}
                   <div className="bg-teal-50 px-4 py-3 border-b border-teal-100">
@@ -409,9 +425,18 @@ export default function CurriculumPage() {
                   <h3 className="font-bold text-gray-800">🖼️ 완성작품</h3>
                   <button
                     onClick={() => {
-                      selectedCurriculum.main_images.forEach((url, i) => {
-                        printImage(url, `${selectedCurriculum.title}_완성작품_${i + 1}`)
-                      })
+                      const imgs = selectedCurriculum.main_images
+                      if (!imgs.length) return
+                      printViaIframe(`<!DOCTYPE html><html><head><title>완성작품 - ${selectedCurriculum.title}</title>
+                        <style>
+                          @page { size: A4 portrait; margin: 0; }
+                          * { margin:0; padding:0; box-sizing:border-box; }
+                          .page { width:210mm; height:297mm; display:flex; align-items:center; justify-content:center; page-break-after:always; }
+                          .page:last-child { page-break-after:auto; }
+                          .page img { max-width:210mm; max-height:297mm; object-fit:contain; }
+                        </style></head><body>
+                        ${imgs.map(url => `<div class="page"><img src="${url}" /></div>`).join('')}
+                        </body></html>`)
                     }}
                     className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
                   >
@@ -424,7 +449,8 @@ export default function CurriculumPage() {
                       key={index}
                       src={url} 
                       alt={`완성작품 ${index + 1}`}
-                      className="w-full aspect-square object-cover rounded-xl cursor-pointer hover:opacity-90"
+                      className="w-full object-contain rounded-xl cursor-pointer hover:opacity-90 bg-gray-50"
+                      style={{ maxHeight: '280px' }}
                       onClick={() => setSelectedImage(url)}
                     />
                   ))}
@@ -476,13 +502,14 @@ export default function CurriculumPage() {
                           : (point.image_url ? [point.image_url] : [])
                         if (images.length === 0) return null
                         return (
-                          <div className={`mt-3 grid gap-2 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                          <div className="mt-3 flex flex-col gap-3">
                             {images.map((url, imgIdx) => (
                               <img
                                 key={imgIdx}
                                 src={url}
                                 alt={`포인트 ${index + 1} 이미지 ${imgIdx + 1}`}
-                                className="rounded-lg max-w-xs cursor-pointer"
+                                className="w-full object-contain rounded-lg cursor-pointer bg-gray-100"
+                                style={{ maxHeight: '320px' }}
                                 onClick={() => setSelectedImage(url)}
                               />
                             ))}
@@ -522,13 +549,20 @@ export default function CurriculumPage() {
                   <h3 className="font-bold text-gray-800">💡 Variation Guide</h3>
                   {selectedCurriculum.variation_guide.references && selectedCurriculum.variation_guide.references.some(r => r.image_url) && (
                     <button
-                      onClick={() => {
-                        selectedCurriculum.variation_guide!.references!.forEach((r, i) => {
-                          if (r.image_url) {
-                            printImage(r.image_url, `${selectedCurriculum.title}_Variation_${i + 1}`)
-                          }
-                        })
-                      }}
+                    onClick={() => {
+                      const refs = selectedCurriculum.variation_guide!.references!.filter(r => r.image_url)
+                      if (!refs.length) return
+                      printViaIframe(`<!DOCTYPE html><html><head><title>가이드 - ${selectedCurriculum.title}</title>
+                        <style>
+                          @page { size: A4 portrait; margin: 0; }
+                          * { margin:0; padding:0; box-sizing:border-box; }
+                          .page { width:210mm; height:297mm; display:flex; align-items:center; justify-content:center; page-break-after:always; }
+                          .page:last-child { page-break-after:auto; }
+                          .page img { max-width:210mm; max-height:297mm; object-fit:contain; }
+                        </style></head><body>
+                        ${refs.map(r => `<div class="page"><img src="${r.image_url}" /></div>`).join('')}
+                        </body></html>`)
+                    }}
                       className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
                     >
                       🖨️ 가이드 출력
@@ -549,7 +583,8 @@ export default function CurriculumPage() {
                           <img 
                             src={ref.image_url} 
                             alt={ref.title}
-                            className="w-full aspect-square object-cover rounded-lg mb-2 cursor-pointer"
+                            className="w-full object-contain rounded-lg mb-2 cursor-pointer bg-gray-50"
+                            style={{ maxHeight: '200px' }}
                             onClick={() => setSelectedImage(ref.image_url)}
                           />
                         )}

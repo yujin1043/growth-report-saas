@@ -37,6 +37,7 @@ export default function AdminCurriculumPage() {
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [expandedMonths, setExpandedMonths] = useState<number[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
 
   // 일괄 삭제 관련 state
   const [bulkMode, setBulkMode] = useState(false)
@@ -379,9 +380,20 @@ export default function AdminCurriculumPage() {
               총 <span className="font-bold text-teal-600">{getTotalCount()}</span>개
             </div>
           </div>
-        </div>
+          </div>
 
-        {/* 콘텐츠 목록 */}
+          {/* 검색 */}
+          <div className="mb-4">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="🔍 커리큘럼 검색"
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm"
+            />
+          </div>
+
+          {/* 콘텐츠 목록 */}
         {groupedData.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <p className="text-gray-400">
@@ -390,7 +402,16 @@ export default function AdminCurriculumPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {groupedData.map(monthGroup => (
+            {groupedData
+              .map(monthGroup => ({
+                ...monthGroup,
+                weeks: monthGroup.weeks.map(wg => ({
+                  ...wg,
+                  items: wg.items.filter(item => !searchQuery || item.title.includes(searchQuery))
+                })).filter(wg => wg.items.length > 0)
+              }))
+              .filter(monthGroup => monthGroup.weeks.length > 0)
+              .map(monthGroup => (
               <div key={monthGroup.month} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 {/* 월 헤더 (접기/펼치기) */}
                 <button
@@ -518,7 +539,7 @@ export default function AdminCurriculumPage() {
                   </div>
                 )}
               </div>
-            ))}
+              ))}
           </div>
         )}
       </div>
