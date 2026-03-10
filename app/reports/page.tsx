@@ -32,6 +32,8 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBranch, setSelectedBranch] = useState('all')
   const [selectedMonth, setSelectedMonth] = useState('all')
+  const [currentPage, setCurrentPage] = useState(0)
+  const PAGE_SIZE = 30
   
   // Context에서 사용자 정보 가져오기
   const { userRole, branchId: userBranchId, isLoading: userLoading } = useUserContext()
@@ -94,6 +96,10 @@ export default function ReportsPage() {
 
     return matchesSearch && matchesBranch && matchesMonth
   })
+
+  const totalPages = Math.ceil(filteredReports.length / PAGE_SIZE)
+  const pagedReports = filteredReports.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+
 
   const monthOptions = []
   for (let i = 0; i < 12; i++) {
@@ -179,7 +185,8 @@ export default function ReportsPage() {
 
         <div className="mb-4">
           <p className="text-sm text-gray-500">
-            총 <span className="font-bold text-teal-600">{filteredReports.length}</span>건
+          총 <span className="font-bold text-teal-600">{filteredReports.length}</span>건
+          {totalPages > 1 && <span className="ml-2 text-gray-400">({currentPage+1} / {totalPages} 페이지)</span>}
           </p>
         </div>
 
@@ -199,7 +206,7 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredReports.map(report => (
+                {pagedReports.map(report => (
                   <tr 
                     key={report.id} 
                     onClick={() => router.push(`/reports/${report.id}`)}
@@ -232,7 +239,7 @@ export default function ReportsPage() {
           </div>
 
           <div className="md:hidden divide-y divide-gray-100">
-            {filteredReports.map(report => (
+            {pagedReports.map(report => (
               <div 
                 key={report.id} 
                 onClick={() => router.push(`/reports/${report.id}`)}
@@ -261,6 +268,21 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-6">
+            <button onClick={() => setCurrentPage(0)} disabled={currentPage === 0}
+              className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">«</button>
+            <button onClick={() => setCurrentPage(p => Math.max(0, p-1))} disabled={currentPage === 0}
+              className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">이전</button>
+            <span className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm font-medium">{currentPage+1} / {totalPages}</span>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages-1, p+1))} disabled={currentPage >= totalPages-1}
+              className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">다음</button>
+            <button onClick={() => setCurrentPage(totalPages-1)} disabled={currentPage >= totalPages-1}
+              className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">»</button>
+          </div>
+        )}
+
       </div>
     </div>
   )

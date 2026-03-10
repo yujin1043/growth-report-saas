@@ -45,19 +45,12 @@ export default function EditStudentPage() {
   }, [studentId])
 
   async function loadData() {
-    const { data: classData } = await supabase
-      .from('classes')
-      .select('id, name')
-      .order('name')
-
-    if (classData) setClasses(classData)
-
     const { data: student } = await supabase
       .from('students')
       .select('*')
       .eq('id', studentId)
       .single()
-
+  
     if (student) {
       setFormData({
         name: student.name || '',
@@ -70,13 +63,21 @@ export default function EditStudentPage() {
       })
       setOriginalStatus(student.status || 'active')
     }
-
+  
+    const { data: classData } = await supabase
+      .from('classes')
+      .select('id, name')
+      .eq('branch_id', student?.branch_id)
+      .order('name')
+  
+    if (classData) setClasses(classData)
+  
     const { data: historyData } = await supabase
       .from('student_status_history')
       .select('id, previous_status, new_status, changed_at, memo, changed_by')
       .eq('student_id', studentId)
       .order('changed_at', { ascending: false })
-
+  
     if (historyData) {
       const historyWithNames: StatusHistory[] = []
       
@@ -90,7 +91,7 @@ export default function EditStudentPage() {
             .single()
           changerName = user?.name || '-'
         }
-
+  
         historyWithNames.push({
           id: h.id,
           previous_status: h.previous_status,
@@ -100,10 +101,10 @@ export default function EditStudentPage() {
           changer_name: changerName
         })
       }
-
+  
       setStatusHistory(historyWithNames)
     }
-
+  
     setLoading(false)
   }
 

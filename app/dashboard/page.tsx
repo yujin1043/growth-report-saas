@@ -313,12 +313,13 @@ export default function DashboardPage() {
             .eq('status', 'in_progress')
             .gte('session_count', 3)
         : Promise.resolve({ data: [] }),
-      allSketchbookIds.length > 0
+        allSketchbookIds.length > 0
         ? supabase
             .from('sketchbook_works')
             .select('sketchbook_id, session_count')
             .in('sketchbook_id', allSketchbookIds)
             .eq('status', 'completed')
+            .gte('completed_at', new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString())
         : Promise.resolve({ data: [] }),
     ])
 
@@ -372,14 +373,18 @@ export default function DashboardPage() {
     setCompletedSketchbooks(completedList)
 
     // ── 반별 통계 ────────────────────────────────────────────
-    // student_id → min session_count of completed works (5회 이내 완료율용)
+    // 5회 이내 완료율용 (최솟값)
     const completedWorksMap: Record<string, number> = {}
+    // 평균 진도회차용 (전체 목록)
+    const completedWorksAllMap: Record<string, number[]> = {}
     completedWorksData.forEach((w: any) => {
       const sid = sbToStudent.get(w.sketchbook_id)
       if (!sid) return
       if (completedWorksMap[sid] === undefined || w.session_count < completedWorksMap[sid]) {
         completedWorksMap[sid] = w.session_count
       }
+      if (!completedWorksAllMap[sid]) completedWorksAllMap[sid] = []
+      completedWorksAllMap[sid].push(w.session_count)
     })
 
     const allClasses = classesResult.data || []
@@ -388,21 +393,22 @@ export default function DashboardPage() {
       : allClasses
 
     // 진도 경고 학생 Set (반별 평균 계산용)
-    const progressAlertStudentIds = new Set(progressAlertList.map(p => p.id))
 
     const statsArr: ClassStat[] = targetClasses.map((cls: any) => {
       const classStudents = activeStudentsList.filter(s => s.class_id === cls.id)
       const total = classStudents.length
       if (total === 0) return { id: cls.id, name: cls.name, total_students: 0, avg_sessions: 0, completion_rate: 0 }
+    
+      // ✅ 완성된 작품들의 session_count 평균으로 변경
+      const allCompletedSessions = classStudents.flatMap(s => completedWorksAllMap[s.id] || [])
 
-      const classAlerts = progressAlertList.filter(p => progressAlertStudentIds.has(p.id) && classStudents.some(s => s.id === p.id))
-      const avgSessions = classAlerts.length > 0
-        ? Math.round((classAlerts.reduce((sum, p) => sum + p.session_count, 0) / classAlerts.length) * 10) / 10
+      const avgSessions = allCompletedSessions.length > 0
+        ? Math.round((allCompletedSessions.reduce((sum, v) => sum + v, 0) / allCompletedSessions.length) * 10) / 10
         : 0
-
+    
       const completedWithin5 = classStudents.filter(s => completedWorksMap[s.id] !== undefined && completedWorksMap[s.id] <= 5).length
       const completionRate = Math.round((completedWithin5 / total) * 100)
-
+    
       return { id: cls.id, name: cls.name, total_students: total, avg_sessions: avgSessions, completion_rate: completionRate }
     })
     setClassStats(statsArr)

@@ -3,8 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
 
 interface Report {
   id: string
@@ -34,6 +32,17 @@ interface Student {
   } | null
 }
 
+// Storage URL에서 파일 경로 추출
+function extractStoragePath(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const match = url.match(/\/storage\/v1\/object\/public\/artworks\/(.+)/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
 export default function ReportDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -45,8 +54,6 @@ export default function ReportDetailPage() {
   const [deleting, setDeleting] = useState(false)
 
   const currentYear = new Date().getFullYear()
-
-  // 메인 색상
   const mainColor = '#49AECD'
 
   useEffect(() => {
@@ -77,8 +84,8 @@ export default function ReportDetailPage() {
       if (studentData) {
         setStudent({
           ...studentData,
-          classes: Array.isArray(studentData.classes) 
-            ? studentData.classes[0] || null 
+          classes: Array.isArray(studentData.classes)
+            ? studentData.classes[0] || null
             : studentData.classes
         })
       }
@@ -87,42 +94,58 @@ export default function ReportDetailPage() {
     setLoading(false)
   }
 
+  // ✅ Storage 이미지도 함께 삭제
   async function handleDelete() {
-    if (!confirm('이 리포트를 삭제하시겠습니까?\n\n⚠️ 삭제된 리포트는 복구할 수 없습니다.')) {
-      return
-    }
+    if (!confirm('이 리포트를 삭제하시겠습니까?\n\n⚠️ 삭제된 리포트와 작품 이미지는 복구할 수 없습니다.')) return
 
     setDeleting(true)
 
-    const { error } = await supabase
-      .from('reports')
-      .delete()
-      .eq('id', reportId)
+    try {
+      const imagePaths: string[] = []
+      const beforePath = extractStoragePath(report?.image_before_url || null)
+      const afterPath = extractStoragePath(report?.image_after_url || null)
+      if (beforePath) imagePaths.push(beforePath)
+      if (afterPath) imagePaths.push(afterPath)
 
-    if (error) {
-      alert('삭제 실패: ' + error.message)
+      if (imagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from('artworks')
+          .remove(imagePaths)
+        if (storageError) {
+          console.warn('이미지 삭제 실패 (리포트 삭제는 계속 진행):', storageError)
+        }
+      }
+
+      const { error } = await supabase
+        .from('reports')
+        .delete()
+        .eq('id', reportId)
+
+      if (error) {
+        alert('삭제 실패: ' + error.message)
+        setDeleting(false)
+        return
+      }
+
+      alert('리포트가 삭제되었습니다.')
+      if (report?.student_id) {
+        router.push(`/students/${report.student_id}`)
+      } else {
+        router.push('/reports')
+      }
+    } catch (err) {
+      console.error('삭제 오류:', err)
+      alert('삭제 중 오류가 발생했습니다. 다시 시도해주세요.')
       setDeleting(false)
-      return
-    }
-
-    alert('리포트가 삭제되었습니다.')
-    
-    if (report?.student_id) {
-      router.push(`/students/${report.student_id}`)
-    } else {
-      router.push('/reports')
     }
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
 
-  const handlePrint = async () => {
-    // 파일명 설정 (리포트 생성일 기준)
+  const handlePrint = () => {
     const reportDate = new Date(report?.created_at || new Date())
     const dateStr = `${reportDate.getFullYear()}${String(reportDate.getMonth() + 1).padStart(2, '0')}${String(reportDate.getDate()).padStart(2, '0')}`
     const fileName = `${student?.name || '학생'}_${dateStr}`
-    
-    // 모바일/PC 모두 동일하게 처리
     document.title = fileName
     window.print()
     document.title = '그리마노트'
@@ -166,8 +189,6 @@ export default function ReportDetailPage() {
             box-shadow: none !important;
           }
           @page { size: A4; margin: 0; }
-          
-          /* 배경색 강제 유지 */
           * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
@@ -178,6 +199,7 @@ export default function ReportDetailPage() {
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200">
+
         {/* 헤더 */}
         <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50 no-print">
           <div className="max-w-4xl mx-auto px-4 py-3 md:py-4">
@@ -187,19 +209,19 @@ export default function ReportDetailPage() {
               </button>
               <h1 className="text-base md:text-lg font-bold text-gray-800">성장 리포트</h1>
               <div className="flex gap-3">
-                <button 
+                <button
                   onClick={() => router.push(`/reports/${reportId}/edit`)}
                   style={{ color: mainColor }}
                   className="hover:opacity-80 text-sm font-medium transition"
                 >
                   수정
                 </button>
-                <button 
+                <button
                   onClick={handleDelete}
                   disabled={deleting}
                   className="text-gray-400 hover:text-red-500 text-sm font-medium transition"
                 >
-                  삭제
+                  {deleting ? '삭제 중...' : '삭제'}
                 </button>
               </div>
             </div>
@@ -208,21 +230,19 @@ export default function ReportDetailPage() {
 
         {/* 프린트 영역 */}
         <div id="print-area" className="mx-auto my-4 md:my-6 px-4" style={{ maxWidth: '210mm' }}>
-          
+
           {/* 1페이지 */}
           <div className="print-page bg-white shadow-lg rounded-lg" style={{ padding: '28px' }}>
+
             {/* 로고 & 타이틀 */}
             <div className="mb-6">
-              {/* 로고 - 왼쪽 상단, 작게 */}
               <div className="mb-3">
-                <img 
-                  loading="lazy" decoding="async" src="/logo.jpg" 
-                  alt="그리아이술 로고" 
+                <img
+                  loading="lazy" decoding="async" src="/logo.jpg"
+                  alt="그리마미술 로고"
                   style={{ height: '28px', width: 'auto' }}
                 />
               </div>
-              
-              {/* 성장 리포트 타이틀 - 중앙 */}
               <div className="text-center">
                 <h1 className="font-bold" style={{ color: mainColor, fontSize: '20pt' }}>성장 리포트</h1>
               </div>
@@ -337,14 +357,14 @@ export default function ReportDetailPage() {
         {/* 하단 버튼 */}
         <div className="max-w-4xl mx-auto px-4 py-6 no-print">
           <div className="flex gap-3">
-            <button 
-              onClick={() => router.back()} 
+            <button
+              onClick={() => router.back()}
               className="flex-1 bg-white text-gray-600 py-3 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200"
             >
               ← 돌아가기
             </button>
-            <button 
-              onClick={handlePrint} 
+            <button
+              onClick={handlePrint}
               className="flex-1 text-white py-3 rounded-2xl font-medium hover:opacity-90 transition shadow-lg"
               style={{ backgroundColor: mainColor }}
             >
@@ -352,6 +372,7 @@ export default function ReportDetailPage() {
             </button>
           </div>
         </div>
+
       </div>
     </>
   )

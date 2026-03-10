@@ -342,7 +342,7 @@ function NewReportPage() {
 
   async function handleGenerate() {
     if (!student) return
-
+  
     if (!imageBefore.croppedUrl || !imageAfter.croppedUrl) {
       alert('이전 작품과 최근 작품 사진을 모두 업로드해주세요.')
       return
@@ -355,59 +355,83 @@ function NewReportPage() {
       alert('학생 특성 메모를 10자 이상 입력해주세요.')
       return
     }
-
+  
     setGenerating(true)
-
-    // 체크박스 + 자유서술 조합하여 teacherMemo 생성
+  
     const selectedImprovements = improvements
       .map(key => improvementOptions.find(opt => opt.key === key)?.label)
       .filter(Boolean)
       .join(', ')
     const teacherMemo = `[향상된 부분] ${selectedImprovements}\n[학생 특성] ${studentMemo.trim()}`
-
+  
     try {
-      // 이미지를 Base64로 변환
-      const imageBeforeBase64 = await compressImage(imageBefore.croppedUrl, 512, 0.5)
-      const imageAfterBase64 = await compressImage(imageAfter.croppedUrl, 512, 0.5)
-
-      const fetchController = new AbortController()
-      const fetchTimeout = setTimeout(() => fetchController.abort(), 35000)
-
-      const response = await fetch('/api/generate-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentName: student.name,
-          studentAge: getAge(student.birth_year),
-          className: student.classes?.name,
-          teacherMemo,
-          parentRequest,
-          imageBeforeBase64,
-          imageAfterBase64
-        }),
-        signal: fetchController.signal
-      })
-
-      clearTimeout(fetchTimeout)
-
-      if (!response.ok) {
-        throw new Error('AI 생성 실패')
+      const imageBeforeBase64 = await compressImage(imageBefore.croppedUrl, 800, 0.7)
+      const imageAfterBase64 = await compressImage(imageAfter.croppedUrl, 800, 0.7)
+  
+      // ✅ 개선: 최대 3회 자동 재시도 (429 에러 대응)
+      let lastError = ''
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const response = await fetch('/api/generate-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              studentName: student.name,
+              studentAge: getAge(student.birth_year),
+              className: student.classes?.name,
+              teacherMemo,
+              parentRequest,
+              imageBeforeBase64,
+              imageAfterBase64
+            })
+          })
+  
+          const data = await response.json()
+  
+          // ✅ 429 과부하: 잠시 대기 후 재시도
+          if (response.status === 429) {
+            lastError = data.error || 'AI 과부하'
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 3000 * attempt))
+              continue
+            }
+            throw new Error(lastError)
+          }
+  
+          if (!response.ok) {
+            throw new Error(data.error || 'AI 생성 실패')
+          }
+  
+          // ✅ 성공
+          setReportContent(data)
+          setShowResult(true)
+          return
+  
+        } catch (fetchError) {
+          lastError = (fetchError as Error).message
+          if (attempt < 3 && !lastError.includes('초과')) {
+            // 네트워크 오류면 재시도
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            continue
+          }
+          throw fetchError
+        }
       }
-
-      const data = await response.json()
-      setReportContent(data)
-      setShowResult(true)
-
-    } catch (error: any) {
-      console.error('Error:', error)
-      if (error.name === 'AbortError') {
-        alert('AI 응답 시간이 초과되었습니다.\n네트워크 상태를 확인하고 다시 시도해주세요.')
-      } else {
-        alert('AI 리포트 생성에 실패했습니다. 다시 시도해주세요.')
+  
+      throw new Error(lastError)
+  
+    } catch (error) {
+      console.error('리포트 생성 오류:', error)
+      const message = (error as Error).message || 'AI 리포트 생성에 실패했습니다.'
+      
+      // ✅ 개선: 재시도 안내 포함
+      const retry = confirm(`⚠️ ${message}\n\n다시 시도하시겠습니까?`)
+      if (retry) {
+        setGenerating(false)
+        handleGenerate()
+        return
       }
-    } 
-    
-    finally {
+    } finally {
       setGenerating(false)
     }
   }
