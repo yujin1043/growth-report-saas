@@ -319,7 +319,6 @@ export default function DashboardPage() {
             .select('sketchbook_id, session_count')
             .in('sketchbook_id', allSketchbookIds)
             .eq('status', 'completed')
-            .gte('completed_at', new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString())
         : Promise.resolve({ data: [] }),
     ])
 
