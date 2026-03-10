@@ -32,6 +32,9 @@ const ROLE_ORDER: { [key: string]: number } = {
 export default function UsersPage() {
   const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
+  const [invitations, setInvitations] = useState<any[]>([])
+  const [approving, setApproving] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
   const [currentUserRole, setCurrentUserRole] = useState('')
@@ -76,9 +79,57 @@ export default function UsersPage() {
       }))
 
       setUsers(usersWithBranch)
+
+      const { data: invitesData } = await supabase
+        .from('user_invitations')
+        .select('*, branches(name)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+
+      if (invitesData) setInvitations(invitesData)
     }
 
     setLoading(false)
+  }
+
+  async function handleApprove(invitationId: string) {
+    if (!confirm('이 사용자 요청을 승인하고 계정을 생성할까요?')) return
+    setApproving(invitationId)
+
+    const res = await fetch('/api/approve-invitation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invitationId })
+    })
+    const result = await res.json()
+
+    if (result.success) {
+      alert(`승인 완료!\n임시 비밀번호: ${result.tempPassword}\n지점에 전달해주세요.`)
+      loadData()
+    } else {
+      alert('승인 실패: ' + result.error)
+    }
+    setApproving(null)
+  }
+
+  async function handleDelete(userId: string, userName: string) {
+    if (!confirm(`[${userName}] 계정을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return
+    setDeleting(userId)
+
+    const res = await fetch('/api/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId })
+    })
+    const result = await res.json()
+
+    if (result.success) {
+      alert('삭제되었습니다.')
+      loadData()
+    } else {
+      alert('삭제 실패: ' + result.error)
+    }
+    setDeleting(null)
   }
 
   // 필터링 + 정렬
@@ -135,6 +186,34 @@ export default function UsersPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+
+        {/* ── 승인 대기 섹션 ── */}
+        {invitations.length > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-2xl overflow-hidden mb-6">
+            <div className="px-5 py-4 border-b border-yellow-200 flex items-center gap-2">
+              <span className="text-yellow-700 font-bold">⏳ 승인 대기 {invitations.length}건</span>
+            </div>
+            <div className="divide-y divide-yellow-100">
+              {invitations.map(inv => (
+                <div key={inv.id} className="px-5 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-slate-800">{inv.name}</p>
+                    <p className="text-xs text-slate-500">{inv.email} · {inv.role === 'teacher' ? '강사' : inv.role === 'manager' ? '실장' : '원장'}</p>
+                    <p className="text-xs text-slate-400">{inv.branches?.name} · {new Date(inv.created_at).toLocaleDateString('ko-KR')}</p>
+                  </div>
+                  <button
+                    onClick={() => handleApprove(inv.id)}
+                    disabled={approving === inv.id}
+                    className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-bold rounded-xl transition disabled:opacity-50"
+                  >
+                    {approving === inv.id ? '처리 중...' : '승인'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 필터 영역 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
           <div className="flex flex-col gap-3">
@@ -228,6 +307,7 @@ export default function UsersPage() {
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900">지점</th>
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900">상태</th>
                 <th className="px-5 py-3 text-left text-sm font-semibold text-gray-900">등록일</th>
+                <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -243,6 +323,15 @@ export default function UsersPage() {
                   <td className="px-5 py-4 text-sm text-gray-600">{user.branch_name || '전체 (본사)'}</td>
                   <td className="px-5 py-4"><StatusBadge status={user.status} /></td>
                   <td className="px-5 py-4 text-sm text-gray-500">{formatDate(user.created_at)}</td>
+                  <td className="px-5 py-4">
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDelete(user.id, user.name) }}
+                      disabled={deleting === user.id}
+                      className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                    >
+                      {deleting === user.id ? '삭제 중' : '삭제'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -261,17 +350,31 @@ export default function UsersPage() {
           {filteredUsers.map((user) => (
             <div
               key={user.id}
-              onClick={() => router.push(`/users/${user.id}`)}
-              className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md cursor-pointer transition ${user.status === 'inactive' ? 'opacity-50' : ''}`}
+              className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition ${user.status === 'inactive' ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
+                <div
+                  className="flex items-center gap-2 flex-1 cursor-pointer"
+                  onClick={() => router.push(`/users/${user.id}`)}
+                >
                   <span className="font-medium text-gray-900">{user.name || '-'}</span>
                   <RoleBadge role={user.role} />
                 </div>
-                <StatusBadge status={user.status} />
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={user.status} />
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDelete(user.id, user.name) }}
+                    disabled={deleting === user.id}
+                    className="px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                  >
+                    {deleting === user.id ? '삭제 중' : '삭제'}
+                  </button>
+                </div>
               </div>
-              <div className="text-xs text-gray-500 space-y-1">
+              <div
+                className="text-xs text-gray-500 space-y-1 cursor-pointer"
+                onClick={() => router.push(`/users/${user.id}`)}
+              >
                 <p>{user.email}</p>
                 <p>🏢 {user.branch_name || '전체 (본사)'}</p>
               </div>

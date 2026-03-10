@@ -303,7 +303,7 @@ export default function DashboardPage() {
     const activeSketchbookIds = [...activeSketchbookMap.values()]
     const allSketchbookIds = sketchbooks?.map((sk: any) => sk.id) || []
 
-    // ── 3단계: works 2종 병렬 조회 (sketchbookIds 필요) ─────
+    // ── 3단계: works 2종 병렬 조회 (sketchbookIds 필요) router.push('/students')
     const [inProgressWorksResult, completedWorksResult] = await Promise.all([
       activeSketchbookIds.length > 0
         ? supabase
@@ -614,6 +614,24 @@ export default function DashboardPage() {
                 <div className="text-xs text-gray-400 whitespace-nowrap">재원 {activeStudents}명</div>
               </div>
             </button>
+            {(user?.role === 'director' || user?.role === 'manager') && (
+              <button onClick={() => router.push('/invite')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#F0FFF4' }}>👤</div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-800">사용자 추가 요청</div>
+                  <div className="text-xs text-gray-400">본사 승인 후 계정 발급</div>
+                </div>
+              </button>
+            )}
+            {(user?.role === 'director' || user?.role === 'manager') && (
+            <button onClick={() => router.push('/branch-users')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#EFF6FF' }}>👩‍🏫</div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-800">강사 관리</div>
+                <div className="text-xs text-gray-400">담당반 수정 · 계정 삭제</div>
+              </div>
+            </button>
+          )}
           </div>
         </div>
 
