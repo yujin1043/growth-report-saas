@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 interface Branch {
@@ -113,70 +112,28 @@ export default function NewUserPage() {
     setSaving(true)
 
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      
-      const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      })
-
-      const { data: authData, error: authError } = await adminClient.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            name: formData.name
-          }
-        }
-      })
-
-      if (authError) {
-        alert('계정 생성 실패: ' + authError.message)
-        setSaving(false)
-        return
-      }
-
-      if (!authData.user) {
-        alert('계정 생성에 실패했습니다.')
-        setSaving(false)
-        return
-      }
-
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .insert({
-          id: authData.user.id,
-          name: formData.name,
+      // ★ API Route를 통해 서버에서 사용자 생성 (admin 세션 보호)
+      const response = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           email: formData.email,
+          password: formData.password,
+          name: formData.name,
           role: formData.role,
           branch_id: formData.branch_id || null,
           status: formData.status,
-          phone: formData.phone || null
+          phone: formData.phone || null,
+          class_ids: formData.role === 'teacher' ? Array.from(selectedClassIds) : []
         })
+      })
 
-      if (profileError) {
-        console.error('Profile error:', profileError)
-        alert('프로필 저장 실패: ' + profileError.message)
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert(data.error || '등록에 실패했습니다.')
         setSaving(false)
         return
-      }
-
-      if (selectedClassIds.size > 0 && formData.role === 'teacher') {
-        const teacherClassesInsert = Array.from(selectedClassIds).map(classId => ({
-          teacher_id: authData.user!.id,
-          class_id: classId
-        }))
-
-        const { error: classError } = await supabase
-          .from('teacher_classes')
-          .insert(teacherClassesInsert)
-
-        if (classError) {
-          console.error('Class assignment error:', classError)
-        }
       }
 
       alert('사용자가 등록되었습니다!\n임시 비밀번호: ' + formData.password)
