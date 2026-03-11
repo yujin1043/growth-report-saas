@@ -43,6 +43,7 @@ function StudentsPage() {
   const [classes, setClasses] = useState<ClassOption[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')  // ★ 디바운스용
   const [statusFilter, setStatusFilter] = useState('all')
   const [specialFilter, setSpecialFilter] = useState<string | null>(filterParam)
   const [branchFilter, setBranchFilter] = useState<string | null>(branchParam)
@@ -52,7 +53,8 @@ function StudentsPage() {
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
-  const [deleteLoading, setDeleteLoading] = useState<string | null>(null) // 삭제 중인 학생 id
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)  // ★ 검색 중 인디케이터
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkMode, setBulkMode] = useState(false)
@@ -60,6 +62,7 @@ function StudentsPage() {
   const [bulkStatus, setBulkStatus] = useState('active')
   const [bulkClassId, setBulkClassId] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [showAddMenu, setShowAddMenu] = useState(false)  // ★ 모바일 드롭다운
   const [currentPage, setCurrentPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const PAGE_SIZE = 50
@@ -71,16 +74,26 @@ function StudentsPage() {
   useEffect(() => { loadData() }, [])
   useEffect(() => { setSpecialFilter(filterParam) }, [filterParam])
   useEffect(() => { setBranchFilter(branchParam) }, [branchParam])
-  useEffect(() => { setCurrentPage(0) }, [statusFilter, searchTerm, specialFilter, branchFilter, showMyClassOnly])
-  useEffect(() => { if (userRole) loadData() }, [currentPage])
+  useEffect(() => { setCurrentPage(0) }, [statusFilter, debouncedSearch, specialFilter, branchFilter, showMyClassOnly])
+  useEffect(() => { if (userRole) loadData() }, [currentPage, debouncedSearch])
+
+  // ★ 검색어 디바운스: 300ms 후에 서버 검색 실행
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
 
   async function loadData() {
-    setLoading(true)
+    // ★ 최초 로딩만 전체 스피너, 검색/페이지 이동은 작은 인디케이터
+    const isInitialLoad = students.length === 0 && !debouncedSearch.trim()
+    if (isInitialLoad) setLoading(true)
+    else setSearching(true)
     const { data: { user } } = await supabase.auth.getUser()
     let branchId: string | null = null
     let role = ''
   
-    // ✅ profile 먼저 로드 (students 쿼리에 branch 필터 적용하려면 role/branchId 필요)
     if (user) {
       const { data: profile } = await supabase
         .from('user_profiles').select('role, branch_id').eq('id', user.id).single()
@@ -93,15 +106,20 @@ function StudentsPage() {
       }
     }
   
-    // ✅ students 쿼리: 비admin은 자기 지점만, 페이지네이션 적용
     let studentsQuery = supabase
       .from('students')
       .select('id, student_code, name, birth_year, status, class_id, branch_id, last_report_at', { count: 'exact' })
       .order('name')
-      .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
-  
+
     if (role !== 'admin' && branchId) {
       studentsQuery = studentsQuery.eq('branch_id', branchId)
+    }
+
+    // ★ 서버 검색: debouncedSearch 사용
+    if (debouncedSearch.trim()) {
+      studentsQuery = studentsQuery.or(`name.ilike.%${debouncedSearch.trim()}%,student_code.ilike.%${debouncedSearch.trim()}%`)
+    } else {
+      studentsQuery = studentsQuery.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
     }
   
     const [teacherClassesResult, studentsResult, classesResult, branchesResult] = await Promise.all([
@@ -121,9 +139,7 @@ function StudentsPage() {
       return
     }
   
-    // ✅ 전체 건수 저장
     setTotalCount(studentsResult.count || 0)
-  
     setClasses(classesResult.data || [])
     const classMap = new Map(classesResult.data?.map((c: any) => [c.id, c.name]) || [])
     const branchMap = new Map(branchesResult.data?.map((b: any) => [b.id, b.name]) || [])
@@ -143,9 +159,9 @@ function StudentsPage() {
     if (reportsData) setThisMonthReportedIds(new Set(reportsData.map((r: any) => r.student_id)))
   
     setLoading(false)
+    setSearching(false)
   }
 
-  // ✅ 개선: 학생 삭제 시 Storage 이미지도 함께 정리
   async function handleDeleteStudent(e: React.MouseEvent, studentId: string, studentName: string) {
     e.stopPropagation()
     if (!confirm(`"${studentName}" 학생을 삭제하시겠습니까?\n\n해당 학생의 모든 리포트와 작품 이미지도 함께 삭제됩니다.`)) return
@@ -153,13 +169,11 @@ function StudentsPage() {
     setDeleteLoading(studentId)
 
     try {
-      // 1. 해당 학생의 리포트에서 이미지 URL 수집
       const { data: reportsData } = await supabase
         .from('reports')
         .select('image_before_url, image_after_url')
         .eq('student_id', studentId)
 
-      // 2. Storage 이미지 삭제
       if (reportsData && reportsData.length > 0) {
         const imagePaths: string[] = []
         reportsData.forEach((report: any) => {
@@ -179,10 +193,8 @@ function StudentsPage() {
         }
       }
 
-      // 3. 리포트 삭제
       await supabase.from('reports').delete().eq('student_id', studentId)
 
-      // 4. 학생 삭제
       const { error } = await supabase.from('students').delete().eq('id', studentId)
       if (error) {
         alert('삭제 실패: ' + error.message)
@@ -276,7 +288,7 @@ function StudentsPage() {
     }
   }
 
-  // 필터링 로직
+  // ★ 클라이언트 필터링: 검색은 서버에서 하므로 여기서 제거
   const roleFilteredStudents = students.filter(student => {
     if (userRole === 'admin') return true
     if (userRole === 'director' || userRole === 'manager') return student.branch_id === userBranchId
@@ -303,12 +315,10 @@ function StudentsPage() {
     return student.branch_id === branchFilter
   })
 
+  // ★ 수정: 클라이언트에서 검색 필터 제거 (서버에서 이미 필터링됨)
   const filteredStudents = branchFilteredStudents.filter(student => {
-    const matchesSearch = student.name.includes(searchTerm) ||
-      (student.student_code && student.student_code.includes(searchTerm)) ||
-      (student.branch_name && student.branch_name.includes(searchTerm))
     const matchesStatus = statusFilter === 'all' || student.status === statusFilter
-    return matchesSearch && matchesStatus
+    return matchesStatus
   })
 
   const selectedBranchIds = new Set(
@@ -356,9 +366,30 @@ function StudentsPage() {
                   <button onClick={() => setBulkMode(true)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-50 transition">
                     대량수정
                   </button>
-                  <button onClick={() => router.push('/students/new')} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
-                    + 새 학생
-                  </button>
+                  <div className="relative">
+                    <button onClick={() => setShowAddMenu(!showAddMenu)} className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition shadow-sm">
+                      + 새 학생
+                    </button>
+                    {showAddMenu && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
+                        <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 w-36">
+                          <button
+                            onClick={() => { setShowAddMenu(false); router.push('/students/new') }}
+                            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-teal-50 transition"
+                          >
+                            ✏️ 개별등록
+                          </button>
+                          <button
+                            onClick={() => { setShowAddMenu(false); router.push('/students/import') }}
+                            className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-teal-50 transition border-t border-gray-100"
+                          >
+                            📥 엑셀등록
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               ) : (
                 <button onClick={cancelBulkMode} className="bg-gray-500 text-white px-3 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-medium hover:bg-gray-600 transition">
@@ -443,13 +474,20 @@ function StudentsPage() {
         {/* 검색 & 필터 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
           <div className="flex flex-col gap-4">
-            <input
-              type="text"
-              placeholder="이름, 학생ID, 지점명으로 검색"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="이름, 학생ID로 검색"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500 focus:bg-white transition text-sm md:text-base"
+              />
+              {searching && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-teal-500 border-t-transparent"></div>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {[
                 { key: 'all', label: '전체' },
@@ -486,13 +524,10 @@ function StudentsPage() {
         {/* 학생 수 */}
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm text-gray-500">
-          총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
-          {Math.ceil(totalCount / PAGE_SIZE) > 1 && (
-            <span className="ml-2 text-gray-400">({currentPage+1} / {Math.ceil(totalCount / PAGE_SIZE)} 페이지)</span>
-          )}
-          {Math.ceil(totalCount / PAGE_SIZE) > 1 && (
-            <span className="ml-2 text-gray-400">({currentPage+1} / {Math.ceil(totalCount / PAGE_SIZE)} 페이지)</span>
-          )}
+            총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
+            {!debouncedSearch.trim() && Math.ceil(totalCount / PAGE_SIZE) > 1 && (
+              <span className="ml-2 text-gray-400">({currentPage+1} / {Math.ceil(totalCount / PAGE_SIZE)} 페이지)</span>
+            )}
             {specialFilter === 'pending' && <span className="ml-2 text-rose-500">(이번 달 미작성)</span>}
             {specialFilter === 'needReport' && <span className="ml-2 text-orange-500">(리포트 필요)</span>}
           </p>
@@ -607,7 +642,7 @@ function StudentsPage() {
           )}
         </div>
 
-        {Math.ceil(totalCount / PAGE_SIZE) > 1 && (
+        {!debouncedSearch.trim() && Math.ceil(totalCount / PAGE_SIZE) > 1 && (
           <div className="flex items-center justify-center gap-2 mt-6">
             <button onClick={() => setCurrentPage(0)} disabled={currentPage === 0}
               className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40">«</button>
