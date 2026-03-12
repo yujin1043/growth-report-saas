@@ -52,6 +52,7 @@ function StudentsPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [teacherClassIds, setTeacherClassIds] = useState<string[]>([])
   const [showMyClassOnly, setShowMyClassOnly] = useState(false)
+  const [classFilter, setClassFilter] = useState('')  // ★ 반 필터
   const [thisMonthReportedIds, setThisMonthReportedIds] = useState<Set<string>>(new Set())
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)  // ★ 검색 중 인디케이터
@@ -74,8 +75,9 @@ function StudentsPage() {
   useEffect(() => { loadData() }, [])
   useEffect(() => { setSpecialFilter(filterParam) }, [filterParam])
   useEffect(() => { setBranchFilter(branchParam) }, [branchParam])
-  useEffect(() => { setCurrentPage(0) }, [statusFilter, debouncedSearch, specialFilter, branchFilter, showMyClassOnly])
+  useEffect(() => { setCurrentPage(0) }, [statusFilter, classFilter, debouncedSearch, specialFilter, branchFilter, showMyClassOnly])
   useEffect(() => { if (userRole) loadData() }, [currentPage, debouncedSearch])
+  useEffect(() => { if (userRole) loadData() }, [statusFilter, classFilter])
 
   // ★ 검색어 디바운스: 300ms 후에 서버 검색 실행
   useEffect(() => {
@@ -115,10 +117,17 @@ function StudentsPage() {
       studentsQuery = studentsQuery.eq('branch_id', branchId)
     }
 
-    // ★ 서버 검색: debouncedSearch 사용
+    // ★ 서버 필터: 상태, 반, 검색어 모두 서버에서 처리
+    if (statusFilter !== 'all') {
+      studentsQuery = studentsQuery.eq('status', statusFilter)
+    }
+    if (classFilter) {
+      studentsQuery = studentsQuery.eq('class_id', classFilter)
+    }
     if (debouncedSearch.trim()) {
       studentsQuery = studentsQuery.or(`name.ilike.%${debouncedSearch.trim()}%,student_code.ilike.%${debouncedSearch.trim()}%`)
-    } else {
+    } else if (statusFilter === 'all' && !classFilter) {
+      // 필터 없을 때만 페이지네이션 적용
       studentsQuery = studentsQuery.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
     }
   
@@ -318,8 +327,15 @@ function StudentsPage() {
   // ★ 수정: 클라이언트에서 검색 필터 제거 (서버에서 이미 필터링됨)
   const filteredStudents = branchFilteredStudents.filter(student => {
     const matchesStatus = statusFilter === 'all' || student.status === statusFilter
-    return matchesStatus
+    const matchesClass = !classFilter || student.class_id === classFilter
+    return matchesStatus && matchesClass
   })
+
+  const filterClasses = userRole === 'admin' 
+    ? classes 
+    : classes.filter(c => c.branch_id === userBranchId)
+
+  const hasActiveFilter = statusFilter !== 'all' || classFilter !== ''
 
   const selectedBranchIds = new Set(
     Array.from(selectedIds).map(id => students.find(s => s.id === id)?.branch_id).filter(Boolean)
@@ -473,7 +489,7 @@ function StudentsPage() {
 
         {/* 검색 & 필터 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-5 mb-4 md:mb-6">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             <div className="relative">
               <input
                 type="text"
@@ -488,33 +504,43 @@ function StudentsPage() {
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'all', label: '전체' },
-                { key: 'active', label: '재원' },
-                { key: 'paused', label: '휴원' },
-                { key: 'inactive', label: '퇴원' }
-              ].map((status) => (
+            <div className="flex items-center gap-2">
+              <select
+                value={classFilter}
+                onChange={(e) => setClassFilter(e.target.value)}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-medium border transition ${classFilter ? 'border-teal-400 bg-teal-50 text-teal-700' : 'border-gray-200 bg-gray-50 text-gray-600'}`}
+              >
+                <option value="">반 전체</option>
+                {filterClasses.map(cls => (
+                  <option key={cls.id} value={cls.id}>{cls.name}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-medium border transition ${statusFilter !== 'all' ? 'border-teal-400 bg-teal-50 text-teal-700' : 'border-gray-200 bg-gray-50 text-gray-600'}`}
+              >
+                <option value="all">상태 전체</option>
+                <option value="active">재원</option>
+                <option value="paused">휴원</option>
+                <option value="inactive">퇴원</option>
+              </select>
+              {hasActiveFilter && (
                 <button
-                  key={status.key}
-                  onClick={() => setStatusFilter(status.key)}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
-                    statusFilter === status.key
-                      ? 'bg-teal-500 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
+                  onClick={() => { setStatusFilter('all'); setClassFilter(''); setShowMyClassOnly(false) }}
+                  className="px-3 py-2 rounded-xl text-sm font-medium bg-gray-800 text-white hover:bg-gray-700 transition whitespace-nowrap"
                 >
-                  {status.label}
+                  초기화
                 </button>
-              ))}
+              )}
               {userRole === 'teacher' && (
                 <button
                   onClick={() => setShowMyClassOnly(!showMyClassOnly)}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
+                  className={`px-3 py-2 rounded-xl text-sm font-medium transition whitespace-nowrap ${
                     showMyClassOnly ? 'bg-indigo-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  내 반만 보기
+                  내 반
                 </button>
               )}
             </div>
@@ -524,7 +550,7 @@ function StudentsPage() {
         {/* 학생 수 */}
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm text-gray-500">
-            총 <span className="font-bold text-teal-600">{filteredStudents.length}</span>명
+          총 <span className="font-bold text-teal-600">{statusFilter === 'all' && !classFilter && !debouncedSearch.trim() ? totalCount : filteredStudents.length}</span>명
             {!debouncedSearch.trim() && Math.ceil(totalCount / PAGE_SIZE) > 1 && (
               <span className="ml-2 text-gray-400">({currentPage+1} / {Math.ceil(totalCount / PAGE_SIZE)} 페이지)</span>
             )}
