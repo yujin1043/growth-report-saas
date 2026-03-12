@@ -153,264 +153,298 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error('Dashboard load error:', error)
-    } finally {
       setLoading(false)
+    } finally {
+      // admin만 여기서 로딩 해제 (지점은 loadBranchData 내부에서 해제)
+      if (userRole === 'admin' || !userRole) setLoading(false)
     }
   }
 
-  // ===== 본사 데이터 (기존과 동일) =====
+  // ===== 본사 데이터 (스냅샷 방식) =====
   async function loadAdminData() {
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+    // ★ 스냅샷 테이블에서 1회 조회 (기존: 지점 수 × 다수 쿼리)
+    const { data: snapshots } = await supabase
+      .from('dashboard_snapshots')
+      .select('*')
+      .eq('snapshot_date', new Date().toISOString().split('T')[0])
 
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-    let businessDaysSoFar = 0
-    for (let d = 1; d <= Math.min(now.getDate(), daysInMonth); d++) {
-      const day = new Date(now.getFullYear(), now.getMonth(), d).getDay()
-      if (day !== 0 && day !== 6) businessDaysSoFar++
+    if (!snapshots || snapshots.length === 0) {
+      // 스냅샷이 없으면 생성 시도
+      await supabase.rpc('generate_dashboard_snapshot')
+      const { data: retrySnapshots } = await supabase
+        .from('dashboard_snapshots')
+        .select('*')
+        .eq('snapshot_date', new Date().toISOString().split('T')[0])
+      if (!retrySnapshots || retrySnapshots.length === 0) return
+      return processSnapshots(retrySnapshots)
     }
 
-    const [branchesResult, studentsResult, activityResult, messagesResult] = await Promise.all([
-      supabase.from('branches').select('id, name').order('name'),
-      supabase.from('students').select('id, branch_id, status, enrolled_at, last_report_at'),
-      supabase.rpc('get_branch_last_activity'),
-      supabase.from('daily_messages').select('id, branch_id, created_at').gte('created_at', startOfMonth.toISOString()),
-    ])
-
-    const branches = branchesResult.data || []
-    const students = studentsResult.data || []
-    const messages = messagesResult.data || []
-    const activityMap = new Map<string, any>(activityResult.data?.map((a: any) => [a.branch_id, a]) || [])
-
-    setTotalBranches(branches.length)
-
-    const stats: BranchStats[] = branches.map(branch => {
-      const branchStudents = students.filter(s => s.branch_id === branch.id)
-      const activeStudentsList = branchStudents.filter(s => s.status === 'active')
-      const activeCount = activeStudentsList.length
-      const newThisMonth = branchStudents.filter(s => s.enrolled_at && new Date(s.enrolled_at) >= startOfMonth && s.status === 'active').length
-      const billing = getBillingInfo(activeCount)
-      const activity = activityMap.get(branch.id)
-      const lastMessageDays = activity?.last_message_at
-        ? Math.floor((now.getTime() - new Date(activity.last_message_at).getTime()) / (1000 * 60 * 60 * 24)) : null
-      const lastReportDays = activity?.last_report_at
-        ? Math.floor((now.getTime() - new Date(activity.last_report_at).getTime()) / (1000 * 60 * 60 * 24)) : null
-      const branchMessageDates = new Set(messages.filter(m => m.branch_id === branch.id).map(m => new Date(m.created_at).toDateString()))
-      const messageRate = businessDaysSoFar > 0 ? Math.round((branchMessageDates.size / businessDaysSoFar) * 100) : 0
-      const studentsWithReport = activeStudentsList.filter(s => (s as any).last_report_at && new Date((s as any).last_report_at) >= twoMonthsAgo).length
-      const reportRate = activeCount > 0 ? Math.round((studentsWithReport / activeCount) * 100) : 0
-      const statusInfo = getStatusFromRates(messageRate, reportRate)
-      return { id: branch.id, name: branch.name, active_count: activeCount, change_this_month: newThisMonth, billing_tier: billing.tier, billing_amount: billing.amount, last_message_days: lastMessageDays, last_report_days: lastReportDays, message_rate: messageRate, report_rate: reportRate, status: statusInfo.status, status_reason: statusInfo.reason }
-    })
-
-    setBranchStats(stats)
-    setTotalActiveStudents(stats.reduce((sum, b) => sum + b.active_count, 0))
-    setTotalBilling(stats.reduce((sum, b) => sum + b.billing_amount, 0))
-    setGreenCount(stats.filter(b => b.status === 'green').length)
-    setYellowCount(stats.filter(b => b.status === 'yellow').length)
-    setRedCount(stats.filter(b => b.status === 'red').length)
-
-    const tierMap = new Map<string, { count: number; amount: number }>()
-    stats.forEach(b => {
-      const existing = tierMap.get(b.billing_tier) || { count: 0, amount: 0 }
-      tierMap.set(b.billing_tier, { count: existing.count + 1, amount: existing.amount + b.billing_amount })
-    })
-    const tiers: BillingTier[] = []
-    ;['~30명', '31~50명', '51~80명', '81~120명', '121~150명', '150명+'].forEach(tier => {
-      const data = tierMap.get(tier)
-      if (data) tiers.push({ tier, count: data.count, amount: data.amount })
-    })
-    setBillingByTier(tiers)
+    processSnapshots(snapshots)
   }
 
-  // ===== 지점 계정 데이터 =====
+  function processSnapshots(snapshots: any[]) {
+    const globalSnapshot = snapshots.find(s => s.branch_id === null)
+    const branchSnapshots = snapshots.filter(s => s.branch_id !== null)
+
+    // 지점 이름 조회
+    supabase.from('branches').select('id, name').order('name').then(({ data: branches }) => {
+      const branchMap = new Map(branches?.map(b => [b.id, b.name]) || [])
+
+      setTotalBranches(branchSnapshots.length)
+      setTotalActiveStudents(globalSnapshot?.active_students || 0)
+
+      // 지점별 통계 구성
+      const now = new Date()
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+
+      const stats: BranchStats[] = branchSnapshots.map(snap => {
+        const activeCount = snap.active_students || 0
+        const billing = getBillingInfo(activeCount)
+        const needReport = snap.need_report_students || 0
+        const reportRate = activeCount > 0 ? Math.round(((activeCount - needReport) / activeCount) * 100) : 0
+        const statusInfo = getStatusFromRates(100, reportRate) // 메시지율은 스냅샷에 없으므로 100으로
+
+        return {
+          id: snap.branch_id,
+          name: branchMap.get(snap.branch_id) || '알 수 없음',
+          active_count: activeCount,
+          change_this_month: 0,
+          billing_tier: billing.tier,
+          billing_amount: billing.amount,
+          last_message_days: null,
+          last_report_days: null,
+          message_rate: 100,
+          report_rate: reportRate,
+          status: statusInfo.status,
+          status_reason: statusInfo.reason
+        }
+      })
+
+      setBranchStats(stats)
+      setTotalBilling(stats.reduce((sum, b) => sum + b.billing_amount, 0))
+      setGreenCount(stats.filter(b => b.status === 'green').length)
+      setYellowCount(stats.filter(b => b.status === 'yellow').length)
+      setRedCount(stats.filter(b => b.status === 'red').length)
+
+      const tierMap = new Map<string, { count: number; amount: number }>()
+      stats.forEach(b => {
+        const existing = tierMap.get(b.billing_tier) || { count: 0, amount: 0 }
+        tierMap.set(b.billing_tier, { count: existing.count + 1, amount: existing.amount + b.billing_amount })
+      })
+      const tiers: BillingTier[] = []
+      ;['~30명', '31~50명', '51~80명', '81~120명', '121~150명', '150명+'].forEach(tier => {
+        const data = tierMap.get(tier)
+        if (data) tiers.push({ tier, count: data.count, amount: data.amount })
+      })
+      setBillingByTier(tiers)
+    })
+  }
+
+  // ===== 지점 계정 데이터 (2단계 로딩) =====
   async function loadBranchData(authUserId: string, profile: any) {
     const now = new Date()
     const currentMonth = now.getMonth() + 1
     const currentYear = now.getFullYear()
     const startOfMonth = new Date(currentYear, now.getMonth(), 1)
 
-    let studentsQuery = supabase.from('students').select('id, name, class_id, last_report_at, status')
-    if (profile.branch_id) studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
+    // ★ 1단계: 기본 정보만 빠르게 로드 (화면 즉시 표시)
+    try {
+      let studentsQuery = supabase.from('students').select('id, name, class_id, last_report_at, status')
+      if (profile.branch_id) studentsQuery = studentsQuery.eq('branch_id', profile.branch_id)
 
-    let reportsQuery = supabase.from('reports').select('student_id').gte('created_at', startOfMonth.toISOString())
-    if (profile.branch_id) reportsQuery = reportsQuery.eq('branch_id', profile.branch_id)
+      let reportsQuery = supabase.from('reports').select('student_id').gte('created_at', startOfMonth.toISOString())
+      if (profile.branch_id) reportsQuery = reportsQuery.eq('branch_id', profile.branch_id)
 
-    const [branchesResult, classesResult, teacherClassesResult, studentsResult, reportsResult, curriculumResult] = await Promise.all([
-      supabase.from('branches').select('id, name'),
-      supabase.from('classes').select('id, name').eq('branch_id', profile.branch_id),
-      profile.role === 'teacher'
-        ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', authUserId)
-        : Promise.resolve({ data: null }),
-      studentsQuery,
-      reportsQuery,
-      supabase.from('monthly_curriculum').select('id, month, target_group, title').eq('status', 'active').eq('year', currentYear).eq('month', currentMonth),
-    ])
+      const [branchesResult, classesResult, teacherClassesResult, studentsResult, reportsResult, curriculumResult] = await Promise.all([
+        supabase.from('branches').select('id, name'),
+        supabase.from('classes').select('id, name').eq('branch_id', profile.branch_id),
+        profile.role === 'teacher'
+          ? supabase.from('teacher_classes').select('class_id').eq('teacher_id', authUserId)
+          : Promise.resolve({ data: null }),
+        studentsQuery,
+        reportsQuery,
+        supabase.from('monthly_curriculum').select('id, month, target_group, title').eq('status', 'active').eq('year', currentYear).eq('month', currentMonth),
+      ])
 
-    const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
-    const classMap = new Map(classesResult.data?.map((c: any) => [c.id, c.name]) || [])
+      const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
+      const classMap = new Map(classesResult.data?.map((c: any) => [c.id, c.name]) || [])
 
-    const branchName = profile.branch_id ? (branchMap.get(profile.branch_id) || null) : null
-    let classIds: string[] = []
-    let classNames: string[] = []
-    if (profile.role === 'teacher' && teacherClassesResult.data) {
-      classIds = teacherClassesResult.data.map((tc: any) => tc.class_id)
-      classNames = classIds.map((id: string) => classMap.get(id)).filter((n: any): n is string => !!n)
+      const branchName = profile.branch_id ? (branchMap.get(profile.branch_id) || null) : null
+      let classIds: string[] = []
+      let classNames: string[] = []
+      if (profile.role === 'teacher' && teacherClassesResult.data) {
+        classIds = teacherClassesResult.data.map((tc: any) => tc.class_id)
+        classNames = classIds.map((id: string) => classMap.get(id)).filter((n: any): n is string => !!n)
+      }
+      setUser({ name: profile.name, role: profile.role, branch_id: profile.branch_id, branch_name: branchName, class_names: classNames, class_ids: classIds })
+
+      const allStudents = studentsResult.data || []
+      const activeStudentsList = allStudents.filter(s => s.status === 'active')
+      setActiveStudents(activeStudentsList.length)
+
+      const reportedIds = new Set(reportsResult.data?.map(r => r.student_id) || [])
+      setPendingReports(activeStudentsList.filter(s => !reportedIds.has(s.id)).length)
+
+      if (curriculumResult.data?.length) {
+        setRandomCurriculum(curriculumResult.data[Math.floor(Math.random() * curriculumResult.data.length)])
+      }
+
+      // ★ 1단계 완료 → 로딩 해제 (화면 즉시 표시)
+      setLoading(false)
+
+      // ★ 2단계: 스케치북/반별 통계는 백그라운드에서 로드
+      if (activeStudentsList.length === 0) return
+
+      loadSketchbookData(activeStudentsList, classesResult.data || [], classMap, classIds, profile)
+
+    } catch (error) {
+      console.error('Dashboard load error:', error)
+      // 에러 시에도 로딩 해제 (무한 로딩 방지)
+      setLoading(false)
     }
-    setUser({ name: profile.name, role: profile.role, branch_id: profile.branch_id, branch_name: branchName, class_names: classNames, class_ids: classIds })
+  }
 
-    const allStudents = studentsResult.data || []
-    const activeStudentsList = allStudents.filter(s => s.status === 'active')
-    setActiveStudents(activeStudentsList.length)
+  // ★ 2단계: 스케치북/반별 통계 (백그라운드, 실패해도 화면에 영향 없음)
+  async function loadSketchbookData(
+    activeStudentsList: any[], 
+    allClasses: any[], 
+    classMap: Map<string, string>, 
+    classIds: string[], 
+    profile: any
+  ) {
+    try {
+      const studentIds = activeStudentsList.map(s => s.id)
+      const studentMap = new Map(activeStudentsList.map(s => [s.id, s]))
 
-    const reportedIds = new Set(reportsResult.data?.map(r => r.student_id) || [])
-    setPendingReports(activeStudentsList.filter(s => !reportedIds.has(s.id)).length)
+      const { data: sketchbooks } = await supabase
+        .from('sketchbooks')
+        .select('id, student_id, book_number, status, completed_at')
+        .in('student_id', studentIds)
 
-    if (curriculumResult.data?.length) {
-      setRandomCurriculum(curriculumResult.data[Math.floor(Math.random() * curriculumResult.data.length)])
-    }
+      const activeSketchbookMap = new Map<string, string>()
+      const completedSketchbookMap = new Map<string, { book_number: number; completed_at: string }>()
+      const sbToStudent = new Map<string, string>()
 
-    if (activeStudentsList.length === 0) return
-
-    const studentIds = activeStudentsList.map(s => s.id)
-    // O(1) 학생 조회용 Map
-    const studentMap = new Map(activeStudentsList.map(s => [s.id, s]))
-
-    // ── 2단계: 스케치북 조회 (studentIds 필요) ──────────────
-    const { data: sketchbooks } = await supabase
-      .from('sketchbooks')
-      .select('id, student_id, book_number, status, completed_at')
-      .in('student_id', studentIds)
-
-    // 맵 구성
-    const activeSketchbookMap = new Map<string, string>()   // student_id → active sketchbook_id
-    const completedSketchbookMap = new Map<string, { book_number: number; completed_at: string }>()
-    const sbToStudent = new Map<string, string>()           // sketchbook_id → student_id (전체)
-
-    sketchbooks?.forEach((sk: any) => {
-      sbToStudent.set(sk.id, sk.student_id)
-      if (sk.status === 'active') {
-        activeSketchbookMap.set(sk.student_id, sk.id)
-      } else if (sk.status === 'completed' && sk.completed_at) {
-        const existing = completedSketchbookMap.get(sk.student_id)
-        if (!existing || new Date(sk.completed_at) > new Date(existing.completed_at)) {
-          completedSketchbookMap.set(sk.student_id, { book_number: sk.book_number, completed_at: sk.completed_at })
+      sketchbooks?.forEach((sk: any) => {
+        sbToStudent.set(sk.id, sk.student_id)
+        if (sk.status === 'active') {
+          activeSketchbookMap.set(sk.student_id, sk.id)
+        } else if (sk.status === 'completed' && sk.completed_at) {
+          const existing = completedSketchbookMap.get(sk.student_id)
+          if (!existing || new Date(sk.completed_at) > new Date(existing.completed_at)) {
+            completedSketchbookMap.set(sk.student_id, { book_number: sk.book_number, completed_at: sk.completed_at })
+          }
         }
-      }
-    })
+      })
 
-    const activeSketchbookIds = [...activeSketchbookMap.values()]
-    const allSketchbookIds = sketchbooks?.map((sk: any) => sk.id) || []
+      const activeSketchbookIds = [...activeSketchbookMap.values()]
+      const allSketchbookIds = sketchbooks?.map((sk: any) => sk.id) || []
 
-    // ── 3단계: works 2종 병렬 조회 (sketchbookIds 필요) router.push('/students')
-    const [inProgressWorksResult, completedWorksResult] = await Promise.all([
-      activeSketchbookIds.length > 0
-        ? supabase
-            .from('sketchbook_works')
-            .select('id, sketchbook_id, curriculum_id, custom_title, is_custom, session_count')
-            .in('sketchbook_id', activeSketchbookIds)
-            .eq('status', 'in_progress')
-            .gte('session_count', 3)
-        : Promise.resolve({ data: [] }),
+      const [inProgressWorksResult, completedWorksResult] = await Promise.all([
+        activeSketchbookIds.length > 0
+          ? supabase
+              .from('sketchbook_works')
+              .select('id, sketchbook_id, curriculum_id, custom_title, is_custom, session_count')
+              .in('sketchbook_id', activeSketchbookIds)
+              .eq('status', 'in_progress')
+              .gte('session_count', 3)
+          : Promise.resolve({ data: [] }),
         allSketchbookIds.length > 0
-        ? supabase
-            .from('sketchbook_works')
-            .select('sketchbook_id, session_count')
-            .in('sketchbook_id', allSketchbookIds)
-            .eq('status', 'completed')
-        : Promise.resolve({ data: [] }),
-    ])
+          ? supabase
+              .from('sketchbook_works')
+              .select('sketchbook_id, session_count')
+              .in('sketchbook_id', allSketchbookIds)
+              .eq('status', 'completed')
+          : Promise.resolve({ data: [] }),
+      ])
 
-    const worksData = inProgressWorksResult.data || []
-    const completedWorksData = completedWorksResult.data || []
+      const worksData = inProgressWorksResult.data || []
+      const completedWorksData = completedWorksResult.data || []
 
-    // ── 4단계: 커리큘럼 제목 조회 (curriculumIds 필요) ──────
-    let curriculumTitleMap: Record<string, string> = {}
-    const curriculumIds = [...new Set(
-      worksData.filter(w => !w.is_custom && w.curriculum_id).map(w => w.curriculum_id)
-    )]
-    if (curriculumIds.length > 0) {
-      const { data: currs } = await supabase
-        .from('monthly_curriculum').select('id, title').in('id', curriculumIds)
-      currs?.forEach((c: any) => { curriculumTitleMap[c.id] = c.title })
-    }
-
-    // ── 진도 경고 목록 구성 ──────────────────────────────────
-    const progressAlertList: ProgressAlertStudent[] = []
-    worksData.forEach(w => {
-      const studentId = sbToStudent.get(w.sketchbook_id)
-      if (!studentId) return
-      const student = studentMap.get(studentId)
-      if (!student) return
-      if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(student.class_id || '')) return
-      progressAlertList.push({
-        id: studentId,
-        name: student.name,
-        class_name: student.class_id ? (classMap.get(student.class_id) || '-') : '-',
-        session_count: w.session_count,
-        work_title: w.is_custom ? (w.custom_title || '') : (curriculumTitleMap[w.curriculum_id] || ''),
-      })
-    })
-    progressAlertList.sort((a, b) => b.session_count - a.session_count)
-    setProgressAlerts(progressAlertList)
-
-    // ── 스케치북 완료 학생 목록 ──────────────────────────────
-    const completedList: CompletedSketchbookStudent[] = []
-    activeStudentsList.forEach(s => {
-      const completed = completedSketchbookMap.get(s.id)
-      if (!completed) return
-      if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(s.class_id || '')) return
-      completedList.push({
-        id: s.id,
-        name: s.name,
-        class_name: s.class_id ? (classMap.get(s.class_id) || '-') : '-',
-        book_number: completed.book_number,
-        completed_at: completed.completed_at.split('T')[0],
-      })
-    })
-    setCompletedSketchbooks(completedList)
-
-    // ── 반별 통계 ────────────────────────────────────────────
-    // 5회 이내 완료율용 (최솟값)
-    const completedWorksMap: Record<string, number> = {}
-    // 평균 진도회차용 (전체 목록)
-    const completedWorksAllMap: Record<string, number[]> = {}
-    completedWorksData.forEach((w: any) => {
-      const sid = sbToStudent.get(w.sketchbook_id)
-      if (!sid) return
-      if (completedWorksMap[sid] === undefined || w.session_count < completedWorksMap[sid]) {
-        completedWorksMap[sid] = w.session_count
+      let curriculumTitleMap: Record<string, string> = {}
+      const curriculumIds = [...new Set(
+        worksData.filter(w => !w.is_custom && w.curriculum_id).map(w => w.curriculum_id)
+      )]
+      if (curriculumIds.length > 0) {
+        const { data: currs } = await supabase
+          .from('monthly_curriculum').select('id, title').in('id', curriculumIds)
+        currs?.forEach((c: any) => { curriculumTitleMap[c.id] = c.title })
       }
-      if (!completedWorksAllMap[sid]) completedWorksAllMap[sid] = []
-      completedWorksAllMap[sid].push(w.session_count)
-    })
 
-    const allClasses = classesResult.data || []
-    const targetClasses = profile.role === 'teacher' && classIds.length > 0
-      ? allClasses.filter((c: any) => classIds.includes(c.id))
-      : allClasses
+      // 진도 경고 목록
+      const progressAlertList: ProgressAlertStudent[] = []
+      worksData.forEach(w => {
+        const studentId = sbToStudent.get(w.sketchbook_id)
+        if (!studentId) return
+        const student = studentMap.get(studentId)
+        if (!student) return
+        if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(student.class_id || '')) return
+        progressAlertList.push({
+          id: studentId,
+          name: student.name,
+          class_name: student.class_id ? (classMap.get(student.class_id) || '-') : '-',
+          session_count: w.session_count,
+          work_title: w.is_custom ? (w.custom_title || '') : (curriculumTitleMap[w.curriculum_id] || ''),
+        })
+      })
+      progressAlertList.sort((a, b) => b.session_count - a.session_count)
+      setProgressAlerts(progressAlertList)
 
-    // 진도 경고 학생 Set (반별 평균 계산용)
+      // 스케치북 완료 학생 목록
+      const completedList: CompletedSketchbookStudent[] = []
+      activeStudentsList.forEach(s => {
+        const completed = completedSketchbookMap.get(s.id)
+        if (!completed) return
+        if (profile.role === 'teacher' && classIds.length > 0 && !classIds.includes(s.class_id || '')) return
+        completedList.push({
+          id: s.id,
+          name: s.name,
+          class_name: s.class_id ? (classMap.get(s.class_id) || '-') : '-',
+          book_number: completed.book_number,
+          completed_at: completed.completed_at.split('T')[0],
+        })
+      })
+      setCompletedSketchbooks(completedList)
 
-    const statsArr: ClassStat[] = targetClasses.map((cls: any) => {
-      const classStudents = activeStudentsList.filter(s => s.class_id === cls.id)
-      const total = classStudents.length
-      if (total === 0) return { id: cls.id, name: cls.name, total_students: 0, avg_sessions: 0, completion_rate: 0 }
-    
-      // ✅ 완성된 작품들의 session_count 평균으로 변경
-      const allCompletedSessions = classStudents.flatMap(s => completedWorksAllMap[s.id] || [])
+      // 반별 통계
+      const completedWorksMap: Record<string, number> = {}
+      const completedWorksAllMap: Record<string, number[]> = {}
+      completedWorksData.forEach((w: any) => {
+        const sid = sbToStudent.get(w.sketchbook_id)
+        if (!sid) return
+        if (completedWorksMap[sid] === undefined || w.session_count < completedWorksMap[sid]) {
+          completedWorksMap[sid] = w.session_count
+        }
+        if (!completedWorksAllMap[sid]) completedWorksAllMap[sid] = []
+        completedWorksAllMap[sid].push(w.session_count)
+      })
 
-      const avgSessions = allCompletedSessions.length > 0
-        ? Math.round((allCompletedSessions.reduce((sum, v) => sum + v, 0) / allCompletedSessions.length) * 10) / 10
-        : 0
-    
-      const completedWithin5 = classStudents.filter(s => completedWorksMap[s.id] !== undefined && completedWorksMap[s.id] <= 5).length
-      const completionRate = Math.round((completedWithin5 / total) * 100)
-    
-      return { id: cls.id, name: cls.name, total_students: total, avg_sessions: avgSessions, completion_rate: completionRate }
-    })
-    setClassStats(statsArr)
+      const targetClasses = profile.role === 'teacher' && classIds.length > 0
+        ? allClasses.filter((c: any) => classIds.includes(c.id))
+        : allClasses
+
+      const statsArr: ClassStat[] = targetClasses.map((cls: any) => {
+        const classStudents = activeStudentsList.filter(s => s.class_id === cls.id)
+        const total = classStudents.length
+        if (total === 0) return { id: cls.id, name: cls.name, total_students: 0, avg_sessions: 0, completion_rate: 0 }
+
+        const allCompletedSessions = classStudents.flatMap(s => completedWorksAllMap[s.id] || [])
+        const avgSessions = allCompletedSessions.length > 0
+          ? Math.round((allCompletedSessions.reduce((sum, v) => sum + v, 0) / allCompletedSessions.length) * 10) / 10
+          : 0
+
+        const completedWithin5 = classStudents.filter(s => completedWorksMap[s.id] !== undefined && completedWorksMap[s.id] <= 5).length
+        const completionRate = Math.round((completedWithin5 / total) * 100)
+
+        return { id: cls.id, name: cls.name, total_students: total, avg_sessions: avgSessions, completion_rate: completionRate }
+      })
+      setClassStats(statsArr)
+
+    } catch (error) {
+      console.error('Sketchbook data load error (non-blocking):', error)
+      // 2단계 실패해도 화면은 정상 (1단계 데이터로 이미 표시됨)
+    }
   }
 
   async function handleLogout() {
