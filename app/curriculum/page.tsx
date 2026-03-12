@@ -60,6 +60,8 @@ export default function CurriculumPage() {
   const currentMonth = now.getMonth() + 1
   const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1
   const nextYear = currentMonth === 12 ? currentYear + 1 : currentYear
+  const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1
+  const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear
 
   useEffect(() => {
     checkAuthAndLoad()
@@ -96,7 +98,7 @@ export default function CurriculumPage() {
       .select('*')
       .in('status', ['active'])
       .or(
-        `and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${nextYear},month.eq.${nextMonth})`
+        `and(year.eq.${prevYear},month.eq.${prevMonth}),and(year.eq.${currentYear},month.eq.${currentMonth}),and(year.eq.${nextYear},month.eq.${nextMonth})`
       )
       .order('year', { ascending: true })
       .order('month', { ascending: true })
@@ -139,9 +141,8 @@ export default function CurriculumPage() {
   }
 
   const getMonthLabel = (year: number, month: number) => {
-    if (year === currentYear && month === currentMonth) {
-      return '이번 달'
-    }
+    if (year === prevYear && month === prevMonth) return '지난 달'
+    if (year === currentYear && month === currentMonth) return '이번 달'
     return '다음 달'
   }
 
