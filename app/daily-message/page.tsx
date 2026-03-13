@@ -176,21 +176,22 @@ export default function DailyMessagePage() {
   }, [selectedStudentId])
 
 
-  // sessionStorage 저장 (iOS 사진 선택 후 리로드 복원용)
-  useEffect(() => { sessionStorage.setItem('dm_studentId', selectedStudentId) }, [selectedStudentId])
-  useEffect(() => { sessionStorage.setItem('dm_studentSearch', studentSearch) }, [studentSearch])
-  useEffect(() => { sessionStorage.setItem('dm_branchId', selectedBranchId) }, [selectedBranchId])
+  // sessionStorage 저장 (로딩 완료 후에만 저장 - 초기값으로 덮어쓰기 방지)
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_studentId', selectedStudentId) }, [selectedStudentId, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_studentSearch', studentSearch) }, [studentSearch, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_branchId', selectedBranchId) }, [selectedBranchId, loading])
   useEffect(() => {
+    if (loading) return
     if (selectedWork) sessionStorage.setItem('dm_selectedWork', JSON.stringify(selectedWork))
     else sessionStorage.removeItem('dm_selectedWork')
-  }, [selectedWork])
-  useEffect(() => { sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork])
-  useEffect(() => { sessionStorage.setItem('dm_lessonType', lessonType); setCurriculumSearch('') }, [lessonType])
-  useEffect(() => { sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId])
-  useEffect(() => { sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject])
-  useEffect(() => { sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials])
-  useEffect(() => { sessionStorage.setItem('dm_progress', progressStatus) }, [progressStatus])
-  useEffect(() => { sessionStorage.setItem('dm_memo', teacherMemo) }, [teacherMemo])
+  }, [selectedWork, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork, loading])
+  useEffect(() => { if (!loading) { sessionStorage.setItem('dm_lessonType', lessonType); setCurriculumSearch('') } }, [lessonType, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_progress', progressStatus) }, [progressStatus, loading])
+  useEffect(() => { if (!loading) sessionStorage.setItem('dm_memo', teacherMemo) }, [teacherMemo, loading])
 
 
   // ── 데이터 로드 ──────────────────────────────────────
