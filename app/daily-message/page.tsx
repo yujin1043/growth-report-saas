@@ -162,7 +162,9 @@ export default function DailyMessagePage() {
             setTeacherMemo(sessionStorage.getItem('dm_memo') || '')
           } catch {}
         } else {
-          clearStudent()
+          // sessionStorage에 저장된 학생이 없을 때만 초기화
+          const savedId = sessionStorage.getItem('dm_studentId')
+          if (!savedId) clearStudent()
         }
       })
     }
@@ -373,24 +375,35 @@ export default function DailyMessagePage() {
       const MAX_SIZE = 1200
       const QUALITY = 0.85
 
-      // 디코딩 단계에서 리사이즈 (메모리 안전 - 갤럭시 고해상도 대응)
-      let bitmap: ImageBitmap
+      let canvas: HTMLCanvasElement
       try {
-        bitmap = await createImageBitmap(file, { resizeWidth: MAX_SIZE, resizeQuality: 'high' })
+        const bitmap = await createImageBitmap(file, { resizeWidth: MAX_SIZE, resizeQuality: 'high' })
+        canvas = document.createElement('canvas')
+        canvas.width = bitmap.width; canvas.height = bitmap.height
+        canvas.getContext('2d')!.drawImage(bitmap, 0, 0)
+        bitmap.close()
       } catch {
-        // resizeWidth 미지원 시 fallback
-        bitmap = await createImageBitmap(file)
+        // resizeWidth 미지원 구형 기기: ObjectURL + Image 방식
+        const url = URL.createObjectURL(file)
+        try {
+          const img = new Image()
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve()
+            img.onerror = () => reject()
+            img.src = url
+          })
+          canvas = document.createElement('canvas')
+          let { width, height } = img
+          if (width > MAX_SIZE || height > MAX_SIZE) {
+            if (width > height) { height = Math.round(height / width * MAX_SIZE); width = MAX_SIZE }
+            else { width = Math.round(width / height * MAX_SIZE); height = MAX_SIZE }
+          }
+          canvas.width = width; canvas.height = height
+          canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+        } finally {
+          URL.revokeObjectURL(url)
+        }
       }
-
-      const canvas = document.createElement('canvas')
-      let { width, height } = bitmap
-      if (width > MAX_SIZE || height > MAX_SIZE) {
-        if (width > height) { height = Math.round(height / width * MAX_SIZE); width = MAX_SIZE }
-        else { width = Math.round(width / height * MAX_SIZE); height = MAX_SIZE }
-      }
-      canvas.width = width; canvas.height = height
-      canvas.getContext('2d')!.drawImage(bitmap, 0, 0, width, height)
-      bitmap.close()
 
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(b => res(b), 'image/jpeg', QUALITY))
       if (!blob) throw new Error('blob 생성 실패')
@@ -406,9 +419,11 @@ export default function DailyMessagePage() {
     const arr = Array.from(files).slice(0, remaining)
     if (files.length > remaining) alert(`처음 ${remaining}장만 첨부됩니다.`)
     setCompressing(true)
-    const results = await Promise.all(arr.map(compressSingleImage))
-    setImages(prev => [...prev, ...results.map(r => r.file)])
-    setImageUrls(prev => [...prev, ...results.map(r => r.url)])
+    for (const file of arr) {
+      const result = await compressSingleImage(file)
+      setImages(prev => [...prev, result.file])
+      setImageUrls(prev => [...prev, result.url])
+    }
     setCompressing(false)
   }
 
