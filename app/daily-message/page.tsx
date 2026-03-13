@@ -894,7 +894,7 @@ export default function DailyMessagePage() {
                           ? <div style={{ width: 60, height: 60, border: "2px dashed #0d9488", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#0d9488" }}>압축중</div>
                           : <label style={{ width: 60, height: 60, border: "2px dashed #d1d5db", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "#d1d5db", fontSize: 24, cursor: "pointer" }}>
                               +
-                              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={e => { e.target.files && handleImageUpload(e.target.files); e.target.value = '' }} style={{ display: "none" }} />
+                              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple onChange={e => { e.target.files && handleImageUpload(e.target.files); e.target.value = '' }} style={{ display: "none" }} />
                             </label>
                       )}
                     </div>
