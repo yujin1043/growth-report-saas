@@ -353,18 +353,33 @@ export default function DailyMessagePage() {
   // ── 이미지 ────────────────────────────────────────────
   const compressSingleImage = async (file: File): Promise<{ file: File; url: string }> => {
     try {
-      const bitmap = await createImageBitmap(file)
+      if (file.size > 20 * 1024 * 1024) throw new Error('파일 크기 초과')
+
+      const MAX_SIZE = 1200
+      const QUALITY = 0.85
+
+      // 디코딩 단계에서 리사이즈 (메모리 안전 - 갤럭시 고해상도 대응)
+      let bitmap: ImageBitmap
+      try {
+        bitmap = await createImageBitmap(file, { resizeWidth: MAX_SIZE, resizeQuality: 'high' })
+      } catch {
+        // resizeWidth 미지원 시 fallback
+        bitmap = await createImageBitmap(file)
+      }
+
       const canvas = document.createElement('canvas')
-      const maxSize = 1200
       let { width, height } = bitmap
-      if (width > maxSize || height > maxSize) {
-        if (width > height) { height = Math.round(height / width * maxSize); width = maxSize }
-        else { width = Math.round(width / height * maxSize); height = maxSize }
+      if (width > MAX_SIZE || height > MAX_SIZE) {
+        if (width > height) { height = Math.round(height / width * MAX_SIZE); width = MAX_SIZE }
+        else { width = Math.round(width / height * MAX_SIZE); height = MAX_SIZE }
       }
       canvas.width = width; canvas.height = height
       canvas.getContext('2d')!.drawImage(bitmap, 0, 0, width, height)
       bitmap.close()
-      const blob = await new Promise<Blob>(res => canvas.toBlob(b => res(b!), 'image/jpeg', 0.85))
+
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(b => res(b), 'image/jpeg', QUALITY))
+      if (!blob) throw new Error('blob 생성 실패')
+
       const f = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
       return { file: f, url: URL.createObjectURL(f) }
     } catch { return { file, url: URL.createObjectURL(file) } }
@@ -856,7 +871,7 @@ export default function DailyMessagePage() {
                           ? <div style={{ width: 60, height: 60, border: "2px dashed #0d9488", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#0d9488" }}>압축중</div>
                           : <label style={{ width: 60, height: 60, border: "2px dashed #d1d5db", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "#d1d5db", fontSize: 24, cursor: "pointer" }}>
                               +
-                              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={e => { e.target.files && handleImageUpload(e.target.files); e.target.value = '' }} style={{ display: "none" }} />
+                              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={e => { e.target.files && handleImageUpload(e.target.files); e.target.value = '' }} style={{ display: "none" }} />
                             </label>
                       )}
                     </div>
