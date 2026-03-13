@@ -350,6 +350,21 @@ export default function DailyMessagePage() {
     }
   }
 
+  // ── 빠른 완성 처리 ─────────────────────────────────────
+  const handleQuickComplete = async (work: InProgressWork) => {
+    if (!confirm(`'${work.title}' 작품을 완성하시겠습니까?`)) return
+    try {
+      const { error } = await supabase.from('sketchbook_works')
+        .update({ status: 'completed' }).eq('id', work.id)
+      if (error) throw error
+      setInProgressList(prev => prev.filter(w => w.id !== work.id))
+      if (selectedWork?.id === work.id) setSelectedWork(null)
+      alert(`🎉 '${work.title}' 작품이 완성 처리되었습니다!`)
+    } catch (e: any) {
+      alert('완성 처리 실패: ' + (e?.message || ''))
+    }
+  }
+
   // ── 이미지 ────────────────────────────────────────────
   const compressSingleImage = async (file: File): Promise<{ file: File; url: string }> => {
     try {
@@ -680,11 +695,19 @@ export default function DailyMessagePage() {
                           </div>
                           {selectedWork?.id === work.id && <span style={{ color: "#0d9488", fontWeight: 700 }}>✓</span>}
                         </div>
-                        <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#6b7280" }}>
-                          <span>📅 {work.work_date}~</span>
-                          <span style={{ fontWeight: 700, color: work.sessions >= 4 ? "#ef4444" : work.sessions >= 3 ? "#f59e0b" : "#6b7280" }}>
-                            {work.sessions >= 4 ? "🚨" : work.sessions >= 3 ? "⚠️" : "🔄"} {work.sessions}회차
-                          </span>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                          <div style={{ display: "flex", gap: 10, fontSize: 12, color: "#6b7280" }}>
+                            <span>📅 {work.work_date}~</span>
+                            <span style={{ fontWeight: 700, color: work.sessions >= 4 ? "#ef4444" : work.sessions >= 3 ? "#f59e0b" : "#6b7280" }}>
+                              {work.sessions >= 4 ? "🚨" : work.sessions >= 3 ? "⚠️" : "🔄"} {work.sessions}회차
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleQuickComplete(work) }}
+                            style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            ✓ 완성
+                          </button>
                         </div>
                       </div>
                     ))}
