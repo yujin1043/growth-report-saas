@@ -93,6 +93,7 @@ export default function DailyMessagePage() {
 
   const [generating, setGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [initialized, setInitialized] = useState(false)
 
   // ── 파생값 ──────────────────────────────────────────
   const student = students.find(s => s.id === selectedStudentId)
@@ -161,10 +162,11 @@ export default function DailyMessagePage() {
             setProgressStatus((sessionStorage.getItem('dm_progress') as any) || 'none')
             setTeacherMemo(sessionStorage.getItem('dm_memo') || '')
           } catch {}
+          setInitialized(true)
         } else {
-          // sessionStorage에 저장된 학생이 없을 때만 초기화
           const savedId = sessionStorage.getItem('dm_studentId')
           if (!savedId) clearStudent()
+          setInitialized(true)
         }
       })
     }
@@ -177,21 +179,21 @@ export default function DailyMessagePage() {
 
 
   // sessionStorage 저장 (로딩 완료 후에만 저장 - 초기값으로 덮어쓰기 방지)
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_studentId', selectedStudentId) }, [selectedStudentId, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_studentSearch', studentSearch) }, [studentSearch, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_branchId', selectedBranchId) }, [selectedBranchId, loading])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_studentId', selectedStudentId) }, [selectedStudentId, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_studentSearch', studentSearch) }, [studentSearch, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_branchId', selectedBranchId) }, [selectedBranchId, initialized])
   useEffect(() => {
-    if (loading) return
+    if (!initialized) return
     if (selectedWork) sessionStorage.setItem('dm_selectedWork', JSON.stringify(selectedWork))
     else sessionStorage.removeItem('dm_selectedWork')
-  }, [selectedWork, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork, loading])
-  useEffect(() => { if (!loading) { sessionStorage.setItem('dm_lessonType', lessonType); setCurriculumSearch('') } }, [lessonType, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_progress', progressStatus) }, [progressStatus, loading])
-  useEffect(() => { if (!loading) sessionStorage.setItem('dm_memo', teacherMemo) }, [teacherMemo, loading])
+  }, [selectedWork, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_isNewWork', String(isNewWork)) }, [isNewWork, initialized])
+  useEffect(() => { if (initialized) { sessionStorage.setItem('dm_lessonType', lessonType); setCurriculumSearch('') } }, [lessonType, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_topicId', selectedTopicId) }, [selectedTopicId, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_freeSubject', freeSubject) }, [freeSubject, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_materials', JSON.stringify(selectedMaterials)) }, [selectedMaterials, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_progress', progressStatus) }, [progressStatus, initialized])
+  useEffect(() => { if (initialized) sessionStorage.setItem('dm_memo', teacherMemo) }, [teacherMemo, initialized])
 
 
   // ── 데이터 로드 ──────────────────────────────────────
