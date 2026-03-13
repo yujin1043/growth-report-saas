@@ -70,6 +70,14 @@ export default function ResultPage() {
         createdAt: message.created_at
       })
       setEditedMessage(message.message)
+
+      // 수정 중이었으면 복원
+      const savedEditing = sessionStorage.getItem('dm_result_editing')
+      const savedText = sessionStorage.getItem('dm_result_text')
+      if (savedEditing === 'true') {
+        setIsEditing(true)
+        if (savedText) setEditedMessage(savedText)
+      }
     } catch (error) {
       console.error('Load result error:', error)
     } finally {
@@ -194,10 +202,12 @@ export default function ResultPage() {
         .update({ message: editedMessage })
         .eq('id', result.id)
 
-      if (!error) {
-        setResult({ ...result, message: editedMessage })
-        setIsEditing(false)
-      } else {
+        if (!error) {
+          setResult({ ...result, message: editedMessage })
+          setIsEditing(false)
+          sessionStorage.removeItem('dm_result_editing')
+          sessionStorage.removeItem('dm_result_text')
+        } else {
         alert('저장에 실패했습니다. 다시 시도해주세요.')
       }
     } catch (error) {
@@ -213,6 +223,8 @@ export default function ResultPage() {
       setEditedMessage(result.message)
     }
     setIsEditing(false)
+    sessionStorage.removeItem('dm_result_editing')
+    sessionStorage.removeItem('dm_result_text')
   }
 
   if (loading) {
@@ -290,9 +302,9 @@ export default function ResultPage() {
             <h3 className="font-semibold text-gray-800">📝 생성된 문구</h3>
             {!isEditing && (
               <button
-                onClick={() => setIsEditing(true)}
-                className="text-sm text-teal-600 hover:text-teal-700 font-medium"
-              >
+              onClick={() => { setIsEditing(true); sessionStorage.setItem('dm_result_editing', 'true') }}
+              className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+            >
                 ✏️ 수정
               </button>
             )}
@@ -302,7 +314,7 @@ export default function ResultPage() {
             <div>
               <textarea
                 value={editedMessage}
-                onChange={(e) => setEditedMessage(e.target.value)}
+                onChange={(e) => { setEditedMessage(e.target.value); sessionStorage.setItem('dm_result_text', e.target.value) }}
                 className="w-full bg-gray-50 rounded-xl p-4 text-gray-700 leading-relaxed border border-gray-200 focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
                 rows={5}
               />
