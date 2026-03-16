@@ -767,7 +767,7 @@ export default function StudentDetailPage() {
                 {sketchbookWorks.length > 0 ? (
                   <div className="divide-y divide-gray-100">
                     {sketchbookWorks.map((work, index) => (
-                      <div key={work.id} className="px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition group">
+                      <div key={work.id} className="px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition">
                       <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm shrink-0 mt-0.5">
                         {sketchbookWorks.length - index}
                       </div>
@@ -784,7 +784,7 @@ export default function StudentDetailPage() {
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5">{work.work_date}</p>
                       </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => openEditWorkModal(work)}
                             className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"

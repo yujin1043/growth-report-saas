@@ -433,12 +433,22 @@ export default function DailyMessagePage() {
     const arr = Array.from(files).slice(0, remaining)
     if (files.length > remaining) alert(`처음 ${remaining}장만 첨부됩니다.`)
     setCompressing(true)
-    for (const file of arr) {
-      const result = await compressSingleImage(file)
-      setImages(prev => [...prev, result.file])
-      setImageUrls(prev => [...prev, result.url])
+    try {
+      for (const file of arr) {
+        try {
+          const result = await compressSingleImage(file)
+          setImages(prev => [...prev, result.file])
+          setImageUrls(prev => [...prev, result.url])
+        } catch (e) {
+          console.error('이미지 처리 실패:', e)
+          const url = URL.createObjectURL(file)
+          setImages(prev => [...prev, file])
+          setImageUrls(prev => [...prev, url])
+        }
+      }
+    } finally {
+      setCompressing(false)
     }
-    setCompressing(false)
   }
 
   const removeImage = (i: number) => {
@@ -463,6 +473,7 @@ export default function DailyMessagePage() {
     if (!selectedWork) { alert('작품을 선택해주세요'); return }
     setGenerating(true)
 
+    try {
     const s = students.find(s => s.id === selectedStudentId)!
     const selectedTopic = curriculumTopics.find(t => t.id === selectedTopicId)
 
@@ -661,8 +672,6 @@ export default function DailyMessagePage() {
         message = `오늘 ${nameNun} '${effectiveTopicTitle}'를 주제로 자유화를 ${end.doing}. ${materials}를 사용하여 ${tech} ${end.did}. ${memo}. ${prog} ${nameMan} 멋진 작품이에요! ${emoji}`
       }
     }
-
-    try {
       const [, studentRes] = await Promise.all([
         supabase.from('daily_messages').delete().eq('student_id', s.id).eq('teacher_id', userId),
         supabase.from('students').select('branch_id').eq('id', s.id).single()
@@ -677,7 +686,6 @@ export default function DailyMessagePage() {
       if (insertErr) {
         console.error('[daily_messages error]', JSON.stringify(insertErr))
         alert('메시지 저장 실패: ' + insertErr.message)
-        setGenerating(false)
         return
       }
 
@@ -703,8 +711,9 @@ export default function DailyMessagePage() {
     } catch (e: any) {
       console.error('[generateMessage catch]', e)
       alert('오류: ' + (e?.message || JSON.stringify(e)))
+    } finally {
+      setGenerating(false)
     }
-    setGenerating(false)
   }
 
   const handleBranchChange = (branchId: string) => {

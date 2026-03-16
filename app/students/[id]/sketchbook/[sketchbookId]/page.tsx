@@ -47,6 +47,7 @@ export default function SketchbookDetailPage() {
   const [editMode, setEditMode] = useState(false)
   const [editedWorks, setEditedWorks] = useState<{[key: string]: string}>({})
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
     if (studentId && sketchbookId) loadData()
@@ -131,6 +132,30 @@ export default function SketchbookDetailPage() {
     }
     
     setSaving(false)
+  }
+
+  async function handleDeleteWork(workId: string, workTitle: string | null | undefined) {
+    if (!confirm(`"${workTitle || '제목 없음'}" 진도를 삭제하시겠습니까?`)) return
+  
+    setDeleting(workId)
+    try {
+      const { error } = await supabase
+        .from('sketchbook_works')
+        .delete()
+        .eq('id', workId)
+  
+      if (error) throw error
+  
+      setWorks(prev => prev.filter(w => w.id !== workId))
+      const newEdited = { ...editedWorks }
+      delete newEdited[workId]
+      setEditedWorks(newEdited)
+    } catch (error) {
+      console.error('Delete error:', error)
+      alert('삭제에 실패했습니다')
+    } finally {
+      setDeleting(null)
+    }
   }
 
   const getWorkDescription = (work: SketchbookWork) => {
@@ -264,22 +289,22 @@ export default function SketchbookDetailPage() {
         )}
 
         {/* ── 진도 목록 ── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-800 text-sm md:text-base">📋 작품 목록 ({works.length}개)</h3>
-            <div className="flex items-center gap-2">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-visible">
+          <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-100 flex items-center justify-between gap-2">
+            <h3 className="font-semibold text-gray-800 text-sm md:text-base min-w-0 truncate">📋 작품 목록 ({works.length}개)</h3>
+            <div className="flex items-center gap-2 flex-shrink-0">
               {editMode ? (
                 <>
                   <button
                     onClick={() => setEditMode(false)}
-                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs md:text-sm font-medium hover:bg-gray-200 transition"
+                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs md:text-sm font-medium hover:bg-gray-200 transition whitespace-nowrap"
                   >
                     취소
                   </button>
                   <button
                     onClick={handleSaveEdits}
                     disabled={saving}
-                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50"
+                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50 whitespace-nowrap"
                   >
                     {saving ? '저장 중...' : '저장'}
                   </button>
@@ -287,7 +312,7 @@ export default function SketchbookDetailPage() {
               ) : (
                 <button
                   onClick={() => setEditMode(true)}
-                  className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs md:text-sm font-medium hover:bg-amber-100 transition"
+                  className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs md:text-sm font-medium hover:bg-amber-100 transition whitespace-nowrap"
                 >
                   수정
                 </button>
@@ -303,14 +328,33 @@ export default function SketchbookDetailPage() {
                     {index + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    {/* 제목 + 태그: flex-wrap으로 줄바꿈 허용 */}
-                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                      <p className="font-medium text-gray-800 text-sm md:text-base break-all">{getWorkTitle(work)}</p>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium flex-shrink-0 ${
-                        work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
-                      }`}>
-                        {work.is_custom ? '자율' : '커리큘럼'}
-                      </span>
+                    {/* 제목 + 태그 + 수정/삭제 버튼 */}
+                    <div className="flex items-start justify-between gap-2 mb-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+                        <p className="font-medium text-gray-800 text-sm md:text-base break-all">{getWorkTitle(work)}</p>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium flex-shrink-0 ${
+                          work.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
+                        }`}>
+                          {work.is_custom ? '자율' : '커리큘럼'}
+                        </span>
+                      </div>
+                      {!editMode && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
+                          <button
+                            onClick={() => setEditMode(true)}
+                            className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 rounded-lg whitespace-nowrap active:bg-teal-100"
+                          >
+                            수정
+                          </button>
+                          <button
+                            onClick={() => handleDeleteWork(work.id, getWorkTitle(work))}
+                            disabled={deleting === work.id}
+                            className="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 rounded-lg whitespace-nowrap active:bg-red-100 disabled:opacity-50"
+                          >
+                            {deleting === work.id ? '...' : '삭제'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                     {/* 날짜: 별도 줄 */}
                     <p className="text-[11px] md:text-xs text-gray-400 mb-2">{work.work_date}</p>
