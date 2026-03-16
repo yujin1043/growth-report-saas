@@ -434,18 +434,16 @@ export default function DailyMessagePage() {
     if (files.length > remaining) alert(`처음 ${remaining}장만 첨부됩니다.`)
     setCompressing(true)
     try {
-      for (const file of arr) {
+      const results = await Promise.all(arr.map(async (file) => {
         try {
-          const result = await compressSingleImage(file)
-          setImages(prev => [...prev, result.file])
-          setImageUrls(prev => [...prev, result.url])
+          return await compressSingleImage(file)
         } catch (e) {
           console.error('이미지 처리 실패:', e)
-          const url = URL.createObjectURL(file)
-          setImages(prev => [...prev, file])
-          setImageUrls(prev => [...prev, url])
+          return { file, url: URL.createObjectURL(file) }
         }
-      }
+      }))
+      setImages(prev => [...prev, ...results.map(r => r.file)])
+      setImageUrls(prev => [...prev, ...results.map(r => r.url)])
     } finally {
       setCompressing(false)
     }
