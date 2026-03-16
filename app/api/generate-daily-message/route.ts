@@ -4,7 +4,57 @@ export const runtime = 'edge'
 
 export async function POST(request: NextRequest) {
   try {
-    const { studentName, studentAge, subject, materials, progressStatus, teacherMemo } = await request.json()
+    const { studentName, studentAge, subject, materials, progressStatus, teacherMemo, selectedStage, prompt } = await request.json()
+
+    // 커리큘럼 메모 다듬기: prompt가 직접 전달된 경우
+    if (prompt) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 20000)
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `미술학원 선생님으로서 학부모용 일일 수업 메시지를 작성합니다.
+
+규칙:
+- 정확히 5문장
+- 친근하고 따뜻한 톤
+- 마지막에 이모지 1개
+- 150-200자 내외
+- 바로 카카오톡에 붙여넣을 수 있는 형태
+- "오늘 작업 단계"가 주어지면, 해당 단계에 맞는 내용만 작성
+- 아이가 아직 하지 않은 과정은 절대 언급하지 마세요
+- 기본 멘트가 주어지면, 그 내용을 자연스럽게 활용하되 선생님 메모를 녹여주세요`
+            },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 500
+        }),
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        return NextResponse.json({ error: 'AI 생성 실패' }, { status: 500 })
+      }
+
+      const data = await response.json()
+      const message = data.choices?.[0]?.message?.content?.trim()
+      if (!message) {
+        return NextResponse.json({ error: 'AI 응답 없음' }, { status: 500 })
+      }
+      return NextResponse.json({ message })
+    }
 
     if (!studentName || !subject) {
       return NextResponse.json(
@@ -67,6 +117,10 @@ export async function POST(request: NextRequest) {
     } else if (progressStatus === 'completed') {
       progressLabel = '오늘 완성한 작품'
       progressTone = '성취감과 완성작의 특징을 중심으로 묘사. 완성한 것에 대한 칭찬과 감상을 담아 마무리.'
+    }
+    // 작업 단계가 전달된 경우 progressLabel에 반영
+    if (selectedStage) {
+      progressLabel = `${progressLabel} (오늘 작업 단계: ${selectedStage})`
     }
 
     const systemPrompt = `당신은 그리마 미술학원의 전문적이고 따뜻한 선생님입니다.

@@ -16,8 +16,41 @@ interface VariationReference {
   image_url: string
 }
 
+interface StageMessage {
+  label: string
+  message: string
+}
+
 const AUTO_SAVE_KEY = 'curriculum_new_draft'
 const AUTO_SAVE_INTERVAL = 30000 // 30초마다 자동저장
+
+const STAGE_PRESETS: { [key: string]: StageMessage[] } = {
+  drawing: [
+    { label: '스케치', message: '' },
+    { label: '채색', message: '' },
+    { label: '디테일', message: '' },
+    { label: '완성', message: '' },
+  ],
+  crafting: [
+    { label: '도안', message: '' },
+    { label: '조립', message: '' },
+    { label: '꾸미기', message: '' },
+    { label: '완성', message: '' },
+  ],
+  mixed: [
+    { label: '스케치', message: '' },
+    { label: '채색', message: '' },
+    { label: '조립', message: '' },
+    { label: '꾸미기', message: '' },
+    { label: '완성', message: '' },
+  ],
+}
+
+const LESSON_CATEGORY_OPTIONS = [
+  { key: 'drawing', label: '드로잉' },
+  { key: 'crafting', label: '만들기' },
+  { key: 'mixed', label: '혼합' },
+]
 
 export default function NewCurriculumPage() {
   const router = useRouter()
@@ -44,7 +77,9 @@ export default function NewCurriculumPage() {
     material_sources: '',
     variation_description: '',
     variation_references: [] as VariationReference[],
-    status: 'draft'
+    status: 'draft',
+    lesson_category: 'drawing' as string,
+    stage_messages: [] as StageMessage[],
   })
 
   // 드래그 상태
@@ -109,6 +144,9 @@ export default function NewCurriculumPage() {
                 image_urls: p.image_urls || (p.image_url ? [p.image_url] : [])
               }))
             }
+            // stage_messages 호환성
+            if (!parsed.lesson_category) parsed.lesson_category = 'drawing'
+            if (!parsed.stage_messages) parsed.stage_messages = []
             setFormData(parsed)
             setAutoSaveMsg('이전 작성 내용을 불러왔습니다')
           } else {
@@ -334,6 +372,54 @@ export default function NewCurriculumPage() {
     }))
   }
 
+  // === 단계별 멘트 관리 ===
+  const handleLessonCategoryChange = (category: string) => {
+    setFormData(prev => {
+      const hasCustomMessages = prev.stage_messages.some(s => s.message.trim() !== '')
+      if (hasCustomMessages) {
+        if (!confirm('수업 유형을 변경하면 기존 단계가 초기화됩니다. 계속하시겠습니까?')) {
+          return prev
+        }
+      }
+      return {
+        ...prev,
+        lesson_category: category,
+        stage_messages: STAGE_PRESETS[category] || STAGE_PRESETS.drawing,
+      }
+    })
+  }
+
+  const updateStageMessage = (index: number, field: 'label' | 'message', value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      stage_messages: prev.stage_messages.map((s, i) =>
+        i === index ? { ...s, [field]: value } : s
+      ),
+    }))
+  }
+
+  const addStage = () => {
+    if (formData.stage_messages.length >= 5) {
+      alert('최대 5개까지 등록할 수 있습니다.')
+      return
+    }
+    setFormData(prev => ({
+      ...prev,
+      stage_messages: [...prev.stage_messages, { label: '', message: '' }],
+    }))
+  }
+
+  const removeStage = (index: number) => {
+    if (formData.stage_messages.length <= 3) {
+      alert('최소 3개의 단계가 필요합니다.')
+      return
+    }
+    setFormData(prev => ({
+      ...prev,
+      stage_messages: prev.stage_messages.filter((_, i) => i !== index),
+    }))
+  }
+
   // === 저장 ===
   const handleSubmit = async (status: string) => {
     if (!formData.title.trim()) {
@@ -381,7 +467,9 @@ export default function NewCurriculumPage() {
         status: status,
         created_by: user?.id,
         parent_message_template: formData.parent_message_template || null,
-        age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary'
+        age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary',
+        lesson_category: formData.lesson_category,
+        stage_messages: formData.stage_messages.filter(s => s.label.trim()),
       }
 
       const { error } = await supabase
@@ -560,17 +648,98 @@ export default function NewCurriculumPage() {
             />
           </div>
 
-          {/* 학부모 안내멘트 */}
+          {/* 수업 유형 */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <h2 className="font-bold text-gray-800 mb-2">💬 학부모 안내멘트</h2>
-            <p className="text-sm text-gray-500 mb-3">일일 메시지 생성 시 사용됩니다</p>
+            <h2 className="font-bold text-gray-800 mb-4">🎯 수업 유형</h2>
+            <div className="grid grid-cols-3 gap-2">
+              {LESSON_CATEGORY_OPTIONS.map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => handleLessonCategoryChange(opt.key)}
+                  className={`py-2.5 rounded-xl text-sm font-medium transition ${
+                    formData.lesson_category === opt.key
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-gray-50 text-gray-600 border border-gray-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 작품 소개 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 className="font-bold text-gray-800 mb-2">📝 작품 소개</h2>
+            <p className="text-sm text-gray-500 mb-3">작품 시작 시 학부모에게 보내는 작품 설명입니다</p>
             <textarea
               value={formData.parent_message_template}
               onChange={(e) => setFormData(prev => ({ ...prev, parent_message_template: e.target.value }))}
-              placeholder="예: 오늘은 겨울 풍경을 수채화로 표현해보았습니다. 차가운 색과 따뜻한 색의 대비를 통해 겨울의 느낌을 살려보았어요."
-              rows={4}
+              placeholder="예: 차가운 색과 따뜻한 색의 대비를 통해 겨울 느낌을 살려보는 수채화 작품입니다."
+              rows={3}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl"
             />
+          </div>
+
+          {/* 단계별 학부모 안내멘트 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-bold text-gray-800">💬 단계별 학부모 안내멘트</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              선생님이 단계를 선택하면 해당 멘트가 학부모에게 전달됩니다 (최소 3개 ~ 최대 5개)
+            </p>
+
+            {formData.stage_messages.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-gray-400 text-sm mb-3">수업 유형을 선택하면 기본 단계가 세팅됩니다</p>
+                <button
+                  onClick={() => handleLessonCategoryChange(formData.lesson_category || 'drawing')}
+                  className="px-4 py-2 bg-teal-500 text-white rounded-xl text-sm"
+                >
+                  기본 단계 불러오기
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {formData.stage_messages.map((stage, idx) => (
+                  <div key={idx} className="bg-gray-50 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 bg-teal-500 text-white rounded-full text-xs flex items-center justify-center font-medium">
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={stage.label}
+                          onChange={(e) => updateStageMessage(idx, 'label', e.target.value)}
+                          placeholder="단계명"
+                          disabled={idx === formData.stage_messages.length - 1 && stage.label === '완성'}
+                          className={`px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium w-32 ${
+                            idx === formData.stage_messages.length - 1 && stage.label === '완성' ? 'bg-gray-100 text-gray-500' : ''
+                          }`}
+                        />
+                      </div>
+                      {formData.stage_messages.length > 3 && (
+                        <button
+                          onClick={() => removeStage(idx)}
+                          className="text-red-500 text-sm"
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={stage.message}
+                      onChange={(e) => updateStageMessage(idx, 'message', e.target.value)}
+                      placeholder={`이 단계에서 학부모에게 보낼 멘트를 입력하세요\n예: 오늘은 겨울 풍경의 구도를 잡고 연필로 스케치를 진행해보았어요.`}
+                      rows={2}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 지도 포인트 - 제목 삭제, 복수 이미지, 드래그앤드롭 */}

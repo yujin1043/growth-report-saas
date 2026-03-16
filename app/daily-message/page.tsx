@@ -33,6 +33,8 @@ interface CurriculumTopic {
   main_materials: string | null
   parent_message_template: string | null
   age_group: string | null
+  stage_messages: { label: string; message: string }[] | null
+  lesson_category: string | null
 }
 
 // 진행 중 작품 (DB 실제 컬럼 기준)
@@ -52,6 +54,13 @@ interface InProgressWork {
 }
 
 const MATERIAL_OPTIONS = ['연필', '색연필', '매직', '사인펜', '수채화', '아크릴', '파스텔', '점토', '스티커', '기타']
+
+const FREE_LESSON_STAGES = [
+  { label: '스케치', key: 'sketch' },
+  { label: '채색', key: 'coloring' },
+  { label: '디테일', key: 'detail' },
+  { label: '완성', key: 'completed' },
+]
 
 export default function DailyMessagePage() {
   const router = useRouter()
@@ -84,6 +93,7 @@ export default function DailyMessagePage() {
   const [freeSubject, setFreeSubject] = useState('')
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
   const [progressStatus, setProgressStatus] = useState<'none' | 'started' | 'completed'>('none')
+  const [selectedStage, setSelectedStage] = useState<string>('')
   const [teacherMemo, setTeacherMemo] = useState('')
 
   const [images, setImages] = useState<File[]>([])
@@ -125,6 +135,7 @@ export default function DailyMessagePage() {
     setFreeSubject('')
     setSelectedMaterials([])
     setProgressStatus('none')
+    setSelectedStage('')
     setTeacherMemo('')
   }
 
@@ -217,7 +228,7 @@ export default function DailyMessagePage() {
     if (profile?.role !== 'admin' && profile?.branch_id) branchQ = branchQ.eq('id', profile.branch_id)
 
     let topicQ = supabase.from('monthly_curriculum')
-      .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group')
+      .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group, stage_messages, lesson_category')
       .eq('status', 'active')
     topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm}),and(year.eq.${p2y},month.eq.${p2m})`)
 
@@ -483,37 +494,156 @@ export default function DailyMessagePage() {
 
     if (effectiveLessonType === 'curriculum') {
       topicTitle = effectiveTopicTitle
-      const template = (effectiveTopic?.parent_message_template || '')
-        .replace(/합니다/g, '해요').replace(/줍니다/g, '줘요').replace(/됩니다/g, '돼요')
-        .split(/\.\s*/).filter(s => s.trim().length > 10).slice(0, 3).join('. ')
-        .replace(/이번 작품은/g, '')
-        .replace(/표현합니다/g, `표현${end.did}`).replace(/그려줍니다/g, `그려${end.did}`)
-        .replace(/그려요/g, `그려${end.did}`).replace(/묘사하여/g, '묘사하며')
-        .replace(/느낌을 줍니다/g, `느낌을 살려${end.did}`).replace(/느낌을 줘요/g, `느낌을 살려${end.did}`)
 
-      let open = '', detail = '', close = ''
-      if (progressStatus === 'started') {
-        open = pick(['오늘 새로운 작품을 시작했어요.', '새 작품의 밑그림을 그리며 구상을 시작했어요.', '오늘부터 새 작품에 들어갔어요.'])
-        detail = pick(['어떤 구도로 표현할지 고민하며 스케치하는 모습이 진지했어요.', '밑그림 단계에서부터 자신만의 아이디어를 담아내고 있어요.', '전체 구성을 계획하며 차근차근 작업을 시작했어요.'])
-        close = pick(['어떤 작품이 완성될지 기대해주세요!', '앞으로 완성되어갈 모습이 기대돼요!', '멋진 작품이 될 것 같아요!'])
-      } else if (progressStatus === 'none') {
-        open = pick(['지난 시간에 이어 작품을 발전시켜 나갔어요.', '작품에 계속 집중하며 작업을 이어갔어요.', '작품을 이어서 작업하고 있어요.'])
-        detail = pick(['세부 표현을 더하며 작품의 완성도를 높이고 있어요.', '색감을 입히며 작품이 한층 풍성해지고 있어요.', '디테일을 하나씩 채워가며 몰입하는 모습이 멋졌어요.'])
-        close = pick(['완성이 점점 가까워지고 있어요!', '작품이 점점 완성되어 가고 있어요!', '곧 멋진 작품이 완성될 거예요!'])
+      const stages = effectiveTopic?.stage_messages || []
+      const matchedStage = stages.find((s: any) => s.label === selectedStage)
+
+      // ── 문구 풀 ──
+      const greetings = [
+        `안녕하세요~^^`,
+        `안녕하세요~!`,
+        `안녕하세요😊`,
+        `안녕하세요~💛`,
+      ]
+
+      const startOpeners = [
+        `오늘 ${nameNun} '${topicTitle}' 수업을 시작했습니다~`,
+        `오늘부터 ${nameNun} 새 작품 '${topicTitle}'에 들어갔습니다^^`,
+        `${nameNun} 오늘 새로운 작품 '${topicTitle}' 수업을 시작했답니다~`,
+        `오늘부터 '${topicTitle}' 새 작품이 시작되었습니다!`,
+      ]
+      const startClosers = [
+        `어떤 작품이 완성될지 기대해주세요~!🎨`,
+        `앞으로 완성되어갈 모습 기대해주세요~^^✨`,
+        `차근차근 멋진 작품 만들어 갈게요!💪`,
+        `어떤 결과물이 나올지 함께 지켜봐주세요~^^🌟`,
+        `벌써부터 완성이 기대되는 작품입니다~!🖌️`,
+      ]
+
+      const progressOpeners = [
+        `오늘 ${nameNun} '${topicTitle}' 작업을 이어갔습니다~`,
+        `${nameNun} '${topicTitle}' 작품에 집중하며 작업했답니다^^`,
+        `'${topicTitle}' 작품을 한 단계 더 발전시켜 나갔습니다~`,
+        `오늘도 ${nameNun} '${topicTitle}' 수업에 열심히 참여했습니다!`,
+        `지난 시간에 이어 '${topicTitle}' 작업을 진행했답니다~`,
+      ]
+      const progressClosers = [
+        `완성이 점점 가까워지고 있습니다~!🎨`,
+        `작품이 점점 풍성해지고 있답니다^^✨`,
+        `곧 멋진 작품이 완성될 거예요~!🌟`,
+        `한 단계씩 완성에 다가가고 있습니다!💫`,
+        `완성되어가는 과정이 정말 기대됩니다~^^🖌️`,
+      ]
+
+      const completeOpeners = [
+        `${nameNun} '${topicTitle}' 작품을 멋지게 완성했습니다~!🎉`,
+        `오늘 ${nameNun} '${topicTitle}' 작품이 드디어 완성되었답니다!✨`,
+        `끝까지 집중해서 '${topicTitle}' 작품을 완성했습니다~^^👏`,
+        `${nameNun} 오늘 '${topicTitle}' 작품을 마무리했답니다!🌟`,
+      ]
+      const completeClosers = [
+        `완성작 함께 감상해보세요~^^🖼️`,
+        `집에서 많이 칭찬해주세요~!💛`,
+        `뿌듯해하는 모습이 너무 예뻤어요~^^😊`,
+        `멋진 결과물 함께 확인해보세요~!✨`,
+        `완성의 기쁨을 함께 나눠주세요~^^💕`,
+      ]
+
+      const memoConnectors = [
+        `오늘 특히`,
+        `선생님이 보기에`,
+        `수업 중에`,
+        `작업하면서`,
+        `오늘은 특별히`,
+      ]
+
+      const signoffs = [
+        `${nameMan} 멋진 작품입니다~!`,
+        `${nameMan} 개성이 담긴 작품이랍니다^^`,
+        `${nameMan} 시선으로 표현한 멋진 결과물이에요!`,
+        `${nameMan} 감각이 돋보이는 작품입니다~`,
+        `${nameMan} 색다른 매력이 느껴지는 작품이랍니다!`,
+      ]
+
+      const memo = teacherMemo ? ` ${pick(memoConnectors)} ${teacherMemo}.` : ''
+      const greeting = pick(greetings)
+
+      // CASE 1: 새 작품 시작 (sessions === 0)
+      if (progressStatus === 'started' && stages.length >= 2) {
+        const firstStage = stages[0]
+
+        // 작품 소개: parent_message_template 우선, 없으면 stage_messages 흐름으로 생성
+        let introClean = ''
+        if (effectiveTopic?.parent_message_template) {
+          introClean = effectiveTopic.parent_message_template
+            .replace(/합니다/g, '해요').replace(/줍니다/g, '줘요').replace(/됩니다/g, '돼요')
+            .split(/\.\s*/).filter((s: string) => s.trim().length > 10).slice(0, 2).join('. ')
+        }
+
+        const stageNote = firstStage.message || ''
+
+        message = `${greeting} ${pick(startOpeners)} ${introClean ? introClean + '.' : ''} ${stageNote}${memo} ${pick(startClosers)}`
+
+      // CASE 2: 단계별 멘트가 있는 진행 중/완성
+      } else if (matchedStage && matchedStage.message) {
+        const stageMsg = matchedStage.message
+
+        if (teacherMemo) {
+          try {
+            const res = await fetch('/api/generate-daily-message', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prompt: `미술학원 학부모 안내 메시지를 다듬어주세요.\n\n학생 이름: ${firstName} (${isKindergarten ? '유치부' : '초등부'})\n오늘 작업 단계: ${selectedStage}\n기본 멘트: ${stageMsg}\n선생님 메모: ${teacherMemo}\n\n위 기본 멘트에 선생님 메모 내용을 자연스럽게 녹여서 5문장 이내로 작성해주세요.\n${isKindergarten ? '~해요, ~했어요 체' : '~합니다, ~했습니다 체'}로 작성하세요.\n친근하고 공손한 어투로 작성하세요. (예: ~했답니다, ~있습니다^^)\n마지막에 이모티콘 1개를 붙여주세요.\n첫 문장은 "안녕하세요~^^"로 시작해주세요.`
+              })
+            })
+            const data = await res.json()
+            if (data.message) message = data.message
+            else throw new Error()
+          } catch {
+            if (progressStatus === 'completed') {
+              message = `${greeting} ${pick(completeOpeners)} ${stageMsg}${memo} ${pick(completeClosers)}`
+            } else {
+              message = `${greeting} ${pick(progressOpeners)} ${stageMsg}${memo} ${pick(progressClosers)}`
+            }
+          }
+        } else {
+          if (progressStatus === 'completed') {
+            message = `${greeting} ${pick(completeOpeners)} ${stageMsg} ${pick(signoffs)} ${pick(completeClosers)}`
+          } else {
+            message = `${greeting} ${pick(progressOpeners)} ${stageMsg} ${pick(signoffs)} ${pick(progressClosers)}`
+          }
+        }
+
+      // CASE 3: stage_messages가 없는 기존 커리큘럼 (하위 호환)
       } else {
-        open = pick(['오늘 작품을 멋지게 완성했어요!', '끝까지 집중해서 작품을 완성했어요!', '드디어 작품이 완성되었어요!'])
-        detail = pick(['완성된 작품에서 아이만의 개성이 잘 드러나요.', '마무리까지 꼼꼼하게 신경 쓴 모습이 대견해요.', '포기하지 않고 끝까지 완성한 모습이 보기 좋았어요.'])
-        close = pick(['완성작을 함께 감상해보세요!', '아이의 멋진 작품을 칭찬해주세요!', '뿌듯해하는 모습이 인상적이었어요!'])
+        const template = (effectiveTopic?.parent_message_template || '')
+          .replace(/합니다/g, '해요').replace(/줍니다/g, '줘요').replace(/됩니다/g, '돼요')
+          .split(/\.\s*/).filter(s => s.trim().length > 10).slice(0, 3).join('. ')
+          .replace(/이번 작품은/g, '')
+          .replace(/표현합니다/g, `표현${end.did}`).replace(/그려줍니다/g, `그려${end.did}`)
+          .replace(/그려요/g, `그려${end.did}`).replace(/묘사하여/g, '묘사하며')
+          .replace(/느낌을 줍니다/g, `느낌을 살려${end.did}`).replace(/느낌을 줘요/g, `느낌을 살려${end.did}`)
+
+        let open = '', close = ''
+        if (progressStatus === 'started') {
+          open = pick(startOpeners)
+          close = pick(startClosers)
+        } else if (progressStatus === 'completed') {
+          open = pick(completeOpeners)
+          close = pick(completeClosers)
+        } else {
+          open = pick(progressOpeners)
+          close = pick(progressClosers)
+        }
+        message = `${greeting} ${open} ${template}. ${memo} ${pick(signoffs)} ${close}`
       }
-      const memo = teacherMemo ? ` ${teacherMemo}.` : ''
-      message = `오늘 ${nameNun} '${topicTitle}' 수업을 ${end.doing}. ${template}. ${open} ${detail}${memo} ${close} ${emoji}`
     } else if (effectiveLessonType === 'free') {
       topicTitle = effectiveTopicTitle
       const materials = selectedMaterials.join(', ') || '다양한 재료'
       try {
         const res = await fetch('/api/generate-daily-message', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentName: s.name, studentAge, subject: effectiveTopicTitle, materials, progressStatus, teacherMemo })
+          body: JSON.stringify({ studentName: s.name, studentAge, subject: effectiveTopicTitle, materials, progressStatus, teacherMemo, selectedStage: selectedStage || '진행중' })
         })
         const data = await res.json()
         if (data.message) message = data.message
@@ -870,7 +1000,7 @@ export default function DailyMessagePage() {
                   {selectedWork.sessions !== 0 && (
                     <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #f3f4f6", padding: 16, marginBottom: 12 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>📊 오늘 진행 상태</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937" }}>📊 오늘 작업 단계</div>
                         <div style={{ fontSize: 11, padding: "3px 10px", borderRadius: 8, fontWeight: 700, background: "#f0fdfa", color: "#0d9488" }}>
                           {selectedWork.sessions + 1}회차
                         </div>
@@ -881,17 +1011,86 @@ export default function DailyMessagePage() {
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#0f766e" }}>{selectedWork.title}</span>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {['진행중', '완성'].map(label => {
-                          const key = label === '진행중' ? 'none' : 'completed'
+                      {/* 작업 단계 선택 */}
+                      {(() => {
+                        const effectiveTopic = curriculumTopics.find(t => t.id === selectedWork.curriculum_id)
+                        const stages = selectedWork.type === 'curriculum' && effectiveTopic?.stage_messages && effectiveTopic.stage_messages.length >= 2
+                          ? effectiveTopic.stage_messages
+                          : null
+
+                        // 새 로직: stage_messages가 2개 이상 등록된 커리큘럼
+                        if (stages) {
                           return (
-                            <button key={key} onClick={() => setProgressStatus(key as any)}
-                              style={{ padding: "11px 0", borderRadius: 12, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s", background: progressStatus === key ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb", color: progressStatus === key ? "#fff" : "#6b7280", boxShadow: progressStatus === key ? "0 2px 8px rgba(13,148,136,0.3)" : "none", outline: progressStatus === key ? "none" : "1px solid #e5e7eb" }}>
-                              {label}
-                            </button>
+                            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(stages.length, 5)}, 1fr)`, gap: 6 }}>
+                              {stages.map((stage: any, idx: number) => (
+                                <button key={idx}
+                                  onClick={() => {
+                                    setSelectedStage(stage.label)
+                                    setProgressStatus(stage.label === '완성' ? 'completed' : 'none')
+                                  }}
+                                  style={{
+                                    padding: "10px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                                    fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                                    background: selectedStage === stage.label ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb",
+                                    color: selectedStage === stage.label ? "#fff" : "#6b7280",
+                                    boxShadow: selectedStage === stage.label ? "0 2px 8px rgba(13,148,136,0.25)" : "none",
+                                    outline: selectedStage === stage.label ? "none" : "1px solid #e5e7eb",
+                                  }}
+                                >{stage.label}</button>
+                              ))}
+                            </div>
                           )
-                        })}
-                      </div>
+                        }
+
+                        // 자율 작품: 공통 4단계
+                        if (selectedWork.type === 'free') {
+                          return (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                              {FREE_LESSON_STAGES.map(stage => (
+                                <button key={stage.key}
+                                  onClick={() => {
+                                    setSelectedStage(stage.label)
+                                    setProgressStatus(stage.label === '완성' ? 'completed' : 'none')
+                                  }}
+                                  style={{
+                                    padding: "10px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                                    fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                                    background: selectedStage === stage.label ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb",
+                                    color: selectedStage === stage.label ? "#fff" : "#6b7280",
+                                    boxShadow: selectedStage === stage.label ? "0 2px 8px rgba(13,148,136,0.25)" : "none",
+                                    outline: selectedStage === stage.label ? "none" : "1px solid #e5e7eb",
+                                  }}
+                                >{stage.label}</button>
+                              ))}
+                            </div>
+                          )
+                        }
+
+                        // 기존 커리큘럼 (stage_messages 미등록): 진행중/완성 2버튼
+                        return (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            {['진행중', '완성'].map(label => {
+                              const key = label === '진행중' ? 'none' : 'completed'
+                              return (
+                                <button key={key}
+                                  onClick={() => {
+                                    setProgressStatus(key as any)
+                                    setSelectedStage(label)
+                                  }}
+                                  style={{
+                                    padding: "11px 0", borderRadius: 12, border: "none", cursor: "pointer",
+                                    fontSize: 13, fontWeight: 600, transition: "all 0.15s",
+                                    background: progressStatus === key ? "linear-gradient(135deg, #0d9488, #06b6d4)" : "#f9fafb",
+                                    color: progressStatus === key ? "#fff" : "#6b7280",
+                                    boxShadow: progressStatus === key ? "0 2px 8px rgba(13,148,136,0.3)" : "none",
+                                    outline: progressStatus === key ? "none" : "1px solid #e5e7eb",
+                                  }}
+                                >{label}</button>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
                     </div>
                   )}
 

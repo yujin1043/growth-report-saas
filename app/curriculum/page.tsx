@@ -34,6 +34,8 @@ interface Curriculum {
   created_at: string
   parent_message_template: string | null
   age_group: string | null
+  stage_messages: { label: string; message: string }[] | null
+  lesson_category: string | null
 }
 
 interface GroupedCurriculum {
@@ -467,22 +469,13 @@ export default function CurriculumPage() {
               </div>
             )}
 
-            {/* 학부모 안내멘트 */}
+            {/* 작품 소개 */}
             {selectedCurriculum.parent_message_template && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <h3 className="font-bold text-gray-800 mb-3">💬 학부모 안내멘트</h3>
+                <h3 className="font-bold text-gray-800 mb-3">📝 작품 소개</h3>
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-gray-600 whitespace-pre-line">{selectedCurriculum.parent_message_template}</p>
                 </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedCurriculum.parent_message_template || '')
-                    alert('클립보드에 복사되었습니다!')
-                  }}
-                  className="mt-3 px-4 py-2 bg-teal-50 text-teal-600 rounded-lg text-sm font-medium"
-                >
-                  📋 복사하기
-                </button>
               </div>
             )}
 
