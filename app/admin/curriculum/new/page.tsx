@@ -720,7 +720,7 @@ export default function NewCurriculumPage() {
                           }`}
                         />
                       </div>
-                      {formData.stage_messages.length > 3 && (
+                      {formData.stage_messages.length > 3 && idx !== formData.stage_messages.length - 1 && (
                         <button
                           onClick={() => removeStage(idx)}
                           className="text-red-500 text-sm"
