@@ -32,7 +32,6 @@ interface Student {
   } | null
 }
 
-// Storage URL에서 파일 경로 추출
 function extractStoragePath(url: string | null): string | null {
   if (!url) return null
   try {
@@ -41,6 +40,28 @@ function extractStoragePath(url: string | null): string | null {
   } catch {
     return null
   }
+}
+
+// 이미지를 압축 dataURL로 변환
+function compressToPrintSrc(url: string, maxSize: number, quality: number): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      let { width, height } = img
+      if (width > maxSize || height > maxSize) {
+        if (width > height) { height = Math.round(height * maxSize / width); width = maxSize }
+        else { width = Math.round(width * maxSize / height); height = maxSize }
+      }
+      const c = document.createElement('canvas')
+      c.width = width; c.height = height
+      const ctx = c.getContext('2d')
+      if (ctx) { ctx.drawImage(img, 0, 0, width, height); resolve(c.toDataURL('image/jpeg', quality)) }
+      else resolve(url)
+    }
+    img.onerror = () => resolve(url)
+    img.src = url
+  })
 }
 
 export default function ReportDetailPage() {
@@ -67,11 +88,7 @@ export default function ReportDetailPage() {
       .eq('id', reportId)
       .single()
 
-    if (!reportData) {
-      setLoading(false)
-      return
-    }
-
+    if (!reportData) { setLoading(false); return }
     setReport(reportData)
 
     if (reportData.student_id) {
@@ -85,70 +102,179 @@ export default function ReportDetailPage() {
         setStudent({
           ...studentData,
           classes: Array.isArray(studentData.classes)
-            ? studentData.classes[0] || null
-            : studentData.classes
+            ? studentData.classes[0] || null : studentData.classes
         })
       }
     }
-
     setLoading(false)
   }
 
-  // ✅ Storage 이미지도 함께 삭제
   async function handleDelete() {
     if (!confirm('이 리포트를 삭제하시겠습니까?\n\n⚠️ 삭제된 리포트와 작품 이미지는 복구할 수 없습니다.')) return
-
     setDeleting(true)
-
     try {
       const imagePaths: string[] = []
-      const beforePath = extractStoragePath(report?.image_before_url || null)
-      const afterPath = extractStoragePath(report?.image_after_url || null)
-      if (beforePath) imagePaths.push(beforePath)
-      if (afterPath) imagePaths.push(afterPath)
-
+      const bp = extractStoragePath(report?.image_before_url || null)
+      const ap = extractStoragePath(report?.image_after_url || null)
+      if (bp) imagePaths.push(bp)
+      if (ap) imagePaths.push(ap)
       if (imagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('artworks')
-          .remove(imagePaths)
-        if (storageError) {
-          console.warn('이미지 삭제 실패 (리포트 삭제는 계속 진행):', storageError)
-        }
+        await supabase.storage.from('artworks').remove(imagePaths)
       }
-
-      const { error } = await supabase
-        .from('reports')
-        .delete()
-        .eq('id', reportId)
-
-      if (error) {
-        alert('삭제 실패: ' + error.message)
-        setDeleting(false)
-        return
-      }
-
+      const { error } = await supabase.from('reports').delete().eq('id', reportId)
+      if (error) { alert('삭제 실패: ' + error.message); setDeleting(false); return }
       alert('리포트가 삭제되었습니다.')
-      if (report?.student_id) {
-        router.push(`/students/${report.student_id}`)
-      } else {
-        router.push('/reports')
-      }
-    } catch (err) {
-      console.error('삭제 오류:', err)
-      alert('삭제 중 오류가 발생했습니다. 다시 시도해주세요.')
+      report?.student_id ? router.push(`/students/${report.student_id}`) : router.push('/reports')
+    } catch {
+      alert('삭제 중 오류가 발생했습니다.')
       setDeleting(false)
     }
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
 
-  const handlePrint = () => {
-    const reportDate = new Date(report?.created_at || new Date())
+  const handlePrint = async () => {
+    if (!report) return
+
+    let imgBefore = ''
+    let imgAfter = ''
+    if (report.image_before_url) {
+      imgBefore = await compressToPrintSrc(report.image_before_url, 700, 0.65)
+    }
+    if (report.image_after_url) {
+      imgAfter = await compressToPrintSrc(report.image_after_url, 700, 0.65)
+    }
+
+    const studentName = student?.name || '-'
+    const studentAge = student?.birth_year ? getAge(student.birth_year) + '세' : '-'
+    const cn = student?.classes?.name || '-'
+    const reportDate = new Date(report.created_at || new Date())
     const dateStr = `${reportDate.getFullYear()}${String(reportDate.getMonth() + 1).padStart(2, '0')}${String(reportDate.getDate()).padStart(2, '0')}`
-    const fileName = `${student?.name || '학생'}_${dateStr}`
-    document.title = fileName
-    window.print()
-    document.title = '그리마노트'
+    const fileName = `${studentName}_${dateStr}`
+
+    const imgTag = (src: string, alt: string) => src
+      ? `<img src="${src}" alt="${alt}" style="max-height:200px;max-width:100%;object-fit:contain;" />`
+      : `<div style="color:#ccc;font-size:24px;">🖼️</div>`
+
+    const section = (label: string, text: string, highlight?: boolean) => `
+      <div style="background:${highlight ? mainColor + '10' : '#f9fafb'};${highlight ? 'border:1px solid ' + mainColor + '30;' : ''}border-radius:4px;padding:5px 10px;margin-bottom:3px;">
+        <p style="font-weight:600;color:${highlight ? mainColor : '#374151'};font-size:10pt;margin:0 0 1px;">${label}</p>
+        <p style="color:#4b5563;font-size:10pt;line-height:1.45;margin:0;font-weight:600;">${text || '-'}</p>
+      </div>`
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<title>${fileName}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  html, body {
+    width: 210mm; height: 297mm; overflow: hidden;
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm; height: 297mm;
+    padding: 12mm 16mm 10mm 16mm; overflow: hidden;
+  }
+  .info-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
+  .info-label { font-size: 9pt; color: #6b7280; margin-bottom: 1px; }
+  .info-value { font-size: 10pt; font-weight: 700; color: #1f2937; }
+  .photo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .photo-box {
+    background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px;
+    height: 210px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .photo-label { text-align: center; font-size: 9pt; color: #6b7280; margin-bottom: 2px; }
+  .section-title {
+    font-size: 12pt; font-weight: 600; color: ${mainColor};
+    margin-bottom: 3px; display: flex; align-items: center; gap: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div style="margin-bottom:8px;">
+    <img src="/logo.jpg" style="height:24px;margin-bottom:4px;" />
+    <div style="text-align:center;">
+      <h1 style="font-size:18pt;font-weight:700;color:${mainColor};margin:0;">성장 리포트</h1>
+    </div>
+  </div>
+  <div style="margin-bottom:8px;">
+    <div class="section-title"><span>👤</span> 학생 정보</div>
+    <div style="background:${mainColor}10;border:1px solid ${mainColor}30;border-radius:6px;padding:6px 10px;">
+      <div class="info-grid">
+        <div><p class="info-label">이름</p><p class="info-value">${studentName}</p></div>
+        <div><p class="info-label">연령</p><p class="info-value">${studentAge}</p></div>
+        <div><p class="info-label">반</p><p class="info-value">${cn}</p></div>
+        <div><p class="info-label">지도 기간</p><p class="info-value">${report.period_start} ~ ${report.period_end}</p></div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-bottom:8px;">
+    <div class="section-title"><span>📷</span> 작품 비교</div>
+    <div class="photo-grid">
+      <div><p class="photo-label">이전</p><div class="photo-box">${imgTag(imgBefore, '이전')}</div></div>
+      <div><p class="photo-label">최근</p><div class="photo-box">${imgTag(imgAfter, '최근')}</div></div>
+    </div>
+  </div>
+  <div style="margin-bottom:8px;">
+    <div class="section-title"><span>✨</span> 작품 변화</div>
+    ${section('형태', report.content_form)}
+    ${section('색채', report.content_color)}
+    ${section('표현', report.content_expression)}
+  </div>
+  <div style="margin-bottom:4px;">
+    <div class="section-title"><span>💬</span> 선생님 코멘트</div>
+    ${section('강점', report.content_strength)}
+    ${section('수업 태도 및 감성', report.content_attitude)}
+    ${section('향후 지도 방향', report.content_direction, true)}
+  </div>
+  <div style="text-align:center;color:#d1d5db;font-size:7.5pt;margin-top:6px;">
+    ⓒ 2026. 그리마미술 INC. All rights reserved.
+  </div>
+</div>
+<script>
+  var page = document.querySelector('.page');
+  var maxH = 297 * 3.7795;
+  var realH = page.scrollHeight;
+  if (realH > maxH) {
+    var s = maxH / realH;
+    page.style.transform = 'scale(' + s + ')';
+    page.style.transformOrigin = 'top left';
+    page.style.width = (210 / s) + 'mm';
+  }
+</script>
+</body>
+</html>`
+
+    // 숨겨진 iframe 생성
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = 'none'
+    document.body.appendChild(iframe)
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+    if (!iframeDoc) { document.body.removeChild(iframe); return }
+
+    iframeDoc.open()
+    iframeDoc.write(html)
+    iframeDoc.close()
+
+    // 이미지 로딩 대기 후 인쇄
+    iframe.onload = () => {
+      setTimeout(() => {
+        document.title = fileName
+        iframe.contentWindow?.print()
+        document.title = '그리마노트'
+        setTimeout(() => document.body.removeChild(iframe), 500)
+      }, 400)
+    }
   }
 
   if (loading) {
@@ -174,206 +300,167 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <>
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200">
       <style jsx global>{`
-        @media print {
-          body * { visibility: hidden; }
-          #print-area, #print-area * { visibility: visible; }
-          #print-area { position: absolute; left: 0; top: 0; width: 210mm; }
-          .no-print { display: none !important; }
-          .print-page { 
-            width: 210mm !important; 
-            min-height: 297mm !important; 
-            padding: 15mm 20mm !important;
-            margin: 0 !important;
-            box-shadow: none !important;
-          }
-          @page { size: A4; margin: 0; }
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
-        }
         body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; }
       `}</style>
 
-      <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200">
-
-        {/* 헤더 */}
-        <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50 no-print">
-          <div className="max-w-4xl mx-auto px-4 py-3 md:py-4">
-            <div className="flex items-center justify-between">
-              <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
-                ← 뒤로
+      <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-gray-200/50">
+        <div className="max-w-4xl mx-auto px-4 py-3 md:py-4">
+          <div className="flex items-center justify-between">
+            <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700 transition text-sm md:text-base">
+              ← 뒤로
+            </button>
+            <h1 className="text-base md:text-lg font-bold text-gray-800">성장 리포트</h1>
+            <div className="flex gap-3">
+              <button
+                onClick={() => router.push(`/reports/${reportId}/edit`)}
+                style={{ color: mainColor }}
+                className="hover:opacity-80 text-sm font-medium transition"
+              >
+                수정
               </button>
-              <h1 className="text-base md:text-lg font-bold text-gray-800">성장 리포트</h1>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => router.push(`/reports/${reportId}/edit`)}
-                  style={{ color: mainColor }}
-                  className="hover:opacity-80 text-sm font-medium transition"
-                >
-                  수정
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="text-gray-400 hover:text-red-500 text-sm font-medium transition"
-                >
-                  {deleting ? '삭제 중...' : '삭제'}
-                </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-gray-400 hover:text-red-500 text-sm font-medium transition"
+              >
+                {deleting ? '삭제 중...' : '삭제'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto my-4 md:my-6 px-4" style={{ maxWidth: '210mm' }}>
+        <div className="bg-white shadow-lg rounded-lg" style={{ padding: '24px' }}>
+
+          {/* 로고 & 타이틀 */}
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ marginBottom: '6px' }}>
+              <img loading="lazy" decoding="async" src="/logo.jpg" alt="그리마미술 로고" style={{ height: '28px', width: 'auto' }} />
+            </div>
+            <div className="text-center">
+              <h1 className="font-bold" style={{ color: mainColor, fontSize: '20pt' }}>성장 리포트</h1>
+            </div>
+          </div>
+
+          {/* 학생 정보 */}
+          <div style={{ marginBottom: '10px' }}>
+            <h3 className="font-semibold flex items-center gap-1" style={{ color: mainColor, fontSize: '13pt', marginBottom: '4px' }}>
+              <span>👤</span> 학생 정보
+            </h3>
+            <div className="rounded-xl" style={{ backgroundColor: `${mainColor}10`, border: `1px solid ${mainColor}30`, padding: '8px 10px' }}>
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <p className="font-medium text-gray-500" style={{ fontSize: '10pt' }}>이름</p>
+                  <p className="font-semibold text-gray-800" style={{ fontSize: '10pt' }}>{student?.name || '-'}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500" style={{ fontSize: '10pt' }}>연령</p>
+                  <p className="font-semibold text-gray-800" style={{ fontSize: '10pt' }}>{student?.birth_year ? getAge(student.birth_year) + '세' : '-'}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500" style={{ fontSize: '10pt' }}>반</p>
+                  <p className="font-semibold text-gray-800" style={{ fontSize: '10pt' }}>{student?.classes?.name || '-'}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500" style={{ fontSize: '10pt' }}>지도 기간</p>
+                  <p className="font-semibold text-gray-800" style={{ fontSize: '10pt' }}>{report.period_start} ~ {report.period_end}</p>
+                </div>
               </div>
             </div>
           </div>
-        </header>
 
-        {/* 프린트 영역 */}
-        <div id="print-area" className="mx-auto my-4 md:my-6 px-4" style={{ maxWidth: '210mm' }}>
-
-          {/* 1페이지 */}
-          <div className="print-page bg-white shadow-lg rounded-lg" style={{ padding: '28px' }}>
-
-            {/* 로고 & 타이틀 */}
-            <div className="mb-6">
-              <div className="mb-3">
-                <img
-                  loading="lazy" decoding="async" src="/logo.jpg"
-                  alt="그리마미술 로고"
-                  style={{ height: '28px', width: 'auto' }}
-                />
+          {/* 작품 비교 */}
+          <div style={{ marginBottom: '10px' }}>
+            <h3 className="font-semibold flex items-center gap-1" style={{ color: mainColor, fontSize: '13pt', marginBottom: '4px' }}>
+              <span>📷</span> 작품 비교
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center">
+                <p className="font-medium text-gray-500" style={{ fontSize: '10pt', marginBottom: '3px' }}>이전</p>
+                <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center justify-center" style={{ height: '200px' }}>
+                  {report.image_before_url ? (
+                    <img loading="lazy" decoding="async" src={report.image_before_url} alt="이전" style={{ maxHeight: '190px', maxWidth: '100%', objectFit: 'contain' }} />
+                  ) : <span className="text-3xl text-gray-300">🖼️</span>}
+                </div>
               </div>
               <div className="text-center">
-                <h1 className="font-bold" style={{ color: mainColor, fontSize: '20pt' }}>성장 리포트</h1>
-              </div>
-            </div>
-
-            {/* 학생 정보 카드 */}
-            <div className="mb-5">
-              <h3 className="font-semibold mb-2 flex items-center gap-1" style={{ color: mainColor, fontSize: '14pt' }}>
-                <span>👤</span> 학생 정보
-              </h3>
-              <div className="rounded-xl p-4" style={{ backgroundColor: `${mainColor}10`, border: `1px solid ${mainColor}30` }}>
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  <div>
-                    <p className="font-medium text-gray-600 mb-0.5" style={{ fontSize: '11pt' }}>이름</p>
-                    <p className="font-semibold text-gray-800" style={{ fontSize: '11pt' }}>{student?.name || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-600 mb-0.5" style={{ fontSize: '11pt' }}>연령</p>
-                    <p className="font-semibold text-gray-800" style={{ fontSize: '11pt' }}>{student?.birth_year ? getAge(student.birth_year) + '세' : '-'}</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-600 mb-0.5" style={{ fontSize: '11pt' }}>반</p>
-                    <p className="font-semibold text-gray-800" style={{ fontSize: '11pt' }}>{student?.classes?.name || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-600 mb-0.5" style={{ fontSize: '11pt' }}>지도 기간</p>
-                    <p className="font-semibold text-gray-800" style={{ fontSize: '11pt' }}>{report.period_start} ~ {report.period_end}</p>
-                  </div>
+                <p className="font-medium text-gray-500" style={{ fontSize: '10pt', marginBottom: '3px' }}>최근</p>
+                <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center justify-center" style={{ height: '200px' }}>
+                  {report.image_after_url ? (
+                    <img loading="lazy" decoding="async" src={report.image_after_url} alt="최근" style={{ maxHeight: '190px', maxWidth: '100%', objectFit: 'contain' }} />
+                  ) : <span className="text-3xl text-gray-300">🖼️</span>}
                 </div>
               </div>
-            </div>
-
-            {/* 작품 비교 */}
-            <div className="mb-5">
-              <h3 className="font-semibold mb-2 flex items-center gap-1" style={{ color: mainColor, fontSize: '14pt' }}>
-                <span>📷</span> 작품 비교
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center">
-                  <p className="font-medium text-gray-600 mb-1" style={{ fontSize: '11pt' }}>이전</p>
-                  <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center justify-center" style={{ height: '240px' }}>
-                    {report.image_before_url ? (
-                      <img loading="lazy" decoding="async" src={report.image_before_url} alt="이전" style={{ maxHeight: '230px', maxWidth: '100%', objectFit: 'contain' }} />
-                    ) : (
-                      <span className="text-3xl text-gray-300">🖼️</span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="font-medium text-gray-600 mb-1" style={{ fontSize: '11pt' }}>최근</p>
-                  <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center justify-center" style={{ height: '240px' }}>
-                    {report.image_after_url ? (
-                      <img loading="lazy" decoding="async" src={report.image_after_url} alt="최근" style={{ maxHeight: '230px', maxWidth: '100%', objectFit: 'contain' }} />
-                    ) : (
-                      <span className="text-3xl text-gray-300">🖼️</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 작품 변화 */}
-            <div className="mb-5">
-              <h3 className="font-semibold mb-2 flex items-center gap-1" style={{ color: mainColor, fontSize: '14pt' }}>
-                <span>✨</span> 작품 변화
-              </h3>
-              <div className="space-y-2">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold text-gray-700 mb-1" style={{ fontSize: '11pt' }}>형태</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_form || '-'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold text-gray-700 mb-1" style={{ fontSize: '11pt' }}>색채</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_color || '-'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold text-gray-700 mb-1" style={{ fontSize: '11pt' }}>표현</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_expression || '-'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 선생님 코멘트 */}
-            <div className="mb-5">
-              <h3 className="font-semibold mb-2 flex items-center gap-1" style={{ color: mainColor, fontSize: '14pt' }}>
-                <span>💬</span> 선생님 코멘트
-              </h3>
-              <div className="space-y-2">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold text-gray-700 mb-1" style={{ fontSize: '11pt' }}>강점</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_strength || '-'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="font-semibold text-gray-700 mb-1" style={{ fontSize: '11pt' }}>수업 태도 및 감성</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_attitude || '-'}</p>
-                </div>
-                <div className="rounded-lg p-3" style={{ backgroundColor: `${mainColor}10`, border: `1px solid ${mainColor}30` }}>
-                  <p className="font-semibold mb-1" style={{ color: mainColor, fontSize: '11pt' }}>향후 지도 방향</p>
-                  <p className="text-gray-600 leading-relaxed" style={{ fontSize: '11pt' }}>{report.content_direction || '-'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 푸터 */}
-            <div className="text-center text-gray-300 mt-6" style={{ fontSize: '9pt' }}>
-              ⓒ 2026. 그리마미술 INC. All rights reserved.
             </div>
           </div>
 
-        </div>
+          {/* 작품 변화 */}
+          <div style={{ marginBottom: '10px' }}>
+            <h3 className="font-semibold flex items-center gap-1" style={{ color: mainColor, fontSize: '13pt', marginBottom: '4px' }}>
+              <span>✨</span> 작품 변화
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {[
+                { label: '형태', text: report.content_form },
+                { label: '색채', text: report.content_color },
+                { label: '표현', text: report.content_expression },
+              ].map((item) => (
+                <div key={item.label} className="bg-gray-50 rounded-lg" style={{ padding: '6px 10px' }}>
+                  <p className="font-semibold text-gray-700" style={{ fontSize: '10pt', marginBottom: '2px' }}>{item.label}</p>
+                  <p className="text-gray-600" style={{ fontSize: '10pt', lineHeight: '1.45' }}>{item.text || '-'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        {/* 하단 버튼 */}
-        <div className="max-w-4xl mx-auto px-4 py-6 no-print">
-          <div className="flex gap-3">
-            <button
-              onClick={() => router.back()}
-              className="flex-1 bg-white text-gray-600 py-3 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200"
-            >
-              ← 돌아가기
-            </button>
-            <button
-              onClick={handlePrint}
-              className="flex-1 text-white py-3 rounded-2xl font-medium hover:opacity-90 transition shadow-lg"
-              style={{ backgroundColor: mainColor }}
-            >
-              🖨️ 인쇄 / PDF 저장
-            </button>
+          {/* 선생님 코멘트 */}
+          <div style={{ marginBottom: '6px' }}>
+            <h3 className="font-semibold flex items-center gap-1" style={{ color: mainColor, fontSize: '13pt', marginBottom: '4px' }}>
+              <span>💬</span> 선생님 코멘트
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div className="bg-gray-50 rounded-lg" style={{ padding: '6px 10px' }}>
+                <p className="font-semibold text-gray-700" style={{ fontSize: '10pt', marginBottom: '2px' }}>강점</p>
+                <p className="text-gray-600" style={{ fontSize: '10pt', lineHeight: '1.45' }}>{report.content_strength || '-'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg" style={{ padding: '6px 10px' }}>
+                <p className="font-semibold text-gray-700" style={{ fontSize: '10pt', marginBottom: '2px' }}>수업 태도 및 감성</p>
+                <p className="text-gray-600" style={{ fontSize: '10pt', lineHeight: '1.45' }}>{report.content_attitude || '-'}</p>
+              </div>
+              <div className="rounded-lg" style={{ backgroundColor: `${mainColor}10`, border: `1px solid ${mainColor}30`, padding: '6px 10px' }}>
+                <p className="font-semibold" style={{ color: mainColor, fontSize: '10pt', marginBottom: '2px' }}>향후 지도 방향</p>
+                <p className="text-gray-600" style={{ fontSize: '10pt', lineHeight: '1.45' }}>{report.content_direction || '-'}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 푸터 */}
+          <div className="text-center text-gray-300" style={{ fontSize: '8pt', marginTop: '8px' }}>
+            ⓒ 2026. 그리마미술 INC. All rights reserved.
           </div>
         </div>
-
       </div>
-    </>
+
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        <div className="flex gap-3">
+          <button
+            onClick={() => router.back()}
+            className="flex-1 bg-white text-gray-600 py-3 rounded-2xl font-medium hover:bg-gray-50 transition border border-gray-200"
+          >
+            ← 돌아가기
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex-1 text-white py-3 rounded-2xl font-medium hover:opacity-90 transition shadow-lg"
+            style={{ backgroundColor: mainColor }}
+          >
+            🖨️ 인쇄 / PDF 저장
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

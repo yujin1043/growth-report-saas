@@ -102,6 +102,7 @@ function NewReportPage() {
   const [editingField, setEditingField] = useState<string | null>(null)
 
   const currentYear = new Date().getFullYear()
+  const SAVE_KEY = studentId ? `report-draft-${studentId}` : null
   
   // 지도기간 포맷 (예: "25.01")
   const periodStart = `${String(startYear).slice(2)}.${String(startMonth).padStart(2, '0')}`
@@ -126,6 +127,47 @@ function NewReportPage() {
       loadStudent()
     }
   }, [studentId])
+
+  // ✅ 새로고침 시 입력값 복원
+  useEffect(() => {
+    if (!SAVE_KEY) return
+    try {
+      const saved = localStorage.getItem(SAVE_KEY)
+      if (!saved) return
+      const data = JSON.parse(saved)
+      if (data.startYear) setStartYear(data.startYear)
+      if (data.startMonth) setStartMonth(data.startMonth)
+      if (data.endYear) setEndYear(data.endYear)
+      if (data.endMonth) setEndMonth(data.endMonth)
+      if (data.improvements) setImprovements(data.improvements)
+      if (data.studentMemo) setStudentMemo(data.studentMemo)
+      if (data.parentRequest) setParentRequest(data.parentRequest)
+      if (data.imageBefore) setImageBefore(prev => ({ ...prev, croppedUrl: data.imageBefore, originalUrl: data.imageBefore }))
+      if (data.imageAfter) setImageAfter(prev => ({ ...prev, croppedUrl: data.imageAfter, originalUrl: data.imageAfter }))
+      if (data.reportContent) {
+        setReportContent(data.reportContent)
+        setShowResult(true)
+      }
+    } catch {}
+  }, [SAVE_KEY])
+
+  // ✅ 입력값 변경 시 자동저장
+  useEffect(() => {
+    if (!SAVE_KEY) return
+    const timer = setTimeout(() => {
+      try {
+        const data: any = {
+          startYear, startMonth, endYear, endMonth,
+          improvements, studentMemo, parentRequest,
+        }
+        if (imageBefore.croppedUrl?.startsWith('data:')) data.imageBefore = imageBefore.croppedUrl
+        if (imageAfter.croppedUrl?.startsWith('data:')) data.imageAfter = imageAfter.croppedUrl
+        if (reportContent) data.reportContent = reportContent
+        localStorage.setItem(SAVE_KEY, JSON.stringify(data))
+      } catch {}
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [SAVE_KEY, startYear, startMonth, endYear, endMonth, improvements, studentMemo, parentRequest, imageBefore.croppedUrl, imageAfter.croppedUrl, reportContent])
 
   async function loadStudent() {
     try {
@@ -163,18 +205,19 @@ function NewReportPage() {
       return
     }
 
-    const url = URL.createObjectURL(file)
-    const newState: ImageEditState = {
-      originalFile: file,
-      originalUrl: url,
-      rotation: 0,
-      croppedUrl: url
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const newState: ImageEditState = {
+        originalFile: file,
+        originalUrl: dataUrl,
+        rotation: 0,
+        croppedUrl: dataUrl
+      }
+      if (type === 'before') setImageBefore(newState)
+      else setImageAfter(newState)
     }
-    if (type === 'before') {
-      setImageBefore(newState)
-    } else {
-      setImageAfter(newState)
-    }
+    reader.readAsDataURL(file)
 
     // ② 같은 파일 재선택 가능하도록 input 초기화
     e.target.value = ''
@@ -483,14 +526,19 @@ function NewReportPage() {
       let imageBeforeUrl = null
       let imageAfterUrl = null
 
-      const beforeFile = await getFinalImageFile(imageBefore)
-      const afterFile = await getFinalImageFile(imageAfter)
-
-      if (beforeFile) {
-        imageBeforeUrl = await uploadImage(beforeFile, student.id, 'before')
+      if (imageBefore.croppedUrl) {
+        const compressed = await compressImage(imageBefore.croppedUrl, 1200, 0.75)
+        const res = await fetch(compressed)
+        const blob = await res.blob()
+        const file = new File([blob], 'before.jpg', { type: 'image/jpeg' })
+        imageBeforeUrl = await uploadImage(file, student.id, 'before')
       }
-      if (afterFile) {
-        imageAfterUrl = await uploadImage(afterFile, student.id, 'after')
+      if (imageAfter.croppedUrl) {
+        const compressed = await compressImage(imageAfter.croppedUrl, 1200, 0.75)
+        const res = await fetch(compressed)
+        const blob = await res.blob()
+        const file = new File([blob], 'after.jpg', { type: 'image/jpeg' })
+        imageAfterUrl = await uploadImage(file, student.id, 'after')
       }
 
       let branchId = student.branch_id
@@ -545,6 +593,7 @@ function NewReportPage() {
         .update({ last_report_at: new Date().toISOString() })
         .eq('id', student.id)
 
+      if (SAVE_KEY) localStorage.removeItem(SAVE_KEY)
       alert('리포트가 저장되었습니다!')
       
       router.push(`/students/${student.id}`)

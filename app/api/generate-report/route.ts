@@ -22,20 +22,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '학생 이름이 필요합니다.' }, { status: 400 })
     }
 
-    const firstName = studentName.charAt(0)
-    const nameWithSuffix = studentName.endsWith('이') || ['아', '야'].some(s => studentName.endsWith(s))
-      ? studentName
-      : studentName + '이'
+    const firstName = studentName.length >= 3 ? studentName.slice(1) : studentName
+    const lastChar = firstName.charCodeAt(firstName.length - 1)
+    const hasBatchim = (lastChar - 0xAC00) % 28 !== 0
+    const nameNun = hasBatchim ? firstName + '이는' : firstName + '는'
+    const nameGa = hasBatchim ? firstName + '이가' : firstName + '가'
 
     const systemPrompt = `당신은 미술학원 전문 교사입니다. 학생의 작품 이미지를 분석하여 학부모에게 전달할 성장 리포트를 작성합니다.
     
 작성 규칙:
 - 각 항목은 반드시 3문장 이상 작성하세요.
 - 이미지에서 관찰한 구체적인 내용을 포함해주세요.
-- 절대로 [형태], [색채] 등의 태그를 붙이지 마세요. 바로 내용으로 시작하세요.`
+- 절대로 [형태], [색채] 등의 태그를 붙이지 마세요. 바로 내용으로 시작하세요.
+- 학생 이름은 반드시 성 없이 "${firstName}" 만 사용하세요
+- 절대 풀네임 "${studentName}"을 사용하지 마세요
+- "동료" 대신 "친구", "협력" 대신 "함께 잘 어울리며", "피드백" 대신 "이야기", "몰입" 대신 "집중"을 사용하세요
+- 학부모가 읽기 편한 따뜻하고 친근한 말투로 작성하세요`
 
     const userPrompt = `학생 정보:
-- 이름: ${studentName} (${nameWithSuffix})
+- 이름: ${firstName} (${nameNun})
 - 나이: ${studentAge}세
 - 반: ${className || '미지정'}
 - 교사 메모: ${teacherMemo}
@@ -43,11 +48,11 @@ ${parentRequest ? `- 학부모 요청사항: ${parentRequest}` : ''}
 
 아래 JSON 형식으로만 응답해주세요 (다른 텍스트 없이):
 {
-  "content_form": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 형태 표현 변화를 3문장 이상 작성. 선의 안정감, 비례, 크기, 구도 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
-  "content_color": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 색채 표현 변화를 3문장 이상 작성. 색 선택, 배색, 채색 방식의 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
-  "content_expression": "이전 작품과 최근 작품을 비교하여 ${nameWithSuffix} 표현력 변화를 3문장 이상 작성. 주제 표현, 디테일, 이야기 구성의 변화 등.",
-  "content_strength": "${nameWithSuffix} 강점 2-3문장. 이미지와 교사 메모를 바탕으로 성향과 미술적 특성을 결합한 긍정적 관찰.",
-  "content_attitude": "${nameWithSuffix} 수업 태도와 감성 3문장 이상. 교사 메모를 바탕으로 구체적 행동 묘사.",
+  "content_form": "이전 작품과 최근 작품을 비교하여 ${nameNun} 형태 표현 변화를 3문장 이상 작성. 선의 안정감, 비례, 크기, 구도 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
+  "content_color": "이전 작품과 최근 작품을 비교하여 ${nameNun} 색채 표현 변화를 3문장 이상 작성. 색 선택, 배색, 채색 방식의 변화 등을 이미지에서 관찰한 내용으로 구체적으로.",
+  "content_expression": "이전 작품과 최근 작품을 비교하여 ${nameNun} 표현력 변화를 3문장 이상 작성. 주제 표현, 디테일, 이야기 구성의 변화 등.",
+  "content_strength": "${nameNun} 강점 2-3문장. 이미지와 교사 메모를 바탕으로 성향과 미술적 특성을 결합한 긍정적 관찰.",
+  "content_attitude": "${nameNun} 수업 태도와 감성 3문장 이상. 교사 메모를 바탕으로 구체적 행동 묘사.",
   "content_direction": "3문장 이상. 이미지 분석을 바탕으로 앞으로의 구체적인 지도 계획. 반드시 '~방향으로 지도하겠습니다', '~할 수 있도록 도와드리겠습니다' 형태로 작성."
 }`
 
@@ -144,13 +149,23 @@ ${parentRequest ? `- 학부모 요청사항: ${parentRequest}` : ''}
 
     try {
       const reportContent = JSON.parse(jsonMatch[0])
+      const cleanField = (text: string) => {
+        if (!text) return ''
+        return text
+          .replace(/^\[.*?\]\s*/i, '')
+          .replaceAll(studentName + '이는', nameNun)
+          .replaceAll(studentName + '은', firstName + (hasBatchim ? '이는' : '는'))
+          .replaceAll(studentName + '는', firstName + (hasBatchim ? '이는' : '는'))
+          .replaceAll(studentName, firstName)
+      }
+
       const cleanContent = {
-        content_form: (reportContent.content_form || '').replace(/^\[형태\]\s*/i, ''),
-        content_color: (reportContent.content_color || '').replace(/^\[색채\]\s*/i, ''),
-        content_expression: (reportContent.content_expression || '').replace(/^\[표현\]\s*/i, ''),
-        content_strength: (reportContent.content_strength || '').replace(/^\[강점\]\s*/i, ''),
-        content_attitude: (reportContent.content_attitude || '').replace(/^\[수업태도\]\s*/i, ''),
-        content_direction: (reportContent.content_direction || '').replace(/^\[지도방향\]\s*/i, '')
+        content_form: cleanField(reportContent.content_form),
+        content_color: cleanField(reportContent.content_color),
+        content_expression: cleanField(reportContent.content_expression),
+        content_strength: cleanField(reportContent.content_strength),
+        content_attitude: cleanField(reportContent.content_attitude),
+        content_direction: cleanField(reportContent.content_direction)
       }
       return NextResponse.json(cleanContent)
     } catch (parseError) {
