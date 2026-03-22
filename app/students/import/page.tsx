@@ -29,12 +29,23 @@ interface StudentRow {
   error?: string
 }
 
+const GRADE_TO_AGE: Record<string, number> = {
+  '유-5': 5, '유-6': 6, '유-7': 7,
+  '초-1': 8, '초-2': 9, '초-3': 10,
+  '초-4': 11, '초-5': 12, '초-6': 13,
+  '중-1': 14, '중-2': 15, '중-3': 16,
+}
+
 function parseAge(value: string | number): number | null {
   if (typeof value === 'number') {
     if (value >= 2000) return new Date().getFullYear() - value + 1
     return value
   }
   const str = String(value).trim()
+
+  // 학년 코드 (유-5, 초-1, 중-3 등)
+  if (GRADE_TO_AGE[str]) return GRADE_TO_AGE[str]
+
   const numOnly = parseInt(str)
   if (!isNaN(numOnly)) {
     if (numOnly >= 2000) return new Date().getFullYear() - numOnly + 1
@@ -277,12 +288,12 @@ export default function ImportStudentsPage() {
               <h3 className="font-bold text-blue-800 mb-2">📋 컬럼 안내</h3>
               <ul className="text-sm text-blue-700 space-y-1">
                 <li>• <strong>이름</strong> (필수)</li>
-                <li>• <strong>나이</strong> (필수) - 예: 7, 7세, 유치부7세, 초등1학년, 초1</li>
+                <li>• <strong>나이</strong> (필수) - 예: 7, 7세, 유-5, 초-1, 중-2, 초등1학년</li>
                 <li>• <strong>반</strong> (필수) - 예: 01반, 1반, 1, 01 모두 인식</li>
                 <li>• 학부모 (선택)</li>
                 <li>• 연락처 (선택)</li>
               </ul>
-              <p className="text-xs text-blue-600 mt-3">💡 나이는 숫자(7), 세(7세), 학년(초등1학년, 초1), 유치부(유치부7세) 형식 모두 인식됩니다.</p>
+              <p className="text-xs text-blue-600 mt-3">💡 나이는 숫자(7), 세(7세), 학년코드(유-5, 초-1, 중-2), 학년(초등1학년, 초1) 형식 모두 인식됩니다. *이지프로 엑셀 파일에서 Q(학년)칼럼을 복사 붙여넣기 해주세요. </p>
             </div>
           </div>
         )}
