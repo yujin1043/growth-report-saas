@@ -336,7 +336,7 @@ export default function DailyMessagePage() {
     return created.id
   }
 
-  async function syncSketchbookWork(studentId: string, topicTitle: string, topicId?: string) {
+  async function syncSketchbookWork(studentId: string, topicTitle: string, topicId?: string, description?: string) {
     if (progressStatus === 'started') {
       const sketchbookId = await ensureSketchbook(studentId)
       const insertData: any = {
@@ -346,7 +346,7 @@ export default function DailyMessagePage() {
         session_count: 1,
       }
       if (topicId) { insertData.curriculum_id = topicId; insertData.is_custom = false }
-      else { insertData.is_custom = true; insertData.custom_title = topicTitle }
+      else { insertData.is_custom = true; insertData.custom_title = topicTitle; insertData.custom_description = description || null }
       const { error } = await supabase.from('sketchbook_works').insert(insertData)
       if (error) throw new Error('sketchbook_works insert 실패: ' + error.message)
       return
@@ -695,11 +695,11 @@ export default function DailyMessagePage() {
       }
 
       try {
-        await syncSketchbookWork(s.id, topicTitle, lessonType === 'curriculum' ? selectedTopicId : undefined)
-      } catch (e) {
-        console.warn('스케치북 동기화 실패 (무시):', e)
+        await syncSketchbookWork(s.id, topicTitle, lessonType === 'curriculum' ? selectedTopicId : undefined, message)
+      } catch (e: any) {
+        console.error('스케치북 동기화 실패:', e)
+        alert(`⚠️ 메시지는 정상 발송되었으나, 스케치북 진도 기록에 실패했습니다.\n(${e?.message || ''})\n\n학생 상세 > 스케치북 탭에서 수동으로 추가해주세요.`)
       }
-
       imageUrls.forEach(u => URL.revokeObjectURL(u))
       setImages([]); setImageUrls([])
       ;['dm_classId','dm_branchId','dm_studentId','dm_studentSearch','dm_selectedWork',
