@@ -320,7 +320,7 @@ export default function DashboardPage() {
 
       const { data: sketchbooks } = await supabase
         .from('sketchbooks')
-        .select('id, student_id, book_number, status, completed_at')
+        .select('id, student_id, book_number, status, completed_at, followup_done')
         .in('student_id', studentIds)
 
       const activeSketchbookMap = new Map<string, string>()
@@ -331,7 +331,7 @@ export default function DashboardPage() {
         sbToStudent.set(sk.id, sk.student_id)
         if (sk.status === 'active') {
           activeSketchbookMap.set(sk.student_id, sk.id)
-        } else if (sk.status === 'completed' && sk.completed_at) {
+        } else if (sk.status === 'completed' && sk.completed_at && !sk.followup_done) {
           const existing = completedSketchbookMap.get(sk.student_id)
           if (!existing || new Date(sk.completed_at) > new Date(existing.completed_at)) {
             completedSketchbookMap.set(sk.student_id, { book_number: sk.book_number, completed_at: sk.completed_at })

@@ -17,6 +17,7 @@ interface Sketchbook {
   started_at: string
   completed_at: string | null
   status: string
+  followup_done?: boolean
 }
 
 interface SketchbookWork {
@@ -203,6 +204,25 @@ export default function SketchbookDetailPage() {
     }
   }
 
+  async function handleFollowupDone() {
+    if (!confirm('후속 작업(출력·리포트)을 완료 처리하시겠습니까?\n\n완료하면 대시보드 관리 목록에서 제외됩니다.')) return
+
+    try {
+      const { error } = await supabase
+        .from('sketchbooks')
+        .update({ followup_done: true })
+        .eq('id', sketchbookId)
+
+      if (error) throw error
+
+      setSketchbook(prev => prev ? { ...prev, followup_done: true } : prev)
+      alert('후속 작업이 완료 처리되었습니다!')
+    } catch (error) {
+      console.error('Followup done error:', error)
+      alert('처리에 실패했습니다')
+    }
+  }
+
   const getWorkDescription = (work: SketchbookWork) => {
     if (editMode) {
       return editedWorks[work.id] || ''
@@ -328,6 +348,25 @@ export default function SketchbookDetailPage() {
                 >
                   작성
                 </button>
+              </div>
+
+              {/* 4) 후속 작업 완료 */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <span className="text-lg md:text-xl flex-shrink-0">✅</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-800 text-sm md:text-base">후속 작업 완료</p>
+                  <p className="text-xs text-gray-500">출력·리포트 완료 시 체크하면 관리 목록에서 제외됩니다</p>
+                </div>
+                {sketchbook.followup_done ? (
+                  <span className="px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-medium">완료됨 ✓</span>
+                ) : (
+                  <button
+                    onClick={handleFollowupDone}
+                    className="px-3 py-1.5 md:px-4 md:py-2 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600 transition active:scale-95 flex-shrink-0"
+                  >
+                    완료
+                  </button>
+                )}
               </div>
             </div>
           </div>
