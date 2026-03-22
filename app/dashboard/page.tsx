@@ -93,6 +93,7 @@ export default function DashboardPage() {
   const [progressAlerts, setProgressAlerts] = useState<ProgressAlertStudent[]>([])
   const [completedSketchbooks, setCompletedSketchbooks] = useState<CompletedSketchbookStudent[]>([])
   const [mgmtFilter, setMgmtFilter] = useState<'all' | 'attention' | 'critical' | 'completed'>('all')
+  const [mgmtClassFilter, setMgmtClassFilter] = useState<string>('all')
 
   // 본사 admin용
   const [totalBranches, setTotalBranches] = useState(0)
@@ -341,7 +342,7 @@ export default function DashboardPage() {
       const activeSketchbookIds = [...activeSketchbookMap.values()]
       const allSketchbookIds = sketchbooks?.map((sk: any) => sk.id) || []
 
-      const [inProgressWorksResult, completedWorksResult] = await Promise.all([
+      const [inProgressWorksResult, completedWorksResult, allActiveWorksResult] = await Promise.all([
         activeSketchbookIds.length > 0
           ? supabase
               .from('sketchbook_works')
@@ -356,6 +357,12 @@ export default function DashboardPage() {
               .select('sketchbook_id, session_count')
               .in('sketchbook_id', allSketchbookIds)
               .eq('status', 'completed')
+          : Promise.resolve({ data: [] }),
+        activeSketchbookIds.length > 0
+          ? supabase
+              .from('sketchbook_works')
+              .select('sketchbook_id, session_count')
+              .in('sketchbook_id', activeSketchbookIds)
           : Promise.resolve({ data: [] }),
       ])
 
@@ -420,6 +427,16 @@ export default function DashboardPage() {
         completedWorksAllMap[sid].push(w.session_count)
       })
 
+      // ★ 평균 진도용: 활성 스케치북의 모든 작품 (in_progress + completed 모두 포함)
+      const activeWorksAllMap: Record<string, number[]> = {}
+      const allActiveWorksData = allActiveWorksResult.data || []
+      allActiveWorksData.forEach((w: any) => {
+        const sid = sbToStudent.get(w.sketchbook_id)
+        if (!sid) return
+        if (!activeWorksAllMap[sid]) activeWorksAllMap[sid] = []
+        activeWorksAllMap[sid].push(w.session_count)
+      })
+
       const targetClasses = profile.role === 'teacher' && classIds.length > 0
         ? allClasses.filter((c: any) => classIds.includes(c.id))
         : allClasses
@@ -429,9 +446,9 @@ export default function DashboardPage() {
         const total = classStudents.length
         if (total === 0) return { id: cls.id, name: cls.name, total_students: 0, avg_sessions: 0, completion_rate: 0 }
 
-        const allCompletedSessions = classStudents.flatMap(s => completedWorksAllMap[s.id] || [])
-        const avgSessions = allCompletedSessions.length > 0
-          ? Math.round((allCompletedSessions.reduce((sum, v) => sum + v, 0) / allCompletedSessions.length) * 10) / 10
+        const allWorkSessions = classStudents.flatMap(s => activeWorksAllMap[s.id] || [])
+        const avgSessions = allWorkSessions.length > 0
+          ? Math.round((allWorkSessions.reduce((sum, v) => sum + v, 0) / allWorkSessions.length) * 10) / 10
           : 0
 
         const completedWithin5 = classStudents.filter(s => completedWorksMap[s.id] !== undefined && completedWorksMap[s.id] <= 5).length
@@ -473,12 +490,20 @@ export default function DashboardPage() {
   const completedCount = completedSketchbooks.length
   const totalMgmt = progressAlerts.length + completedSketchbooks.length
 
+  const classFilteredProgress = mgmtClassFilter === 'all'
+    ? progressAlerts
+    : progressAlerts.filter(s => s.class_name === mgmtClassFilter)
+
+  const classFilteredCompleted = mgmtClassFilter === 'all'
+    ? completedSketchbooks
+    : completedSketchbooks.filter(s => s.class_name === mgmtClassFilter)
+
   const filteredProgress = mgmtFilter === 'attention'
-    ? progressAlerts.filter(s => s.session_count >= 3 && s.session_count < 4)
+    ? classFilteredProgress.filter(s => s.session_count >= 3 && s.session_count < 4)
     : mgmtFilter === 'critical'
-    ? progressAlerts.filter(s => s.session_count >= 4)
+    ? classFilteredProgress.filter(s => s.session_count >= 4)
     : mgmtFilter === 'completed' ? []
-    : progressAlerts
+    : classFilteredProgress
 
   const showProgress = mgmtFilter === 'all' || mgmtFilter === 'attention' || mgmtFilter === 'critical'
   const showCompleted = mgmtFilter === 'all' || mgmtFilter === 'completed'
@@ -732,13 +757,54 @@ export default function DashboardPage() {
 
           {totalMgmt > 0 ? (
             <>
-              {/* 필터 탭 */}
+              {/* 반별 필터 */}
+              {(() => {
+                const allClassNames = [
+                  ...new Set([
+                    ...progressAlerts.map(s => s.class_name),
+                    ...completedSketchbooks.map(s => s.class_name),
+                  ])
+                ].filter(Boolean).sort()
+                return allClassNames.length > 1 ? (
+                  <div className="flex gap-1.5 mb-2 overflow-x-auto pb-0.5">
+                    <button
+                      onClick={() => setMgmtClassFilter('all')}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold transition whitespace-nowrap flex-shrink-0 ${
+                        mgmtClassFilter === 'all'
+                          ? 'bg-teal-500 text-white'
+                          : 'bg-teal-50 text-teal-600 border border-teal-200 hover:bg-teal-100'
+                      }`}
+                    >
+                      전체반
+                    </button>
+                    {allClassNames.map(cn => {
+                      const count = progressAlerts.filter(s => s.class_name === cn).length
+                        + completedSketchbooks.filter(s => s.class_name === cn).length
+                      return (
+                        <button
+                          key={cn}
+                          onClick={() => setMgmtClassFilter(cn)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition whitespace-nowrap flex-shrink-0 ${
+                            mgmtClassFilter === cn
+                              ? 'bg-teal-500 text-white'
+                              : 'bg-teal-50 text-teal-600 border border-teal-200 hover:bg-teal-100'
+                          }`}
+                        >
+                          {cn} ({count})
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null
+              })()}
+
+              {/* 상태 필터 탭 */}
               <div className="flex gap-1.5 mb-3.5 overflow-x-auto pb-0.5">
                 {[
-                  { key: 'all', label: `전체 ${totalMgmt}` },
-                  { key: 'attention', label: `⚠️ 주의 ${progressAttentionCount}` },
-                  { key: 'critical', label: `🚨 관리필요 ${progressCriticalCount}` },
-                  { key: 'completed', label: `📚 스케치북완료 ${completedCount}` },
+                  { key: 'all', label: `전체 ${classFilteredProgress.length + classFilteredCompleted.length}` },
+                  { key: 'attention', label: `⚠️ 주의 ${classFilteredProgress.filter(s => s.session_count >= 3 && s.session_count < 4).length}` },
+                  { key: 'critical', label: `🚨 관리필요 ${classFilteredProgress.filter(s => s.session_count >= 4).length}` },
+                  { key: 'completed', label: `📚 스케치북완료 ${classFilteredCompleted.length}` },
                 ].map(tab => (
                   <button
                     key={tab.key}
@@ -757,11 +823,11 @@ export default function DashboardPage() {
                     {mgmtFilter === 'all' && filteredProgress.length > 0 && (
                       <p className="text-xs font-semibold text-gray-400 pt-1 pb-0.5 px-1">진도 경고</p>
                     )}
-                    {filteredProgress.map(s => {
+                    {filteredProgress.map((s, idx) => {
                       const badge = sessionBadge(s.session_count)
                       return (
                         <div
-                          key={s.id}
+                          key={`progress-${idx}`}
                           onClick={() => router.push(`/students/${s.id}`)}
                           className="flex items-center p-3.5 rounded-xl cursor-pointer transition"
                           style={{ background: '#f9fafb', border: `1.5px solid ${badge.border}` }}
@@ -789,9 +855,9 @@ export default function DashboardPage() {
                     {mgmtFilter === 'all' && completedSketchbooks.length > 0 && (
                       <p className="text-xs font-semibold text-gray-400 pt-1 pb-0.5 px-1">스케치북 완료 — 성장리포트 필요</p>
                     )}
-                    {completedSketchbooks.map(s => (
+                    {classFilteredCompleted.map((s, idx) => (
                       <div
-                        key={s.id}
+                        key={`completed-${idx}`}
                         onClick={() => router.push(`/students/${s.id}`)}
                         className="flex items-center p-3.5 rounded-xl cursor-pointer transition"
                         style={{ background: '#f9fafb', border: '1.5px solid #e0e7ff' }}
