@@ -86,6 +86,11 @@ export default function StudentDetailPage() {
   const [activeSketchbook, setActiveSketchbook] = useState<Sketchbook | null>(null)
   const [sketchbookWorks, setSketchbookWorks] = useState<SketchbookWork[]>([])
   const [completedSketchbooks, setCompletedSketchbooks] = useState<Sketchbook[]>([])
+
+  // 진도 이동 모달
+  const [showMoveModal, setShowMoveModal] = useState(false)
+  const [movingWork, setMovingWork] = useState<SketchbookWork | null>(null)
+  const [moveTargetId, setMoveTargetId] = useState<string>('')
   
   // 진도 수정/추가 모달
   const [showWorkModal, setShowWorkModal] = useState(false)
@@ -399,6 +404,40 @@ export default function StudentDetailPage() {
       console.error('Delete error:', error)
       alert('삭제에 실패했습니다')
     }
+  }
+
+  // 진도 이동
+  const openMoveModal = (work: SketchbookWork) => {
+    setMovingWork(work)
+    setMoveTargetId('')
+    setShowMoveModal(true)
+  }
+
+  const handleMoveWork = async () => {
+    if (!movingWork || !moveTargetId) return
+    if (moveTargetId === activeSketchbook?.id) {
+      alert('현재 스케치북과 같은 스케치북입니다.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('sketchbook_works')
+        .update({ sketchbook_id: moveTargetId })
+        .eq('id', movingWork.id)
+
+      if (error) throw error
+
+      setShowMoveModal(false)
+      setMovingWork(null)
+      alert('진도가 이동되었습니다!')
+      await loadSketchbookData()
+    } catch (error) {
+      console.error('Move error:', error)
+      alert('이동에 실패했습니다')
+    }
+    setSaving(false)
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
@@ -786,6 +825,12 @@ export default function StudentDetailPage() {
                       </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
+                              onClick={() => openMoveModal(work)}
+                              className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition"
+                            >
+                              이동
+                            </button>
+                          <button
                             onClick={() => openEditWorkModal(work)}
                             className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"
                           >
@@ -1163,6 +1208,60 @@ export default function StudentDetailPage() {
                 className="flex-1 py-3 rounded-xl text-sm font-medium bg-teal-500 text-white hover:bg-teal-600 transition disabled:opacity-50"
               >
                 {saving ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 진도 이동 모달 */}
+      {showMoveModal && movingWork && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-800">진도 이동</h2>
+              <button onClick={() => setShowMoveModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-400 mb-1">이동할 진도</p>
+                <p className="text-sm font-semibold text-gray-800">
+                  {movingWork.is_custom ? movingWork.custom_title : movingWork.curriculum?.title}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">{movingWork.work_date}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">이동할 스케치북 선택 *</label>
+                <select
+                  value={moveTargetId}
+                  onChange={(e) => setMoveTargetId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                >
+                  <option value="">선택해주세요</option>
+                  {completedSketchbooks.map(sb => (
+                    <option key={sb.id} value={sb.id}>
+                      스케치북 #{sb.book_number} ({sb.started_at} ~ {sb.completed_at})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={() => setShowMoveModal(false)}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleMoveWork}
+                disabled={saving || !moveTargetId}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 transition disabled:opacity-50"
+              >
+                {saving ? '이동 중...' : '이동'}
               </button>
             </div>
           </div>
