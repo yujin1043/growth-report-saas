@@ -475,7 +475,9 @@ export default function DailyMessagePage() {
     const s = students.find(s => s.id === selectedStudentId)!
     const selectedTopic = curriculumTopics.find(t => t.id === selectedTopicId)
 
-    const firstName = s.name.length >= 3 ? s.name.slice(1) : s.name
+    const DOUBLE_SURNAMES = ['남궁','독고','동방','망절','사공','서문','선우','소봉','장곡','제갈','황보']
+    const matchedDouble = DOUBLE_SURNAMES.find(ds => s.name.startsWith(ds) && s.name.length > ds.length)
+    const firstName = matchedDouble ? s.name.slice(matchedDouble.length) : (s.name.length >= 2 ? s.name.slice(1) : s.name)
     const hasJongseong = (() => {
       const code = firstName.charCodeAt(firstName.length - 1)
       return code >= 0xAC00 && code <= 0xD7A3 && (code - 0xAC00) % 28 !== 0

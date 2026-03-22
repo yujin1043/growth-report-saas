@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '학생 이름이 필요합니다.' }, { status: 400 })
     }
 
-    const firstName = studentName.length >= 3 ? studentName.slice(1) : studentName
+    const DOUBLE_SURNAMES = ['남궁','독고','동방','망절','사공','서문','선우','소봉','장곡','제갈','황보']
+    const matchedDouble = DOUBLE_SURNAMES.find(ds => studentName.startsWith(ds) && studentName.length > ds.length)
+    const firstName = matchedDouble ? studentName.slice(matchedDouble.length) : (studentName.length >= 2 ? studentName.slice(1) : studentName)
     const lastChar = firstName.charCodeAt(firstName.length - 1)
     const hasBatchim = (lastChar - 0xAC00) % 28 !== 0
     const nameNun = hasBatchim ? firstName + '이는' : firstName + '는'
