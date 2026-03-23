@@ -56,6 +56,8 @@ export default function SketchbookDetailPage() {
   const [moveTargetId, setMoveTargetId] = useState<string>('')
   const [otherSketchbooks, setOtherSketchbooks] = useState<Sketchbook[]>([])
 
+  const isCompleted = sketchbook?.status === 'completed'
+
   useEffect(() => {
     if (studentId && sketchbookId) loadData()
   }, [studentId, sketchbookId])
@@ -135,9 +137,14 @@ export default function SketchbookDetailPage() {
   }
 
   const handleMoveWork = async () => {
-  if (!movingWork || !moveTargetId) return
+    if (!movingWork || !moveTargetId) return
 
-  setSaving(true)
+    // 완료된 스케치북: 강화 경고
+    if (isCompleted) {
+      if (!confirm('⚠️ 완료된 스케치북의 작품입니다.\n\n이동하면 이 스케치북의 진도 기록에서 사라집니다.\n정말 이동하시겠습니까?')) return
+    }
+  
+    setSaving(true)
   try {
     const { error } = await supabase
       .from('sketchbook_works')
@@ -181,7 +188,12 @@ export default function SketchbookDetailPage() {
   }
 
   async function handleDeleteWork(workId: string, workTitle: string | null | undefined) {
-    if (!confirm(`"${workTitle || '제목 없음'}" 진도를 삭제하시겠습니까?`)) return
+    if (isCompleted) {
+      if (!confirm(`⚠️ 완료된 스케치북의 작품입니다.\n\n"${workTitle || '제목 없음'}"을(를) 삭제하면 진도 기록이 영구 손실됩니다.\n\n정말 삭제하시겠습니까?`)) return
+      if (!confirm(`🚨 마지막 확인: "${workTitle || '제목 없음'}" 작품을 정말 삭제합니까?\n\n이 작업은 되돌릴 수 없습니다.`)) return
+    } else {
+      if (!confirm(`"${workTitle || '제목 없음'}" 진도를 삭제하시겠습니까?`)) return
+    }
   
     setDeleting(workId)
     try {
@@ -491,6 +503,11 @@ export default function SketchbookDetailPage() {
       </div>
 
       <div className="p-6 space-y-4">
+        {isCompleted && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-xs font-medium text-amber-800">⚠️ 완료된 스케치북입니다. 이동 시 진도 기록에서 사라집니다.</p>
+          </div>
+        )}
         <div className="bg-gray-50 rounded-xl p-3">
           <p className="text-xs text-gray-400 mb-1">이동할 진도</p>
           <p className="text-sm font-semibold text-gray-800">

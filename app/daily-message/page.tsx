@@ -672,8 +672,13 @@ export default function DailyMessagePage() {
         message = `오늘 ${nameNun} '${effectiveTopicTitle}'를 주제로 자유화를 ${end.doing}. ${materials}를 사용하여 ${tech} ${end.did}. ${memo}. ${prog} ${nameMan} 멋진 작품이에요! ${emoji}`
       }
     }
+      const today = new Date().toISOString().split('T')[0]
       const [, studentRes] = await Promise.all([
-        supabase.from('daily_messages').delete().eq('student_id', s.id).eq('teacher_id', userId),
+        supabase.from('daily_messages').delete()
+          .eq('student_id', s.id)
+          .eq('teacher_id', userId)
+          .gte('created_at', today + 'T00:00:00.000Z')
+          .lt('created_at', today + 'T23:59:59.999Z'),
         supabase.from('students').select('branch_id').eq('id', s.id).single()
       ])
 
