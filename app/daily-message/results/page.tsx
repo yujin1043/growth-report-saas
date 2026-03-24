@@ -24,6 +24,7 @@ export default function AllResultsPage() {
   const [sharingId, setSharingId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [pcDone, setPcDone] = useState<Record<string, { copied: boolean; downloaded: boolean }>>({})
   
 
   const filteredResults = useMemo(() => {
@@ -112,7 +113,6 @@ export default function AllResultsPage() {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedId(id)
-      await markAsSent(id)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
@@ -207,7 +207,6 @@ export default function AllResultsPage() {
       }
       
       setCopiedId(`download-${result.id}`)
-      await markAsSent(result.id)
       setTimeout(() => setCopiedId(null), 2000)
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -362,36 +361,54 @@ export default function AllResultsPage() {
                           </td>
                           <td className="px-5 py-4">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={async () => {
-                                  await Promise.all([
-                                    copyToClipboard(result.message, result.id),
-                                    result.imageUrls.length > 0 ? downloadImages(result) : Promise.resolve()
-                                  ])
-                                  setCopiedId(`all-${result.id}`)
-                                  setTimeout(() => setCopiedId(null), 2000)
-                                }}
-                                className={`px-2 py-1 rounded text-xs font-medium ${
-                                  copiedId === result.id || copiedId === `download-${result.id}` || copiedId === `all-${result.id}`
-                                    ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
-                                }`}
-                              >
-                                {copiedId === result.id || copiedId === `download-${result.id}` || copiedId === `all-${result.id}`
-                                  ? '✓ 완료' : result.imageUrls.length > 0 ? '📋+📥' : '📋 복사'}
-                              </button>
-                              <button
-                                onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
-                                className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200"
-                              >
-                                상세
-                              </button>
-                              <button
-                                onClick={() => deleteResult(result.id)}
-                                className="px-2 py-1 rounded text-xs font-medium text-red-500 hover:bg-red-50"
-                              >
-                                삭제
-                              </button>
-                            </div>
+                              {result.imageUrls.length > 0 && (
+                                    <button
+                                      onClick={async () => {
+                                        await downloadImages(result)
+                                        setPcDone(prev => {
+                                          const updated = { ...prev, [result.id]: { copied: prev[result.id]?.copied || false, downloaded: true } }
+                                          if (updated[result.id].copied) markAsSent(result.id)
+                                          return updated
+                                        })
+                                      }}
+                                      className={`px-2 py-1 rounded text-xs font-medium ${
+                                        pcDone[result.id]?.downloaded
+                                          ? 'bg-green-500 text-white' : 'bg-gray-700 text-white hover:bg-gray-800'
+                                      }`}
+                                    >
+                                      {pcDone[result.id]?.downloaded ? '✓ 저장됨' : '📥 이미지'}
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={async () => {
+                                      await copyToClipboard(result.message, result.id)
+                                      const hasImages = result.imageUrls.length > 0
+                                      setPcDone(prev => {
+                                        const updated = { ...prev, [result.id]: { copied: true, downloaded: prev[result.id]?.downloaded || false } }
+                                        if (!hasImages || updated[result.id].downloaded) markAsSent(result.id)
+                                        return updated
+                                      })
+                                    }}
+                                    className={`px-2 py-1 rounded text-xs font-medium ${
+                                      pcDone[result.id]?.copied
+                                        ? 'bg-green-500 text-white' : 'bg-teal-500 text-white hover:bg-teal-600'
+                                    }`}
+                                  >
+                                    {pcDone[result.id]?.copied ? '✓ 복사됨' : '📋 문구'}
+                                  </button>
+                                <button
+                                  onClick={() => router.push(`/daily-message/result/${result.studentId}`)}
+                                  className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                >
+                                  상세
+                                </button>
+                                <button
+                                  onClick={() => deleteResult(result.id)}
+                                  className="px-2 py-1 rounded text-xs font-medium text-red-500 hover:bg-red-50"
+                                >
+                                  삭제
+                                </button>
+                              </div>
                           </td>
                         </tr>
                       ))}

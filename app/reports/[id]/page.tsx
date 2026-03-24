@@ -162,11 +162,12 @@ export default function ReportDetailPage() {
         <p style="color:#4b5563;font-size:10pt;line-height:1.45;margin:0;font-weight:600;">${text || '-'}</p>
       </div>`
 
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-<title>${fileName}</title>
-<style>
+      const html = `<!DOCTYPE html>
+      <html>
+      <head>
+      <meta name="viewport" content="width=794">
+      <title>${fileName}</title>
+      <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   @page { size: A4; margin: 0; }
   html, body {
@@ -237,7 +238,7 @@ export default function ReportDetailPage() {
 </div>
 <script>
   var page = document.querySelector('.page');
-  var maxH = 297 * 3.7795;
+  var maxH = 1122;
   var realH = page.scrollHeight;
   if (realH > maxH) {
     var s = maxH / realH;
@@ -245,6 +246,16 @@ export default function ReportDetailPage() {
     page.style.transformOrigin = 'top left';
     page.style.width = (210 / s) + 'mm';
   }
+  page.style.height = '297mm';
+  page.style.overflow = 'hidden';
+  document.body.style.width = '210mm';
+  document.body.style.minWidth = '210mm';
+  document.body.style.height = '297mm';
+  document.body.style.maxHeight = '297mm';
+  document.body.style.overflow = 'hidden';
+  document.documentElement.style.height = '297mm';
+  document.documentElement.style.maxHeight = '297mm';
+  document.documentElement.style.overflow = 'hidden';
 </script>
 </body>
 </html>`

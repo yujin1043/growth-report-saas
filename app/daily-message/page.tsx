@@ -672,13 +672,16 @@ export default function DailyMessagePage() {
         message = `오늘 ${nameNun} '${effectiveTopicTitle}'를 주제로 자유화를 ${end.doing}. ${materials}를 사용하여 ${tech} ${end.did}. ${memo}. ${prog} ${nameMan} 멋진 작품이에요! ${emoji}`
       }
     }
-      const today = new Date().toISOString().split('T')[0]
+      const kstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
+      const todayKST = `${kstNow.getFullYear()}-${String(kstNow.getMonth()+1).padStart(2,'0')}-${String(kstNow.getDate()).padStart(2,'0')}`
+      const startUTC = new Date(todayKST + 'T00:00:00+09:00').toISOString()
+      const endUTC = new Date(todayKST + 'T23:59:59+09:00').toISOString()
       const [, studentRes] = await Promise.all([
         supabase.from('daily_messages').delete()
           .eq('student_id', s.id)
           .eq('teacher_id', userId)
-          .gte('created_at', today + 'T00:00:00.000Z')
-          .lt('created_at', today + 'T23:59:59.999Z'),
+          .gte('created_at', startUTC)
+          .lt('created_at', endUTC),
         supabase.from('students').select('branch_id').eq('id', s.id).single()
       ])
 
