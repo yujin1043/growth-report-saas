@@ -339,6 +339,22 @@ export default function DailyMessagePage() {
   async function syncSketchbookWork(studentId: string, topicTitle: string, topicId?: string, description?: string) {
     if (progressStatus === 'started') {
       const sketchbookId = await ensureSketchbook(studentId)
+    
+      // 동일 커리큘럼이 이미 진행 중인지 확인
+      if (topicId) {
+        const { data: existing } = await supabase
+          .from('sketchbook_works')
+          .select('id')
+          .eq('sketchbook_id', sketchbookId)
+          .eq('curriculum_id', topicId)
+          .eq('status', 'in_progress')
+          .limit(1)
+        if (existing?.length) {
+          console.warn('이미 진행 중인 동일 커리큘럼 작품이 있어 중복 생성을 건너뜁니다.')
+          return
+        }
+      }
+    
       const insertData: any = {
         sketchbook_id: sketchbookId,
         work_date: new Date().toISOString().split('T')[0],
@@ -942,9 +958,15 @@ export default function DailyMessagePage() {
                         <div style={{ marginTop: 8, maxHeight: 220, overflowY: "auto", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff" }}>
                           {curriculumTopics
                             .filter(t => !curriculumSearch || t.title.includes(curriculumSearch))
-                            .map(topic => (
+                            .map(topic => {
+                              const alreadyInProgress = inProgressList.some(w => w.curriculum_id === topic.id && w.status === 'in_progress')
+                              return (
                               <button key={topic.id}
                                 onClick={() => {
+                                  if (alreadyInProgress) {
+                                    alert('이미 진행 중인 작품입니다. 진행 중 작품 목록에서 선택해주세요.')
+                                    return
+                                  }
                                   setSelectedTopicId(topic.id)
                                   setCurriculumSearch(topic.month && topic.week ? `[${topic.month}-${topic.week}] ${topic.title}` : topic.title)
                                   setSelectedWork({ id: `new-${topic.id}`, title: topic.title, type: 'curriculum', sessions: 0, startedAt: '신규' })
@@ -961,12 +983,16 @@ export default function DailyMessagePage() {
                                     ? <span style={{ color: "#0d9488", fontWeight: 700, marginRight: 4 }}>{topic.week}주</span>
                                     : null}
                                   <span style={{ fontWeight: 500 }}>{topic.title}</span>
-                                </span>
+                                  {alreadyInProgress && (
+                                    <span style={{ fontSize: 10, color: '#ef4444', marginLeft: 6, fontWeight: 700 }}>진행중</span>
+                                  )}
+                                  </span>
                                 <span style={{ fontSize: 11, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6, flexShrink: 0 }}>
                                   {topic.age_group === 'kindergarten' ? '유치' : '초등'}
                                 </span>
-                              </button>
-                            ))}
+                                </button>
+                              )
+                            })}
                           {curriculumTopics.filter(t => !curriculumSearch || t.title.includes(curriculumSearch)).length === 0 && (
                             <p style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 13 }}>검색 결과가 없습니다</p>
                           )}
