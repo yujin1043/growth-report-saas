@@ -63,8 +63,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 이름에서 성 제거
-    const firstName = studentName.length >= 3 ? studentName.slice(1) : studentName
+    // 이름에서 성 제거 (복성 포함)
+    const DOUBLE_SURNAMES = ['남궁','독고','동방','망절','사공','서문','선우','소봉','장곡','제갈','황보']
+    const matchedDouble = DOUBLE_SURNAMES.find(ds => studentName.startsWith(ds) && studentName.length > ds.length)
+    const firstName = matchedDouble ? studentName.slice(matchedDouble.length) : (studentName.length >= 2 ? studentName.slice(1) : studentName)
     
     // 받침 유무 확인
     const hasFinalConsonant = (str: string) => {
