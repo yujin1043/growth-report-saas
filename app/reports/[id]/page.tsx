@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import html2canvas from 'html2canvas-pro'
+import jsPDF from 'jspdf'
 
 interface Report {
   id: string
@@ -235,6 +237,55 @@ export default function ReportDetailPage() {
 </body>
 </html>`
 
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+if (isMobile) {
+  const pdfIframe = document.createElement('iframe')
+  pdfIframe.style.position = 'fixed'
+  pdfIframe.style.left = '0'
+  pdfIframe.style.top = '0'
+  pdfIframe.style.width = '794px'
+  pdfIframe.style.height = '1123px'
+  pdfIframe.style.zIndex = '-1'
+  pdfIframe.style.opacity = '0'
+  document.body.appendChild(pdfIframe)
+
+  const pdfDoc = pdfIframe.contentDocument || pdfIframe.contentWindow?.document
+  if (!pdfDoc) { document.body.removeChild(pdfIframe); return }
+
+  pdfDoc.open()
+  pdfDoc.write(html)
+  pdfDoc.close()
+
+  pdfIframe.onload = async () => {
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    try {
+      const page = pdfDoc.querySelector('.page') as HTMLElement
+      if (!page) throw new Error('page not found')
+
+      const canvas = await html2canvas(page, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        width: 794,
+        windowWidth: 794,
+      })
+      const imgData = canvas.toDataURL('image/jpeg', 0.9)
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pdfW = 210
+      const pdfH = (canvas.height * pdfW) / canvas.width
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, Math.min(pdfH, 297))
+      pdf.save(`${fileName}.pdf`)
+    } catch (e) {
+      console.error('PDF 생성 실패:', e)
+      alert('PDF 생성에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      document.body.removeChild(pdfIframe)
+    }
+  }
+  return
+} else {
   const iframe = document.createElement('iframe')
   iframe.style.position = 'fixed'
   iframe.style.left = '0'
@@ -257,10 +308,9 @@ export default function ReportDetailPage() {
   iframe.onload = () => {
     setTimeout(() => {
       try {
-        const iframeWin = iframe.contentWindow
-        const iframeDoc = iframeWin?.document
-        if (iframeDoc) {
-          const page = iframeDoc.querySelector('.page') as HTMLElement
+        const iframeInnerDoc = iframe.contentWindow?.document
+        if (iframeInnerDoc) {
+          const page = iframeInnerDoc.querySelector('.page') as HTMLElement
           if (page) {
             const maxH = 1050
             const realH = page.scrollHeight
@@ -274,12 +324,12 @@ export default function ReportDetailPage() {
             page.style.maxHeight = '297mm'
             page.style.overflow = 'hidden'
           }
-          iframeDoc.body.style.height = '297mm'
-          iframeDoc.body.style.maxHeight = '297mm'
-          iframeDoc.body.style.overflow = 'hidden'
-          iframeDoc.documentElement.style.height = '297mm'
-          iframeDoc.documentElement.style.maxHeight = '297mm'
-          iframeDoc.documentElement.style.overflow = 'hidden'
+          iframeInnerDoc.body.style.height = '297mm'
+          iframeInnerDoc.body.style.maxHeight = '297mm'
+          iframeInnerDoc.body.style.overflow = 'hidden'
+          iframeInnerDoc.documentElement.style.height = '297mm'
+          iframeInnerDoc.documentElement.style.maxHeight = '297mm'
+          iframeInnerDoc.documentElement.style.overflow = 'hidden'
         }
       } catch (e) {
         console.error('Print scaling error:', e)
@@ -293,7 +343,8 @@ export default function ReportDetailPage() {
       setTimeout(() => document.body.removeChild(iframe), 1000)
     }, 800)
   }
-  }
+}
+}
 
   if (loading) {
     return (
@@ -351,7 +402,7 @@ export default function ReportDetailPage() {
       </header>
 
       <div className="mx-auto my-4 md:my-6 px-4" style={{ maxWidth: '210mm' }}>
-        <div className="bg-white shadow-lg rounded-lg" style={{ padding: '24px' }}>
+        <div id="report-card" className="bg-white shadow-lg rounded-lg" style={{ padding: '24px' }}>
 
           {/* 로고 & 타이틀 */}
           <div style={{ marginBottom: '12px' }}>
@@ -475,7 +526,7 @@ export default function ReportDetailPage() {
             className="flex-1 text-white py-3 rounded-2xl font-medium hover:opacity-90 transition shadow-lg"
             style={{ backgroundColor: mainColor }}
           >
-            🖨️ 인쇄 / PDF 저장
+            {/iPhone|iPad|iPod|Android/i.test(typeof window !== 'undefined' ? navigator.userAgent : '') ? '📄 PDF 저장' : '🖨️ 인쇄 / PDF 저장'}
           </button>
         </div>
       </div>

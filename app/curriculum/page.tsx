@@ -55,6 +55,11 @@ export default function CurriculumPage() {
   const [userRole, setUserRole] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
+  }, [])
 
   // 현재 월과 다음 월 계산
   const now = new Date()
@@ -149,52 +154,146 @@ export default function CurriculumPage() {
   }
 
   // 숨겨진 iframe으로 출력 (현재 페이지 유지)
-  const printViaIframe = (html: string) => {
+  const printViaIframe = async (html: string, pdfName?: string) => {
+    const isMobilePrint = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
     const existingFrame = document.getElementById('print-frame') as HTMLIFrameElement
     if (existingFrame) existingFrame.remove()
 
     const iframe = document.createElement('iframe')
     iframe.id = 'print-frame'
     iframe.style.position = 'fixed'
-    iframe.style.top = '-10000px'
-    iframe.style.left = '-10000px'
-    iframe.style.width = '0'
-    iframe.style.height = '0'
     iframe.style.border = 'none'
+
+    if (isMobilePrint) {
+      iframe.style.left = '0'
+      iframe.style.top = '0'
+      iframe.style.width = '794px'
+      iframe.style.height = '1123px'
+      iframe.style.zIndex = '-1'
+      iframe.style.opacity = '0'
+    } else {
+      iframe.style.top = '-10000px'
+      iframe.style.left = '-10000px'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+    }
     document.body.appendChild(iframe)
 
     const doc = iframe.contentDocument || iframe.contentWindow?.document
-    if (!doc) return
+    if (!doc) { iframe.remove(); return }
 
     doc.open()
     doc.write(html)
     doc.close()
 
-    // 이미지 로딩 대기 후 출력
-    const images = doc.querySelectorAll('img')
-    if (images.length === 0) {
-      iframe.contentWindow?.print()
-      setTimeout(() => iframe.remove(), 1000)
-    } else {
-      let loaded = 0
-      const total = images.length
-      images.forEach(img => {
-        if (img.complete) {
-          loaded++
-          if (loaded === total) {
-            iframe.contentWindow?.print()
-            setTimeout(() => iframe.remove(), 1000)
-          }
-        } else {
-          img.onload = img.onerror = () => {
-            loaded++
-            if (loaded === total) {
-              iframe.contentWindow?.print()
-              setTimeout(() => iframe.remove(), 1000)
+    iframe.onload = async () => {
+      // 이미지 로딩 대기
+      const images = doc.querySelectorAll('img')
+      await Promise.all(Array.from(images).map(img =>
+        img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = resolve; img.onerror = resolve })
+      ))
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      if (isMobilePrint) {
+        try {
+          const { default: html2canvas } = await import('html2canvas-pro')
+          const { default: jsPDF } = await import('jspdf')
+
+          const pages = doc.querySelectorAll('.page')
+
+          if (pages.length > 1) {
+            // 여러 페이지 (작품/가이드): 각 .page를 개별 캡처, 이미지 비율에 맞춰 가로/세로 자동
+            let pdf: any = null
+            for (let i = 0; i < pages.length; i++) {
+              const target = pages[i] as HTMLElement
+              const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+              const imgData = canvas.toDataURL('image/jpeg', 0.9)
+              const isLandscape = canvas.width > canvas.height * 1.1
+              if (!pdf) {
+                pdf = new jsPDF(isLandscape ? 'l' : 'p', 'mm', 'a4')
+              } else {
+                pdf.addPage('a4', isLandscape ? 'l' : 'p')
+              }
+              const pageW = isLandscape ? 297 : 210
+              const pageH = isLandscape ? 210 : 297
+              const pdfH = (canvas.height * pageW) / canvas.width
+              pdf.addImage(imgData, 'JPEG', 0, 0, pageW, Math.min(pdfH, pageH))
             }
+            if (pdf) pdf.save(`${pdfName || 'document'}.pdf`)
+          } else {
+            // 전체 출력: body 통째로 캡처 → A4 높이로 자동 분할 (축소 없이 여러 장)
+            const target = pages.length === 1 ? pages[0] as HTMLElement : doc.body
+            const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: 794, windowWidth: 794 })
+            const imgData = canvas.toDataURL('image/jpeg', 0.9)
+            const pdfW = 210
+            const fullH = canvas.height * pdfW / canvas.width
+            const pageH = 297
+            const totalPages = Math.ceil(fullH / pageH)
+            const pdf = new jsPDF('p', 'mm', 'a4')
+            for (let i = 0; i < totalPages; i++) {
+              if (i > 0) pdf.addPage()
+              pdf.addImage(imgData, 'JPEG', 0, -(i * pageH), pdfW, fullH)
+            }
+            pdf.save(`${pdfName || 'document'}.pdf`)
           }
+        } catch (e) {
+          console.error('PDF 생성 실패:', e)
+          alert('PDF 생성에 실패했습니다. 다시 시도해주세요.')
+        } finally {
+          iframe.remove()
         }
-      })
+      } else {
+        iframe.contentWindow?.print()
+        setTimeout(() => iframe.remove(), 1000)
+      }
+    }
+  }
+
+  const saveImagesPdf = async (imageUrls: string[], pdfName: string) => {
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      let pdf: any = null
+
+      for (let i = 0; i < imageUrls.length; i++) {
+        const imgUrl = imageUrls[i]
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve()
+          img.onerror = () => reject()
+          img.src = imgUrl
+        })
+
+        const naturalW = img.naturalWidth
+        const naturalH = img.naturalHeight
+        const isLandscape = naturalW > naturalH * 1.1
+        const pageW = isLandscape ? 297 : 210
+        const pageH = isLandscape ? 210 : 297
+        const margin = 5
+        const availW = pageW - margin * 2
+        const availH = pageH - margin * 2
+        const scale = Math.min(availW / naturalW, availH / naturalH)
+        const w = naturalW * scale
+        const h = naturalH * scale
+        const x = (pageW - w) / 2
+        const y = (pageH - h) / 2
+
+        const c = document.createElement('canvas')
+        c.width = naturalW; c.height = naturalH
+        c.getContext('2d')!.drawImage(img, 0, 0)
+        const imgData = c.toDataURL('image/jpeg', 0.9)
+
+        if (!pdf) {
+          pdf = new jsPDF(isLandscape ? 'l' : 'p', 'mm', 'a4')
+        } else {
+          pdf.addPage('a4', isLandscape ? 'l' : 'p')
+        }
+        pdf.addImage(imgData, 'JPEG', x, y, w, h)
+      }
+      if (pdf) pdf.save(`${pdfName}.pdf`)
+    } catch (e) {
+      console.error('PDF 생성 실패:', e)
+      alert('PDF 생성에 실패했습니다. 다시 시도해주세요.')
     }
   }
 
@@ -210,7 +309,7 @@ export default function CurriculumPage() {
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: white; }
           img { width: 100%; height: 100%; object-fit: contain; }
-        </style></head><body><img src="${imageUrl}" alt="${title}" /></body></html>`)
+        </style></head><body><img src="${imageUrl}" alt="${title}" /></body></html>`, title)
     }
     img.src = imageUrl
   }
@@ -230,11 +329,12 @@ export default function CurriculumPage() {
         <p style="font-size:12px;">${r.title}</p>
       </div>`).join('') || ''
 
-    printViaIframe(`<!DOCTYPE html><html><head><title>${c.title}</title>
+    printViaIframe(`<!DOCTYPE html><html><head><meta name="viewport" content="width=794"><title>${c.title}</title>
       <style>
         @page { size: A4; margin: 15mm; }
         * { margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
-        body { padding:20px;color:#1f2937; }
+        body { width:794px;color:#1f2937; }
+        .page { width:794px;padding:40px;background:white; }
         .header { text-align:center;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #0d9488; }
         .badge { display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-right:8px; }
         .badge-pink { background:#fce7f3;color:#be185d; }
@@ -247,6 +347,7 @@ export default function CurriculumPage() {
         .images img { width:140px;height:140px;object-fit:cover;border-radius:8px; }
         .var-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:12px; }
       </style></head><body>
+      <div class="page">
       <div class="header">
         <span class="badge ${c.target_group === '유치부' ? 'badge-pink' : 'badge-blue'}">${c.target_group}</span>
         <span class="badge" style="background:#f3f4f6;color:#374151;">${c.year}년 ${c.month}월 ${c.week || 1}주차</span>
@@ -259,7 +360,8 @@ export default function CurriculumPage() {
       ${c.cautions ? `<div class="section"><h3 class="section-title">⚠️ 유의사항</h3><p class="content">${c.cautions}</p></div>` : ''}
       ${c.material_sources ? `<div class="section"><h3 class="section-title">🛒 재료 구입처</h3><p class="content">${c.material_sources}</p></div>` : ''}
       ${c.variation_guide?.description || c.variation_guide?.references?.length ? `<div class="section"><h3 class="section-title">💡 Variation Guide</h3>${c.variation_guide.description ? `<p class="content" style="margin-bottom:12px;">${c.variation_guide.description}</p>` : ''}${c.variation_guide.references?.length ? `<div class="var-grid">${variationHtml}</div>` : ''}</div>` : ''}
-      </body></html>`)
+      </div>
+      </body></html>`, c.title)
   }
 
   if (loading) {
@@ -416,7 +518,7 @@ export default function CurriculumPage() {
                   onClick={() => printAll(selectedCurriculum)}
                   className="flex items-center gap-1.5 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition shrink-0 shadow-sm"
                 >
-                  🖨️ 전체 출력
+                  {isMobile ? '📄 PDF 저장' : '🖨️ 전체 출력'}
                 </button>
               </div>
             </div>
@@ -430,20 +532,11 @@ export default function CurriculumPage() {
                     onClick={() => {
                       const imgs = selectedCurriculum.main_images
                       if (!imgs.length) return
-                      printViaIframe(`<!DOCTYPE html><html><head><title>완성작품 - ${selectedCurriculum.title}</title>
-                        <style>
-                          @page { size: A4 portrait; margin: 0; }
-                          * { margin:0; padding:0; box-sizing:border-box; }
-                          .page { width:210mm; height:297mm; display:flex; align-items:center; justify-content:center; page-break-after:always; }
-                          .page:last-child { page-break-after:auto; }
-                          .page img { max-width:210mm; max-height:297mm; object-fit:contain; }
-                        </style></head><body>
-                        ${imgs.map(url => `<div class="page"><img src="${url}" /></div>`).join('')}
-                        </body></html>`)
+                      saveImagesPdf(imgs, `완성작품_${selectedCurriculum.title}`)
                     }}
                     className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
-                  >
-                    🖨️ 작품 출력
+                    >
+                    {isMobile ? '📄 작품 PDF' : '🖨️ 작품 출력'}
                   </button>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -546,20 +639,11 @@ export default function CurriculumPage() {
                     onClick={() => {
                       const refs = selectedCurriculum.variation_guide!.references!.filter(r => r.image_url)
                       if (!refs.length) return
-                      printViaIframe(`<!DOCTYPE html><html><head><title>가이드 - ${selectedCurriculum.title}</title>
-                        <style>
-                          @page { size: A4 portrait; margin: 0; }
-                          * { margin:0; padding:0; box-sizing:border-box; }
-                          .page { width:210mm; height:297mm; display:flex; align-items:center; justify-content:center; page-break-after:always; }
-                          .page:last-child { page-break-after:auto; }
-                          .page img { max-width:210mm; max-height:297mm; object-fit:contain; }
-                        </style></head><body>
-                        ${refs.map(r => `<div class="page"><img src="${r.image_url}" /></div>`).join('')}
-                        </body></html>`)
+                      saveImagesPdf(refs.map(r => r.image_url), `가이드_${selectedCurriculum.title}`)
                     }}
                       className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg text-xs font-medium transition"
-                    >
-                      🖨️ 가이드 출력
+                      >
+                      {isMobile ? '📄 가이드 PDF' : '🖨️ 가이드 출력'}
                     </button>
                   )}
                 </div>
