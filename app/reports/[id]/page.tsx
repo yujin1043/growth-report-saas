@@ -187,20 +187,7 @@ export default function ReportDetailPage() {
     margin-bottom: 3px; display: flex; align-items: center; gap: 4px;
   }
   </style>
-  <script>
-  window.onload = function() {
-    var page = document.querySelector('.page');
-    if (!page) return;
-    var maxH = 1050;
-    var realH = page.scrollHeight;
-    if (realH > maxH) {
-      page.style.zoom = (maxH / realH);
-    }
-    if (window.__autoprint) {
-      setTimeout(function() { window.print(); }, 300);
-    }
-  };
-  </script>
+
   </head>
   <body>
   <div class="page">
@@ -244,44 +231,68 @@ export default function ReportDetailPage() {
     ⓒ 2026. 그리마미술 INC. All rights reserved.
   </div>
   </div>
+
 </body>
 </html>`
 
-    const isMobilePrint = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.left = '0'
+  iframe.style.top = '0'
+  iframe.style.width = '100vw'
+  iframe.style.height = '100vh'
+  iframe.style.border = 'none'
+  iframe.style.zIndex = '99999'
+  iframe.style.background = 'white'
+  iframe.style.opacity = '0'
+  document.body.appendChild(iframe)
 
-    if (isMobilePrint) {
-      const printWindow = window.open('', '_blank')
-      if (!printWindow) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return }
-      ;(printWindow as any).__autoprint = true
-      printWindow.document.open()
-      printWindow.document.write(html)
-      printWindow.document.close()
-    } else {
-      const iframe = document.createElement('iframe')
-      iframe.style.position = 'fixed'
-      iframe.style.right = '0'
-      iframe.style.bottom = '0'
-      iframe.style.width = '0'
-      iframe.style.height = '0'
-      iframe.style.border = 'none'
-      document.body.appendChild(iframe)
+  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+  if (!iframeDoc) { document.body.removeChild(iframe); return }
 
-      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-      if (!iframeDoc) { document.body.removeChild(iframe); return }
+  iframeDoc.open()
+  iframeDoc.write(html)
+  iframeDoc.close()
 
-      iframeDoc.open()
-      iframeDoc.write(html)
-      iframeDoc.close()
-
-      iframe.onload = () => {
-        setTimeout(() => {
-          document.title = fileName
-          iframe.contentWindow?.print()
-          document.title = '그리마노트'
-          setTimeout(() => document.body.removeChild(iframe), 500)
-        }, 400)
+  iframe.onload = () => {
+    setTimeout(() => {
+      try {
+        const iframeWin = iframe.contentWindow
+        const iframeDoc = iframeWin?.document
+        if (iframeDoc) {
+          const page = iframeDoc.querySelector('.page') as HTMLElement
+          if (page) {
+            const maxH = 1050
+            const realH = page.scrollHeight
+            if (realH > maxH) {
+              const scale = maxH / realH
+              page.style.transform = `scale(${scale})`
+              page.style.transformOrigin = 'top left'
+              page.style.width = `${210 / scale}mm`
+            }
+            page.style.height = '297mm'
+            page.style.maxHeight = '297mm'
+            page.style.overflow = 'hidden'
+          }
+          iframeDoc.body.style.height = '297mm'
+          iframeDoc.body.style.maxHeight = '297mm'
+          iframeDoc.body.style.overflow = 'hidden'
+          iframeDoc.documentElement.style.height = '297mm'
+          iframeDoc.documentElement.style.maxHeight = '297mm'
+          iframeDoc.documentElement.style.overflow = 'hidden'
+        }
+      } catch (e) {
+        console.error('Print scaling error:', e)
       }
-    }
+
+      iframe.style.opacity = '1'
+      document.title = fileName
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      document.title = '그리마노트'
+      setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 800)
+  }
   }
 
   if (loading) {
