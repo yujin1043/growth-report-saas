@@ -162,23 +162,17 @@ export default function ReportDetailPage() {
         <p style="color:#4b5563;font-size:10pt;line-height:1.45;margin:0;font-weight:600;">${text || '-'}</p>
       </div>`
 
-      const html = `<!DOCTYPE html>
-      <html>
-      <head>
-      <meta name="viewport" content="width=794">
-      <title>${fileName}</title>
-      <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=794">
+<title>${fileName}</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   @page { size: A4; margin: 0; }
-  html, body {
-    width: 210mm; height: 297mm; overflow: hidden;
-    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-  }
-  .page {
-    width: 210mm; height: 297mm;
-    padding: 12mm 16mm 10mm 16mm; overflow: hidden;
-  }
+  html, body { margin: 0; padding: 0; width: 210mm; font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; padding: 12mm 16mm 10mm 16mm; margin: 0 auto; }
+
   .info-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
   .info-label { font-size: 9pt; color: #6b7280; margin-bottom: 1px; }
   .info-value { font-size: 10pt; font-weight: 700; color: #1f2937; }
@@ -192,10 +186,24 @@ export default function ReportDetailPage() {
     font-size: 12pt; font-weight: 600; color: ${mainColor};
     margin-bottom: 3px; display: flex; align-items: center; gap: 4px;
   }
-</style>
-</head>
-<body>
-<div class="page">
+  </style>
+  <script>
+  window.onload = function() {
+    var page = document.querySelector('.page');
+    if (!page) return;
+    var maxH = 1050;
+    var realH = page.scrollHeight;
+    if (realH > maxH) {
+      page.style.zoom = (maxH / realH);
+    }
+    if (window.__autoprint) {
+      setTimeout(function() { window.print(); }, 300);
+    }
+  };
+  </script>
+  </head>
+  <body>
+  <div class="page">
   <div style="margin-bottom:8px;">
     <img src="/logo.jpg" style="height:24px;margin-bottom:4px;" />
     <div style="text-align:center;">
@@ -235,56 +243,44 @@ export default function ReportDetailPage() {
   <div style="text-align:center;color:#d1d5db;font-size:7.5pt;margin-top:6px;">
     ⓒ 2026. 그리마미술 INC. All rights reserved.
   </div>
-</div>
-<script>
-  var page = document.querySelector('.page');
-  var maxH = 1122;
-  var realH = page.scrollHeight;
-  if (realH > maxH) {
-    var s = maxH / realH;
-    page.style.transform = 'scale(' + s + ')';
-    page.style.transformOrigin = 'top left';
-    page.style.width = (210 / s) + 'mm';
-  }
-  page.style.height = '297mm';
-  page.style.overflow = 'hidden';
-  document.body.style.width = '210mm';
-  document.body.style.minWidth = '210mm';
-  document.body.style.height = '297mm';
-  document.body.style.maxHeight = '297mm';
-  document.body.style.overflow = 'hidden';
-  document.documentElement.style.height = '297mm';
-  document.documentElement.style.maxHeight = '297mm';
-  document.documentElement.style.overflow = 'hidden';
-</script>
+  </div>
 </body>
 </html>`
 
-    // 숨겨진 iframe 생성
-    const iframe = document.createElement('iframe')
-    iframe.style.position = 'fixed'
-    iframe.style.right = '0'
-    iframe.style.bottom = '0'
-    iframe.style.width = '0'
-    iframe.style.height = '0'
-    iframe.style.border = 'none'
-    document.body.appendChild(iframe)
+    const isMobilePrint = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
-    if (!iframeDoc) { document.body.removeChild(iframe); return }
+    if (isMobilePrint) {
+      const printWindow = window.open('', '_blank')
+      if (!printWindow) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return }
+      ;(printWindow as any).__autoprint = true
+      printWindow.document.open()
+      printWindow.document.write(html)
+      printWindow.document.close()
+    } else {
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = 'none'
+      document.body.appendChild(iframe)
 
-    iframeDoc.open()
-    iframeDoc.write(html)
-    iframeDoc.close()
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+      if (!iframeDoc) { document.body.removeChild(iframe); return }
 
-    // 이미지 로딩 대기 후 인쇄
-    iframe.onload = () => {
-      setTimeout(() => {
-        document.title = fileName
-        iframe.contentWindow?.print()
-        document.title = '그리마노트'
-        setTimeout(() => document.body.removeChild(iframe), 500)
-      }, 400)
+      iframeDoc.open()
+      iframeDoc.write(html)
+      iframeDoc.close()
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          document.title = fileName
+          iframe.contentWindow?.print()
+          document.title = '그리마노트'
+          setTimeout(() => document.body.removeChild(iframe), 500)
+        }, 400)
+      }
     }
   }
 
