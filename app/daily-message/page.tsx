@@ -219,10 +219,12 @@ export default function DailyMessagePage() {
     if (profile?.branch_id) setUserBranchId(profile.branch_id)
     setUserRole(profile?.role || '')
 
+    // 변경 후
     const now = new Date()
     const cy = now.getFullYear(), cm = now.getMonth() + 1
     const py = cm === 1 ? cy - 1 : cy, pm = cm === 1 ? 12 : cm - 1
     const p2y = cm <= 2 ? cy - 1 : cy, p2m = cm <= 2 ? cm + 10 : cm - 2
+    const ny = cm === 12 ? cy + 1 : cy, nm = cm === 12 ? 1 : cm + 1
 
     let branchQ = supabase.from('branches').select('id, name').order('name')
     if (profile?.role !== 'admin' && profile?.branch_id) branchQ = branchQ.eq('id', profile.branch_id)
@@ -230,7 +232,7 @@ export default function DailyMessagePage() {
     let topicQ = supabase.from('monthly_curriculum')
       .select('id, year, month, week, target_group, title, main_materials, parent_message_template, age_group, stage_messages, lesson_category')
       .eq('status', 'active')
-    topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm}),and(year.eq.${p2y},month.eq.${p2m})`)
+    topicQ = topicQ.or(`and(year.eq.${cy},month.eq.${cm}),and(year.eq.${py},month.eq.${pm}),and(year.eq.${p2y},month.eq.${p2m}),and(year.eq.${ny},month.eq.${nm})`)
 
     const [teacherClassRes, branchRes, topicRes, msgRes] = await Promise.all([
       supabase.from('teacher_classes').select('class_id').eq('teacher_id', user.id),

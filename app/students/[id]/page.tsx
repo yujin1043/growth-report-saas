@@ -103,6 +103,7 @@ export default function StudentDetailPage() {
     custom_description: ''
   })
   const [curriculumOptions, setCurriculumOptions] = useState<{id: string, title: string, parent_message_template: string | null}[]>([])
+  const [workCurriculumSearch, setWorkCurriculumSearch] = useState('')
   
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [currentUserName, setCurrentUserName] = useState<string>('')
@@ -319,6 +320,7 @@ export default function StudentDetailPage() {
       custom_title: '',
       custom_description: ''
     })
+    setWorkCurriculumSearch('')
     setShowWorkModal(true)
   }
 
@@ -332,6 +334,7 @@ export default function StudentDetailPage() {
       custom_title: work.custom_title || '',
       custom_description: work.custom_description || ''
     })
+    setWorkCurriculumSearch(work.curriculum_id ? (curriculumOptions.find(c => c.id === work.curriculum_id)?.title || '') : '')
     setShowWorkModal(true)
   }
 
@@ -1152,16 +1155,53 @@ export default function StudentDetailPage() {
               {!workForm.is_custom && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">커리큘럼 선택 *</label>
-                  <select
-                    value={workForm.curriculum_id}
-                    onChange={(e) => setWorkForm({ ...workForm, curriculum_id: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm"
-                  >
-                    <option value="">선택해주세요</option>
-                    {curriculumOptions.map(c => (
-                      <option key={c.id} value={c.id}>{c.title}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={workCurriculumSearch}
+                      onChange={(e) => {
+                        setWorkCurriculumSearch(e.target.value)
+                        if (workForm.curriculum_id) {
+                          setWorkForm({ ...workForm, curriculum_id: '' })
+                        }
+                      }}
+                      onFocus={() => { if (workForm.curriculum_id) setWorkCurriculumSearch('') }}
+                      placeholder={workForm.curriculum_id ? (curriculumOptions.find(c => c.id === workForm.curriculum_id)?.title || '🔍 검색') : '🔍 커리큘럼 검색'}
+                      className={`w-full px-3 py-2 rounded-xl text-sm outline-none ${
+                        workForm.curriculum_id
+                          ? 'bg-teal-50 border-2 border-teal-500 text-teal-700 font-semibold'
+                          : 'bg-gray-50 border border-gray-200'
+                      }`}
+                    />
+                    {workForm.curriculum_id && (
+                      <button
+                        onClick={() => { setWorkForm({ ...workForm, curriculum_id: '' }); setWorkCurriculumSearch('') }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 bg-gray-200 rounded-full text-gray-500 text-xs flex items-center justify-center"
+                      >✕</button>
+                    )}
+                  </div>
+                  {!workForm.curriculum_id && (
+                    <div className="mt-2 h-48 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+                      {curriculumOptions
+                        .filter(c => !workCurriculumSearch || c.title.includes(workCurriculumSearch))
+                        .map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setWorkForm({ ...workForm, curriculum_id: c.id })
+                              setWorkCurriculumSearch(c.title)
+                            }}
+                            className="w-full px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-teal-50 border-b border-gray-50 last:border-b-0"
+                          >
+                            {c.title}
+                          </button>
+                        ))}
+                      {curriculumOptions.filter(c => !workCurriculumSearch || c.title.includes(workCurriculumSearch)).length === 0 && (
+                        <p className="text-center py-4 text-gray-400 text-sm">검색 결과가 없습니다</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
