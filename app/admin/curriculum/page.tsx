@@ -26,6 +26,12 @@ interface MonthGroup {
   weeks: WeekGroup[]
 }
 
+const STATUS_CONFIG: { [key: string]: { bgClass: string; textClass: string; borderClass: string } } = {
+  active: { bgClass: 'bg-green-50', textClass: 'text-green-700', borderClass: 'border-green-200' },
+  draft: { bgClass: 'bg-yellow-50', textClass: 'text-yellow-700', borderClass: 'border-yellow-200' },
+  inactive: { bgClass: 'bg-orange-50', textClass: 'text-orange-600', borderClass: 'border-orange-200' },
+}
+
 export default function AdminCurriculumPage() {
   const router = useRouter()
   const { userRole, isLoading: userLoading } = useUserContext()
@@ -38,6 +44,7 @@ export default function AdminCurriculumPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [expandedMonths, setExpandedMonths] = useState<number[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
 
   // 일괄 삭제 관련 state
   const [bulkMode, setBulkMode] = useState(false)
@@ -66,7 +73,7 @@ export default function AdminCurriculumPage() {
     } else {
       setGroupedData([])
     }
-  }, [curriculums, selectedYear, selectedMonth])
+  }, [curriculums, selectedYear, selectedMonth, statusFilter])
 
   // 연도 변경시 전체 월 펼치기
   useEffect(() => {
@@ -107,6 +114,10 @@ export default function AdminCurriculumPage() {
     // 월 필터
     if (selectedMonth !== 'all') {
       filtered = filtered.filter(c => c.month === selectedMonth)
+    }
+
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(c => c.status === statusFilter)
     }
 
     // 월별 그룹핑
@@ -174,6 +185,23 @@ export default function AdminCurriculumPage() {
     setDeleting(id)
 
     try {
+      // FK 체크
+      const { count } = await supabase
+        .from('sketchbook_works')
+        .select('id', { count: 'exact', head: true })
+        .eq('curriculum_id', id)
+
+      if (count && count > 0) {
+        const confirmInactive = confirm(
+          `이 커리큘럼에 연결된 학생 작품이 ${count}건 있어 삭제할 수 없습니다.\n\n'비활성' 상태로 변경하시겠습니까?`
+        )
+        if (confirmInactive) {
+          await handleStatusChange(id, 'inactive')
+        }
+        setDeleting(null)
+        return
+      }
+
       const { error } = await supabase
         .from('monthly_curriculum')
         .delete()
@@ -375,6 +403,21 @@ export default function AdminCurriculumPage() {
               </select>
             </div>
 
+            {/* 상태 필터 */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 font-medium">상태</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="all">전체</option>
+                <option value="active">활성</option>
+                <option value="draft">임시저장</option>
+                <option value="inactive">비활성</option>
+              </select>
+            </div>
+
             {/* 콘텐츠 수 */}
             <div className="ml-auto text-sm text-gray-500">
               총 <span className="font-bold text-teal-600">{getTotalCount()}</span>개
@@ -464,7 +507,12 @@ export default function AdminCurriculumPage() {
                               {/* 썸네일 */}
                               <div 
                                 className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0 cursor-pointer"
-                                onClick={() => !bulkMode && router.push(`/curriculum/${item.id}`)}
+                                onClick={() => {
+                                  if (bulkMode) return
+                                  item.status === 'draft'
+                                    ? router.push(`/admin/curriculum/new?id=${item.id}`)
+                                    : router.push(`/curriculum/${item.id}`)
+                                }}
                               >
                                 {item.thumbnail_url ? (
                                   <img
@@ -491,7 +539,12 @@ export default function AdminCurriculumPage() {
                               {/* 제목 */}
                               <div 
                                 className={`flex-1 min-w-0 ${bulkMode ? 'cursor-pointer' : 'cursor-pointer hover:text-teal-600'}`}
-                                onClick={() => bulkMode ? handleSelectOne(item.id) : router.push(`/curriculum/${item.id}`)}
+                                onClick={() => {
+                                  if (bulkMode) { handleSelectOne(item.id); return }
+                                  item.status === 'draft'
+                                    ? router.push(`/admin/curriculum/new?id=${item.id}`)
+                                    : router.push(`/curriculum/${item.id}`)
+                                }}
                               >
                                 <span className="font-medium text-gray-800 truncate block">{item.title}</span>
                               </div>
@@ -504,18 +557,25 @@ export default function AdminCurriculumPage() {
                                     value={item.status}
                                     onChange={(e) => handleStatusChange(item.id, e.target.value)}
                                     className={`px-2 py-1 text-xs rounded-lg border shrink-0 ${
-                                      item.status === 'active' 
-                                        ? 'bg-green-50 text-green-700 border-green-200'
-                                        : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                      STATUS_CONFIG[item.status]?.bgClass || ''
+                                    } ${
+                                      STATUS_CONFIG[item.status]?.textClass || ''
+                                    } ${
+                                      STATUS_CONFIG[item.status]?.borderClass || ''
                                     }`}
                                   >
                                     <option value="active">활성</option>
                                     <option value="draft">임시저장</option>
+                                    <option value="inactive">비활성</option>
                                   </select>
 
                                   {/* 수정 버튼 */}
                                   <button
-                                    onClick={() => router.push(`/admin/curriculum/${item.id}/edit`)}
+                                    onClick={() => {
+                                      item.status === 'draft'
+                                        ? router.push(`/admin/curriculum/new?id=${item.id}`)
+                                        : router.push(`/admin/curriculum/${item.id}/edit`)
+                                    }}
                                     className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs hover:bg-gray-200 shrink-0"
                                   >
                                     수정

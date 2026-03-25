@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 interface TeachingPoint {
@@ -59,6 +59,10 @@ export default function NewCurriculumPage() {
   const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const [draftSavedMsg, setDraftSavedMsg] = useState('')
   const formChangedRef = useRef(false)
+  const searchParams = useSearchParams()
+  const [curriculumId, setCurriculumId] = useState<string | null>(null)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -88,7 +92,12 @@ export default function NewCurriculumPage() {
 
   useEffect(() => {
     checkAuth()
-    loadAutoSave()
+    const editId = searchParams.get('id')
+    if (editId) {
+      loadExistingCurriculum(editId)
+    } else {
+      loadAutoSave()
+    }
   }, [])
 
   // 자동저장 (로컬)
@@ -128,6 +137,55 @@ export default function NewCurriculumPage() {
     formChangedRef.current = true
   }, [formData])
 
+  async function loadExistingCurriculum(id: string) {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('monthly_curriculum')
+        .select('*')
+        .eq('id', id)
+        .single()
+  
+      if (error || !data) {
+        alert('콘텐츠를 불러오는데 실패했습니다.')
+        return
+      }
+  
+      setCurriculumId(data.id)
+      setIsEditMode(true)
+  
+      const teachingPoints = (data.teaching_points || []).map((p: any) => ({
+        title: p.title || '',
+        description: p.description || '',
+        image_url: p.image_url || '',
+        image_urls: p.image_urls || (p.image_url ? [p.image_url] : [])
+      }))
+  
+      setFormData({
+        year: data.year,
+        month: data.month,
+        week: data.week,
+        target_group: data.target_group,
+        title: data.title || '',
+        parent_message_template: data.parent_message_template || '',
+        main_images: data.main_images || [],
+        main_materials: data.main_materials || '',
+        teaching_points: teachingPoints,
+        cautions: data.cautions || '',
+        material_sources: data.material_sources || '',
+        variation_description: data.variation_guide?.description || '',
+        variation_references: data.variation_guide?.references || [],
+        status: data.status || 'draft',
+        lesson_category: data.lesson_category || 'drawing',
+        stage_messages: data.stage_messages || [],
+      })
+    } catch (error) {
+      alert('콘텐츠를 불러오는데 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  
   function loadAutoSave() {
     try {
       const saved = localStorage.getItem(AUTO_SAVE_KEY)
@@ -448,33 +506,49 @@ export default function NewCurriculumPage() {
           image_urls: p.image_urls
         }))
 
-      const insertData = {
-        year: formData.year,
-        month: formData.month,
-        week: formData.week,
-        target_group: formData.target_group,
-        title: formData.title,
-        thumbnail_url: formData.main_images[0] || null,
-        main_images: formData.main_images,
-        main_materials: formData.main_materials || null,
-        teaching_points: cleanedPoints,
-        cautions: formData.cautions || null,
-        material_sources: formData.material_sources || null,
-        variation_guide: {
-          description: formData.variation_description || null,
-          references: formData.variation_references.filter(r => r.title.trim() && r.image_url)
-        },
-        status: status,
-        created_by: user?.id,
-        parent_message_template: formData.parent_message_template || null,
-        age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary',
-        lesson_category: formData.lesson_category,
-        stage_messages: formData.stage_messages.filter(s => s.label.trim()),
-      }
-
-      const { error } = await supabase
-        .from('monthly_curriculum')
-        .insert(insertData)
+        const saveData = {
+          year: formData.year,
+          month: formData.month,
+          week: formData.week,
+          target_group: formData.target_group,
+          title: formData.title,
+          thumbnail_url: formData.main_images[0] || null,
+          main_images: formData.main_images,
+          main_materials: formData.main_materials || null,
+          teaching_points: cleanedPoints,
+          cautions: formData.cautions || null,
+          material_sources: formData.material_sources || null,
+          variation_guide: {
+            description: formData.variation_description || null,
+            references: formData.variation_references.filter(r => r.title.trim() && r.image_url)
+          },
+          status: status,
+          parent_message_template: formData.parent_message_template || null,
+          age_group: formData.target_group === '유치부' ? 'kindergarten' : 'elementary',
+          lesson_category: formData.lesson_category,
+          stage_messages: formData.stage_messages.filter(s => s.label.trim()),
+        }
+  
+        let error: any = null
+  
+        if (curriculumId) {
+          const result = await supabase
+            .from('monthly_curriculum')
+            .update({ ...saveData, updated_at: new Date().toISOString() })
+            .eq('id', curriculumId)
+          error = result.error
+        } else {
+          const result = await supabase
+            .from('monthly_curriculum')
+            .insert({ ...saveData, created_by: user?.id })
+            .select('id')
+            .single()
+          error = result.error
+          if (!error && result.data) {
+            setCurriculumId(result.data.id)
+            setIsEditMode(true)
+          }
+        }
 
       if (error) {
         if (error.code === '23505') {
