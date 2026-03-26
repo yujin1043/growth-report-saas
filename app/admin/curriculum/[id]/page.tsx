@@ -118,7 +118,7 @@ export default function EditCurriculumPage() {
       .eq('id', user.id)
       .single()
 
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || !['admin', 'staff'].includes(profile.role)) {
       alert('관리자 권한이 필요합니다.')
       router.push('/dashboard')
       return
