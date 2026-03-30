@@ -357,11 +357,21 @@ export default function DailyMessagePage() {
         }
       }
     
+      // sort_order: 현재 max + 1
+      const { data: maxRows } = await supabase
+        .from('sketchbook_works')
+        .select('sort_order')
+        .eq('sketchbook_id', sketchbookId)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+      const nextSortOrder = (maxRows?.[0]?.sort_order || 0) + 1
+
       const insertData: any = {
         sketchbook_id: sketchbookId,
         work_date: new Date().toISOString().split('T')[0],
         status: 'in_progress',
         session_count: 1,
+        sort_order: nextSortOrder,
       }
       if (topicId) { insertData.curriculum_id = topicId; insertData.is_custom = false }
       else { insertData.is_custom = true; insertData.custom_title = topicTitle; insertData.custom_description = description || null }

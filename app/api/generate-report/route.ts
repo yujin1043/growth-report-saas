@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const runtime = 'edge'
+export const maxDuration = 60
 
 // ✅ 개선: 타임아웃 + 상세 에러 메시지
 const TIMEOUT_MS = 60000 // 60초

@@ -51,7 +51,7 @@ export default function SketchbookPrintPage() {
       const [studentResult, sketchbookResult, worksResult] = await Promise.all([
         supabase.from('students').select('id, name, classes(name), branches(name)').eq('id', studentId).single(),
         supabase.from('sketchbooks').select('*').eq('id', sketchbookId).single(),
-        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description').eq('sketchbook_id', sketchbookId).order('work_date', { ascending: true })
+        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description, sort_order').eq('sketchbook_id', sketchbookId).order('sort_order', { ascending: true })
       ])
 
       if (studentResult.data) {
@@ -98,7 +98,11 @@ export default function SketchbookPrintPage() {
   }
 
   const handlePrint = () => {
+    const today = new Date()
+    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
+    document.title = `작품설명_${student?.name || '학생'}_${dateStr}`
     window.print()
+    document.title = '작품 설명 출력'
   }
 
   const getWorkTitle = (work: SketchbookWork) => {
@@ -106,7 +110,8 @@ export default function SketchbookPrintPage() {
   }
 
   const getWorkDescription = (work: SketchbookWork) => {
-    return (work.is_custom ? work.custom_description : work.curriculum?.parent_message_template) || ''
+    if (work.custom_description) return work.custom_description
+    return (work.is_custom ? '' : work.curriculum?.parent_message_template) || ''
   }
 
   if (loading) {
@@ -131,14 +136,9 @@ export default function SketchbookPrintPage() {
     )
   }
 
-  const worksPerPage = 10
-  const totalPages = Math.ceil(works.length / worksPerPage)
-  const pages = Array.from({ length: totalPages }, (_, i) => 
-    works.slice(i * worksPerPage, (i + 1) * worksPerPage)
-  )
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100 print:bg-white print:min-h-0">
       {/* 컨트롤 바 (인쇄 시 숨김) */}
       <div className="print:hidden sticky top-0 bg-white border-b border-gray-200 px-4 py-3 z-10">
         <div className="max-w-4xl mx-auto">
@@ -172,98 +172,107 @@ export default function SketchbookPrintPage() {
 
       {/* 출력 영역 */}
       <div className="print:p-0 p-4">
-        {pages.map((pageWorks, pageIndex) => (
-          <div 
-            key={pageIndex}
-            className="print-page bg-white mx-auto mb-8 print:mb-0 print:page-break-after-always shadow-lg print:shadow-none max-w-full"
-            style={{ 
-              width: '210mm', 
-              minHeight: 'auto',
-              padding: '15mm'
-            }}
-          >
-            {/* 페이지 헤더 */}
-            <div className="text-center mb-6 pb-4 border-b-2 border-teal-500">
-              <h1 className="text-xl font-bold text-gray-800 mb-1">📒 스케치북 작품 설명</h1>
-              <p className="text-sm text-gray-600">
-                {student.name} | {student.classes?.name || '-'} | 스케치북 #{sketchbook.book_number}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                {sketchbook.started_at} ~ {sketchbook.completed_at || '진행중'}
-                {totalPages > 1 && ` (${pageIndex + 1}/${totalPages})`}
-              </p>
-            </div>
-
-            {/* 2단 레이아웃 */}
-            <div className="grid grid-cols-2 gap-4">
-              {pageWorks.map((work, index) => {
-                const workNumber = pageIndex * worksPerPage + index + 1
-                return (
-                  <div 
-                    key={work.id} 
-                    className="border border-gray-200 rounded-lg p-3"
-                    style={{ minHeight: '45mm' }}
-                  >
-                    {/* 작품 번호 & 제목 */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 bg-teal-100 rounded flex items-center justify-center text-xs font-bold text-teal-700">
-                        {workNumber}
-                      </span>
-                      <span className="font-semibold text-gray-800 text-sm flex-1 truncate">
-                        {getWorkTitle(work)}
-                      </span>
-                    </div>
-                    
-                    {/* 작품 설명 */}
-                    <p className="text-xs text-gray-600 leading-relaxed">
-                      {getWorkDescription(work) || '(설명 없음)'}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* 페이지 푸터 */}
-            <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-              <p className="text-xs text-gray-400">
-                © {student.branches?.name || '그리마미술'} | 본 자료의 무단 복제를 금합니다.
-              </p>
-            </div>
+        <div 
+          className="print-area bg-white mx-auto shadow-lg print:shadow-none max-w-full"
+          style={{ 
+            width: '210mm',
+            padding: '12mm 15mm'
+          }}
+        >
+          {/* 헤더 - 1회만 */}
+          <div className="text-center mb-5 pb-3 border-b-2 border-teal-500">
+            <h1 className="text-xl font-bold text-gray-800 mb-1">📒 스케치북 작품 설명</h1>
+            <p className="text-sm text-gray-600">
+              {student.name} | {student.classes?.name || '-'} | 스케치북 #{sketchbook.book_number}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              {sketchbook.started_at} ~ {sketchbook.completed_at || '진행중'} ({Math.ceil(works.length / 2)}장)
+            </p>
           </div>
-        ))}
+
+          {/* 2단 레이아웃 - 연속 흐름 */}
+          <div className="print-grid">
+            {works.map((work, index) => (
+              <div 
+                key={work.id} 
+                className="print-card border border-gray-300 rounded-lg p-3"
+              >
+                {/* 작품 제목 */}
+                <div className="mb-2">
+                  <span className="font-semibold text-gray-800 text-sm break-words leading-snug">
+                    {getWorkTitle(work)}
+                  </span>
+                </div>
+                
+                {/* 작품 설명 */}
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  {getWorkDescription(work) || '(설명 없음)'}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* 푸터 - 1회만 */}
+          <div className="mt-5 pt-3 border-t border-gray-200 text-center">
+            <p className="text-xs text-gray-400">
+              © {student.branches?.name || '그리마미술'} | 본 자료의 무단 복제를 금합니다.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* 인쇄 스타일 */}
       <style jsx global>{`
+        .print-grid {
+          columns: 2;
+          column-gap: 16px;
+        }
+        .print-card {
+          break-inside: avoid;
+          margin-bottom: 12px;
+        }
         @media screen and (max-width: 768px) {
-          .print-page {
+          .print-area {
             width: 100% !important;
-            min-height: auto !important;
             padding: 16px !important;
+          }
+          .print-grid {
+            columns: 1;
           }
         }
         @media print {
           @page {
             size: A4;
-            margin: 0;
+            margin: 10mm 15mm;
           }
           body {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-          }
-          .print-page {
-            width: 210mm !important;
-            min-height: 297mm !important;
-            padding: 15mm !important;
+            background: white !important;
           }
           .print\\:hidden {
             display: none !important;
           }
-          .print\\:page-break-after-always {
-            page-break-after: always;
+          nav, header, .sidebar, [class*="AdminLayout"] {
+            display: none !important;
           }
-          .print\\:page-break-after-always:last-child {
-            page-break-after: avoid;
+          html, body, div {
+            background: white !important;
+            background-color: white !important;
+          }
+          .print-area {
+            width: 100% !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+          }
+          .print-grid {
+            columns: 2;
+            column-gap: 14px;
+          }
+          .print-card {
+            break-inside: avoid;
+            margin-bottom: 10px;
+            border-width: 1px;
           }
         }
       `}</style>

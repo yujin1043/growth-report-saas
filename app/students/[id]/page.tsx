@@ -55,6 +55,7 @@ interface SketchbookWork {
   is_custom: boolean
   custom_title: string | null
   custom_description: string | null
+  sort_order: number
   curriculum?: {
     title: string
     parent_message_template: string | null
@@ -212,10 +213,11 @@ export default function StudentDetailPage() {
           curriculum_id,
           is_custom,
           custom_title,
-          custom_description
+          custom_description,
+          sort_order
         `)
         .eq('sketchbook_id', activeData.id)
-        .order('work_date', { ascending: false })
+        .order('sort_order', { ascending: false })
 
       if (worksData) {
         // 커리큘럼 정보 가져오기
@@ -371,8 +373,16 @@ export default function StudentDetailPage() {
 
         if (error) throw error
       } else {
-        // 추가
+        // 추가 - sort_order를 현재 max + 1로 설정
+        const { data: maxRows } = await supabase
+          .from('sketchbook_works')
+          .select('sort_order')
+          .eq('sketchbook_id', activeSketchbook.id)
+          .order('sort_order', { ascending: false })
+          .limit(1)
+
         workData.sketchbook_id = activeSketchbook.id
+        workData.sort_order = (maxRows?.[0]?.sort_order || 0) + 1
         const { error } = await supabase
           .from('sketchbook_works')
           .insert(workData)
@@ -441,6 +451,30 @@ export default function StudentDetailPage() {
       alert('이동에 실패했습니다')
     }
     setSaving(false)
+  }
+
+  // 진도 순서 이동
+  async function handleReorder(index: number, direction: 'up' | 'down') {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= sketchbookWorks.length) return
+
+    const currentWork = sketchbookWorks[index]
+    const targetWork = sketchbookWorks[targetIndex]
+
+    try {
+      await Promise.all([
+        supabase.from('sketchbook_works').update({ sort_order: targetWork.sort_order }).eq('id', currentWork.id),
+        supabase.from('sketchbook_works').update({ sort_order: currentWork.sort_order }).eq('id', targetWork.id)
+      ])
+
+      const newWorks = [...sketchbookWorks]
+      newWorks[index] = { ...targetWork, sort_order: currentWork.sort_order }
+      newWorks[targetIndex] = { ...currentWork, sort_order: targetWork.sort_order }
+      setSketchbookWorks(newWorks)
+    } catch (error) {
+      console.error('Reorder error:', error)
+      alert('순서 변경에 실패했습니다')
+    }
   }
 
   const getAge = (birthYear: number) => currentYear - birthYear + 1
@@ -810,8 +844,22 @@ export default function StudentDetailPage() {
                   <div className="divide-y divide-gray-100">
                     {sketchbookWorks.map((work, index) => (
                       <div key={work.id} className="px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition">
-                      <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-sm shrink-0 mt-0.5">
-                        {sketchbookWorks.length - index}
+                      <div className="flex flex-col items-center gap-0.5 flex-shrink-0 mt-0.5">
+                        <button
+                          onClick={() => handleReorder(index, 'up')}
+                          disabled={index === 0}
+                          className="w-7 h-4 md:w-8 md:h-5 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-20 transition text-xs"
+                          title="위로"
+                        >▲</button>
+                        <div className="w-7 h-7 md:w-8 md:h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-xs md:text-sm">
+                          {sketchbookWorks.length - index}
+                        </div>
+                        <button
+                          onClick={() => handleReorder(index, 'down')}
+                          disabled={index === sketchbookWorks.length - 1}
+                          className="w-7 h-4 md:w-8 md:h-5 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-20 transition text-xs"
+                          title="아래로"
+                        >▼</button>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start gap-2 flex-wrap">
@@ -827,25 +875,25 @@ export default function StudentDetailPage() {
                         <p className="text-xs text-gray-400 mt-0.5">{work.work_date}</p>
                       </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                              onClick={() => openMoveModal(work)}
-                              className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition"
+                              <button
+                                  onClick={() => openMoveModal(work)}
+                                className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition"
+                              >
+                                이동
+                              </button>
+                            <button
+                              onClick={() => openEditWorkModal(work)}
+                              className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"
                             >
-                              이동
+                              수정
                             </button>
-                          <button
-                            onClick={() => openEditWorkModal(work)}
-                            className="px-2 py-1 text-xs text-teal-600 hover:bg-teal-50 rounded transition"
-                          >
-                            수정
-                          </button>
-                          <button
-                            onClick={() => handleDeleteWork(work.id)}
-                            className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition"
-                          >
-                            삭제
-                          </button>
-                        </div>
+                            <button
+                              onClick={() => handleDeleteWork(work.id)}
+                              className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition"
+                            >
+                              삭제
+                            </button>
+                          </div>
                       </div>
                     ))}
                   </div>

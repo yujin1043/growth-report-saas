@@ -27,6 +27,7 @@ interface SketchbookWork {
   is_custom: boolean
   custom_title: string | null
   custom_description: string | null
+  sort_order: number
   curriculum?: {
     title: string
     parent_message_template: string | null
@@ -67,7 +68,7 @@ export default function SketchbookDetailPage() {
       const [studentResult, sketchbookResult, worksResult] = await Promise.all([
         supabase.from('students').select('id, name, birth_year, classes(name)').eq('id', studentId).single(),
         supabase.from('sketchbooks').select('*').eq('id', sketchbookId).single(),
-        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description').eq('sketchbook_id', sketchbookId).order('work_date', { ascending: true })
+        supabase.from('sketchbook_works').select('id, work_date, curriculum_id, is_custom, custom_title, custom_description, sort_order').eq('sketchbook_id', sketchbookId).order('sort_order', { ascending: true })
       ])
 
       if (studentResult.data) {
@@ -169,7 +170,11 @@ export default function SketchbookDetailPage() {
     
     try {
       for (const work of works) {
-        if (work.is_custom) {
+        const originalDesc = work.is_custom 
+          ? work.custom_description || ''
+          : work.curriculum?.parent_message_template || ''
+        
+        if (editedWorks[work.id] !== originalDesc) {
           await supabase
             .from('sketchbook_works')
             .update({ custom_description: editedWorks[work.id] })
@@ -177,6 +182,7 @@ export default function SketchbookDetailPage() {
         }
       }
       
+      await loadData()
       setEditMode(false)
       alert('저장되었습니다!')
     } catch (error) {
@@ -235,12 +241,38 @@ export default function SketchbookDetailPage() {
     }
   }
 
+  async function handleReorder(index: number, direction: 'up' | 'down') {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= works.length) return
+
+    const currentWork = works[index]
+    const targetWork = works[targetIndex]
+
+    try {
+      // sort_order 값 교환
+      await Promise.all([
+        supabase.from('sketchbook_works').update({ sort_order: targetWork.sort_order }).eq('id', currentWork.id),
+        supabase.from('sketchbook_works').update({ sort_order: currentWork.sort_order }).eq('id', targetWork.id)
+      ])
+
+      // 로컬 상태 즉시 반영
+      const newWorks = [...works]
+      newWorks[index] = { ...targetWork, sort_order: currentWork.sort_order }
+      newWorks[targetIndex] = { ...currentWork, sort_order: targetWork.sort_order }
+      setWorks(newWorks)
+    } catch (error) {
+      console.error('Reorder error:', error)
+      alert('순서 변경에 실패했습니다')
+    }
+  }
+
   const getWorkDescription = (work: SketchbookWork) => {
     if (editMode) {
       return editedWorks[work.id] || ''
     }
+    if (work.custom_description) return work.custom_description
     return work.is_custom 
-      ? work.custom_description || ''
+      ? ''
       : work.curriculum?.parent_message_template || ''
   }
 
@@ -420,8 +452,26 @@ export default function SketchbookDetailPage() {
             {works.map((work, index) => (
               <div key={work.id} className="p-4 md:p-5">
                 <div className="flex items-start gap-3 md:gap-4">
-                  <div className="w-7 h-7 md:w-8 md:h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-xs md:text-sm flex-shrink-0 mt-0.5">
-                    {index + 1}
+                <div className="flex flex-col items-center gap-0.5 flex-shrink-0 mt-0.5">
+                    <button
+                      onClick={() => handleReorder(index, 'up')}
+                      disabled={index === 0}
+                      className="w-7 h-4 md:w-8 md:h-5 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-20 disabled:hover:text-gray-400 transition"
+                      title="위로"
+                    >
+                      ▲
+                    </button>
+                    <div className="w-7 h-7 md:w-8 md:h-8 bg-teal-100 rounded-lg flex items-center justify-center text-teal-700 font-bold text-xs md:text-sm">
+                      {index + 1}
+                    </div>
+                    <button
+                      onClick={() => handleReorder(index, 'down')}
+                      disabled={index === works.length - 1}
+                      className="w-7 h-4 md:w-8 md:h-5 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-20 disabled:hover:text-gray-400 transition"
+                      title="아래로"
+                    >
+                      ▼
+                    </button>
                   </div>
                   <div className="flex-1 min-w-0">
                     {/* 제목 + 태그 + 수정/삭제 버튼 */}
