@@ -15,19 +15,22 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // 1. teacher_classes (FK 아니지만 관련 데이터 정리)
-    await adminClient.from('teacher_classes').delete().eq('teacher_id', userId)
-
-    // 2. daily_messages.teacher_id → NULL 처리 (데이터 보존)
+    // ── auth.users 참조 테이블 정리 ──
     await adminClient.from('daily_messages').update({ teacher_id: null }).eq('teacher_id', userId)
-
-    // 3. monthly_curriculum.created_by → NULL 처리
     await adminClient.from('monthly_curriculum').update({ created_by: null }).eq('created_by', userId)
-
-    // 4. reports.created_by → NULL 처리
     await adminClient.from('reports').update({ created_by: null }).eq('created_by', userId)
 
-    // 5. user_profiles 삭제
+    // ── user_profiles 참조 테이블 정리 ──
+    await adminClient.from('teacher_classes').delete().eq('teacher_id', userId)
+    await adminClient.from('student_consultations').update({ counselor_id: null }).eq('counselor_id', userId)
+    await adminClient.from('student_status_history').update({ changed_by: null }).eq('changed_by', userId)
+    await adminClient.from('students').update({ teacher_id: null }).eq('teacher_id', userId)
+    await adminClient.from('regions').update({ manager_id: null }).eq('manager_id', userId)
+    await adminClient.from('branches').update({ manager_id: null }).eq('manager_id', userId)
+    await adminClient.from('user_invitations').update({ requested_by: null }).eq('requested_by', userId)
+    await adminClient.from('user_invitations').update({ processed_by: null }).eq('processed_by', userId)
+
+    // ── user_profiles 삭제 ──
     const { error: profileError } = await adminClient
       .from('user_profiles')
       .delete()
@@ -37,7 +40,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Profile 삭제 실패: ' + profileError.message }, { status: 400 })
     }
 
-    // 6. Auth 계정 삭제 (auth 스키마 내 테이블은 자동 CASCADE)
+    // ── Auth 계정 삭제 (auth 스키마 내 테이블은 자동 CASCADE) ──
     const { error: authError } = await adminClient.auth.admin.deleteUser(userId)
 
     if (authError) {
