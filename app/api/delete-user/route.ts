@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
     // ── user_profiles 참조 테이블 정리 ──
     await adminClient.from('teacher_classes').delete().eq('teacher_id', userId)
-    await adminClient.from('student_consultations').update({ counselor_id: null }).eq('counselor_id', userId)
+    await adminClient.from('student_consultations').delete().eq('counselor_id', userId)
     await adminClient.from('student_status_history').update({ changed_by: null }).eq('changed_by', userId)
     await adminClient.from('students').update({ teacher_id: null }).eq('teacher_id', userId)
     await adminClient.from('regions').update({ manager_id: null }).eq('manager_id', userId)
