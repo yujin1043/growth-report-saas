@@ -63,6 +63,7 @@ export default function NewCurriculumPage() {
   const [curriculumId, setCurriculumId] = useState<string | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [loading, setLoading] = useState(false)
+  const initialLoadDone = useRef(false)
 
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth() + 1
@@ -122,6 +123,9 @@ export default function NewCurriculumPage() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (formChangedRef.current || formData.title.trim()) {
+        try {
+          localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(formData))
+        } catch (e2) {}
         e.preventDefault()
         e.returnValue = '작성 중인 내용이 있습니다. 페이지를 떠나시겠습니까?'
         return e.returnValue
@@ -132,9 +136,15 @@ export default function NewCurriculumPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [formData.title])
 
-  // formData 변경 추적
+  // formData 변경 시 즉시 localStorage 저장 (초기 로드 완료 후에만)
   useEffect(() => {
+    if (!initialLoadDone.current) return
     formChangedRef.current = true
+    try {
+      localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(formData))
+    } catch (e) {
+      // localStorage 오류 무시
+    }
   }, [formData])
 
   async function loadExistingCurriculum(id: string) {
@@ -183,12 +193,17 @@ export default function NewCurriculumPage() {
       alert('콘텐츠를 불러오는데 실패했습니다.')
     } finally {
       setLoading(false)
+      initialLoadDone.current = true
     }
   }
   
   function loadAutoSave() {
     try {
       const saved = localStorage.getItem(AUTO_SAVE_KEY)
+      if (!saved) {
+        initialLoadDone.current = true
+        return
+      }
       if (saved) {
         const parsed = JSON.parse(saved)
         if (parsed.title || parsed.main_images?.length > 0 || parsed.teaching_points?.length > 0) {
@@ -214,6 +229,8 @@ export default function NewCurriculumPage() {
       }
     } catch (e) {
       // 무시
+    } finally {
+      initialLoadDone.current = true
     }
   }
 
