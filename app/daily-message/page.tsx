@@ -158,10 +158,11 @@ export default function DailyMessagePage() {
       sessionStorage.setItem('dm_classId', selectedClassId)
       loadStudentsByClass(selectedClassId).then(() => {
         if (pendingStudentIdRef.current) {
-          const sid = pendingStudentIdRef.current
-          pendingStudentIdRef.current = ''
-          setSelectedStudentId(sid)
-          setStudentSearch(sessionStorage.getItem('dm_studentSearch') || '')
+        const sid = pendingStudentIdRef.current
+        pendingStudentIdRef.current = ''
+        setSelectedStudentId(sid)
+        setStudentSearch(sessionStorage.getItem('dm_studentSearch') || '')
+        loadInProgressList(sid)
           try {
             const w = sessionStorage.getItem('dm_selectedWork')
             if (w) setSelectedWork(JSON.parse(w))
