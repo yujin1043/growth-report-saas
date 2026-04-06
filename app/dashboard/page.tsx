@@ -673,22 +673,22 @@ export default function DashboardPage() {
               </div>
             </button>
             {(user?.role === 'director' || user?.role === 'manager') && (
-              <button onClick={() => router.push('/invite')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
+              <button onClick={() => router.push('/users/new')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#F0FFF4' }}>👤</div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-800">사용자 추가 요청</div>
-                  <div className="text-xs text-gray-400">본사 승인 후 계정 발급</div>
+                  <div className="text-sm font-semibold text-gray-800">강사 등록</div>
+                  <div className="text-xs text-gray-400">새 강사 계정 직접 생성</div>
                 </div>
               </button>
             )}
             {(user?.role === 'director' || user?.role === 'manager') && (
-            <button onClick={() => router.push('/branch-users')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#EFF6FF' }}>👩‍🏫</div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-gray-800">강사 관리</div>
-                <div className="text-xs text-gray-400">담당반 수정 · 계정 삭제</div>
-              </div>
-            </button>
+            <button onClick={() => router.push('/users')} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-2.5 hover:bg-teal-50/50 transition text-left col-span-2">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ background: '#EFF6FF' }}>👩‍🏫</div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-800">강사 관리</div>
+              <div className="text-xs text-gray-400">담당반 수정 · 비활성화</div>
+            </div>
+          </button>
           )}
           </div>
         </div>

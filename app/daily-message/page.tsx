@@ -285,21 +285,23 @@ export default function DailyMessagePage() {
   }
 
   async function loadInProgressList(studentId: string) {
-    const { data: sketchbooks } = await supabase
+    const { data: sketchbooks, error: sketchbookError } = await supabase
       .from('sketchbooks').select('id')
       .eq('student_id', studentId).eq('status', 'active')
       .order('created_at', { ascending: false }).limit(1)
 
-    if (!sketchbooks?.length) { setInProgressList([]); return }
+    if (sketchbookError) console.error('[loadInProgress] sketchbook error:', sketchbookError)
+    if (!sketchbooks?.length) { console.warn('[loadInProgress] no active sketchbook for', studentId); setInProgressList([]); return }
 
-    const { data: works } = await supabase
+    const { data: works, error: worksError } = await supabase
       .from('sketchbook_works')
       .select('id, sketchbook_id, curriculum_id, custom_title, is_custom, session_count, status, work_date')
       .eq('sketchbook_id', sketchbooks[0].id)
       .eq('status', 'in_progress')
       .order('created_at', { ascending: false })
 
-    if (!works?.length) { setInProgressList([]); return }
+    if (worksError) console.error('[loadInProgress] works error:', worksError)
+    if (!works?.length) { console.warn('[loadInProgress] no in_progress works in sketchbook', sketchbooks[0].id); setInProgressList([]); return }
 
     // curriculum_id → title 조회
     const curriculumIds = works.filter(w => !w.is_custom && w.curriculum_id).map(w => w.curriculum_id)

@@ -32,8 +32,6 @@ const ROLE_ORDER: { [key: string]: number } = {
 export default function UsersPage() {
   const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
-  const [invitations, setInvitations] = useState<any[]>([])
-  const [approving, setApproving] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,14 +51,14 @@ export default function UsersPage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     const [profileResult, usersResult, branchesResult] = await Promise.all([
-      user ? supabase.from('user_profiles').select('role').eq('id', user.id).single() : Promise.resolve({ data: null }),
+      user ? supabase.from('user_profiles').select('role, branch_id').eq('id', user.id).single() : Promise.resolve({ data: null }),
       supabase.from('user_profiles').select('id, name, email, role, status, created_at, branch_id').order('created_at', { ascending: false }),
       supabase.from('branches').select('id, name').order('name')
     ])
 
     if (profileResult.data) {
       setCurrentUserRole(profileResult.data.role)
-      if (profileResult.data.role !== 'admin') {
+      if (!['admin', 'director', 'manager'].includes(profileResult.data.role)) {
         router.push('/dashboard')
         return
       }
@@ -73,44 +71,25 @@ export default function UsersPage() {
     if (usersResult.data) {
       const branchMap = new Map(branchesResult.data?.map(b => [b.id, b.name]) || [])
 
-      const usersWithBranch = usersResult.data.map(u => ({
+      let filteredByBranch = usersResult.data
+      // 원장/실장은 자기 지점 사용자만 볼 수 있음
+      if (profileResult.data && ['director', 'manager'].includes(profileResult.data.role) && profileResult.data.branch_id) {
+        filteredByBranch = usersResult.data.filter(u => u.branch_id === profileResult.data!.branch_id)
+      }
+
+      const usersWithBranch = filteredByBranch.map(u => ({
         ...u,
         branch_name: u.branch_id ? branchMap.get(u.branch_id) || null : null
       }))
 
       setUsers(usersWithBranch)
 
-      const { data: invitesData } = await supabase
-        .from('user_invitations')
-        .select('*, branches(name)')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
 
-      if (invitesData) setInvitations(invitesData)
     }
 
     setLoading(false)
   }
 
-  async function handleApprove(invitationId: string) {
-    if (!confirm('이 사용자 요청을 승인하고 계정을 생성할까요?')) return
-    setApproving(invitationId)
-
-    const res = await fetch('/api/approve-invitation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ invitationId })
-    })
-    const result = await res.json()
-
-    if (result.success) {
-      alert(`승인 완료!\n임시 비밀번호: ${result.tempPassword}\n지점에 전달해주세요.`)
-      loadData()
-    } else {
-      alert('승인 실패: ' + result.error)
-    }
-    setApproving(null)
-  }
 
   async function handleDelete(userId: string, userName: string) {
     if (!confirm(`[${userName}] 계정을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return
@@ -187,32 +166,6 @@ export default function UsersPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-6">
 
-        {/* ── 승인 대기 섹션 ── */}
-        {invitations.length > 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-2xl overflow-hidden mb-6">
-            <div className="px-5 py-4 border-b border-yellow-200 flex items-center gap-2">
-              <span className="text-yellow-700 font-bold">⏳ 승인 대기 {invitations.length}건</span>
-            </div>
-            <div className="divide-y divide-yellow-100">
-              {invitations.map(inv => (
-                <div key={inv.id} className="px-5 py-3 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-slate-800">{inv.name}</p>
-                    <p className="text-xs text-slate-500">{inv.email} · {inv.role === 'teacher' ? '강사' : inv.role === 'manager' ? '실장' : '원장'}</p>
-                    <p className="text-xs text-slate-400">{inv.branches?.name} · {new Date(inv.created_at).toLocaleDateString('ko-KR')}</p>
-                  </div>
-                  <button
-                    onClick={() => handleApprove(inv.id)}
-                    disabled={approving === inv.id}
-                    className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-bold rounded-xl transition disabled:opacity-50"
-                  >
-                    {approving === inv.id ? '처리 중...' : '승인'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* 필터 영역 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
@@ -324,6 +277,7 @@ export default function UsersPage() {
                   <td className="px-5 py-4"><StatusBadge status={user.status} /></td>
                   <td className="px-5 py-4 text-sm text-gray-500">{formatDate(user.created_at)}</td>
                   <td className="px-5 py-4">
+                    {currentUserRole === 'admin' && (
                     <button
                       onClick={e => { e.stopPropagation(); handleDelete(user.id, user.name) }}
                       disabled={deleting === user.id}
@@ -331,6 +285,7 @@ export default function UsersPage() {
                     >
                       {deleting === user.id ? '삭제 중' : '삭제'}
                     </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -362,6 +317,7 @@ export default function UsersPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={user.status} />
+                  {currentUserRole === 'admin' && (
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(user.id, user.name) }}
                     disabled={deleting === user.id}
@@ -369,6 +325,7 @@ export default function UsersPage() {
                   >
                     {deleting === user.id ? '삭제 중' : '삭제'}
                   </button>
+                  )}
                 </div>
               </div>
               <div

@@ -37,6 +37,9 @@ export default function NewUserPage() {
     loadOptions()
   }, [])
 
+  const [currentUserRole, setCurrentUserRole] = useState('')
+  const [currentUserBranchId, setCurrentUserBranchId] = useState('')
+
   async function checkAuth() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -45,12 +48,18 @@ export default function NewUserPage() {
     }
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, branch_id')
       .eq('id', user.id)
       .single()
     
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || !['admin', 'director', 'manager'].includes(profile.role)) {
       router.push('/dashboard')
+      return
+    }
+    setCurrentUserRole(profile.role)
+    if (profile.branch_id) {
+      setCurrentUserBranchId(profile.branch_id)
+      setFormData(prev => ({ ...prev, branch_id: profile.branch_id, role: 'teacher' }))
     }
   }
 
@@ -236,10 +245,10 @@ export default function NewUserPage() {
                 className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-teal-500"
               >
                 <option value="teacher">강사</option>
-                <option value="manager">실장</option>
-                <option value="director">원장</option>
-                <option value="admin">본사</option>
-                <option value="staff">내부직원 (커리큘럼만)</option>
+                {(currentUserRole === 'admin' || currentUserRole === 'director') && <option value="manager">실장</option>}
+                {currentUserRole === 'admin' && <option value="director">원장</option>}
+                {currentUserRole === 'admin' && <option value="admin">본사</option>}
+                {currentUserRole === 'admin' && <option value="staff">내부직원 (커리큘럼만)</option>}
               </select>
             </div>
 
@@ -247,6 +256,7 @@ export default function NewUserPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 소속 지점 {formData.role !== 'admin' && <span className="text-red-500">*</span>}
               </label>
+              {currentUserRole === 'admin' ? (
               <select
                 name="branch_id"
                 value={formData.branch_id}
@@ -258,6 +268,14 @@ export default function NewUserPage() {
                   <option key={branch.id} value={branch.id}>{branch.name}</option>
                 ))}
               </select>
+              ) : (
+              <input
+                type="text"
+                value={branches.find(b => b.id === formData.branch_id)?.name || ''}
+                disabled
+                className="w-full px-4 py-3 bg-gray-100 border-0 rounded-xl text-gray-600"
+              />
+              )}
             </div>
 
             {formData.branch_id && formData.role === 'teacher' && (
@@ -316,8 +334,6 @@ export default function NewUserPage() {
               <li>• <strong>강사</strong>: 담당반 학생 리포트 작성</li>
               <li>• <strong>실장</strong>: 지점 내 모든 학생 관리</li>
               <li>• <strong>원장</strong>: 지점 내 모든 학생 관리 (실장과 동일)</li>
-              <li>• <strong>본사</strong>: 전체 지점 및 사용자 관리</li>
-              <li>• <strong>내부직원</strong>: 커리큘럼 관리만 가능</li>
             </ul>
           </div>
 

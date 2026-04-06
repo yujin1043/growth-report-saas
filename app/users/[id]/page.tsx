@@ -38,6 +38,9 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  const [currentUserRole, setCurrentUserRole] = useState('')
+  const [currentUserBranchId, setCurrentUserBranchId] = useState('')
+
   const [form, setForm] = useState({
     name: '',
     role: 'teacher',
@@ -59,13 +62,16 @@ export default function UserDetailPage() {
     }
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, branch_id')
       .eq('id', user.id)
       .single()
     
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || !['admin', 'director', 'manager'].includes(profile.role)) {
       router.push('/dashboard')
+      return
     }
+    setCurrentUserRole(profile.role)
+    setCurrentUserBranchId(profile.branch_id || '')
   }
 
   async function loadData() {
@@ -75,9 +81,18 @@ export default function UserDetailPage() {
       .eq('id', userId)
       .single()
 
-    if (userData) {
-      setUser(userData)
-      setForm({
+      if (userData) {
+        // 원장/실장은 자기 지점의 강사만 편집 가능
+        const { data: myProfile } = await supabase.from('user_profiles').select('role, branch_id').eq('id', (await supabase.auth.getUser()).data.user?.id).single()
+        if (myProfile && ['director', 'manager'].includes(myProfile.role)) {
+          if (userData.branch_id !== myProfile.branch_id || !['teacher', 'manager'].includes(userData.role)) {
+            alert('권한이 없습니다.')
+            router.push('/users')
+            return
+          }
+        }
+        setUser(userData)
+        setForm({
         name: userData.name || '',
         role: userData.role || 'teacher',
         status: userData.status || 'active',
@@ -257,6 +272,7 @@ export default function UserDetailPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">역할 *</label>
+            {currentUserRole === 'admin' ? (
             <select
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
@@ -267,10 +283,14 @@ export default function UserDetailPage() {
               <option value="director">원장</option>
               <option value="admin">본사</option>
             </select>
+            ) : (
+            <input type="text" value={form.role === 'teacher' ? '강사' : form.role === 'manager' ? '실장' : form.role} disabled className="w-full px-4 py-3 bg-gray-100 border-0 rounded-xl text-gray-600" />
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">소속 지점 *</label>
+            {currentUserRole === 'admin' ? (
             <select
               value={form.branch_id}
               onChange={(e) => {
@@ -284,6 +304,9 @@ export default function UserDetailPage() {
                 <option key={branch.id} value={branch.id}>{branch.name}</option>
               ))}
             </select>
+            ) : (
+            <input type="text" value={branches.find(b => b.id === form.branch_id)?.name || ''} disabled className="w-full px-4 py-3 bg-gray-100 border-0 rounded-xl text-gray-600" />
+            )}
           </div>
 
           {form.branch_id && form.role === 'teacher' && (
